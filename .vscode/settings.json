@@ -1,0 +1,9 @@
+{
+    "python.analysis.typeCheckingMode": "off",
+    "cSpell.words": [
+        "lyracons",
+        "Mami",
+        "mongodb",
+        "socketio"
+    ]
+}

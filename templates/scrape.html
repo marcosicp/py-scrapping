@@ -1,0 +1,110 @@
+<html>
+
+<head>
+	<script src="//ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
+
+	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap.min.css">
+	</link>
+
+	<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/js/bootstrap.min.js"></script>
+
+
+	<link rel="stylesheet" type="text/css" href="{{ url_for('static',filename='assets/style.css')}}">
+	</link>
+
+	<script src="https://cdn.tailwindcss.com"></script>
+
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"
+		integrity="sha512-q/dWJ3kcmjBLU4Qc47E4A9kTB4m3wuTY7vkFJDTZKjTs8jhyGQnaUrxa0Ytd0ssMZhbNua9hE+E7Qv1j+DyZwA=="
+		crossorigin="anonymous"></script>
+
+	<script>
+		tailwind.config = {
+			theme: {
+				extend: {
+					colors: {
+						clifford: '#da373d',
+					}
+				}
+			}
+		}
+	</script>
+
+	<script type="text/javascript" charset="utf-8">
+		var socket = io();
+		socket.on("connect", function () {
+		});
+	</script>
+
+	<script>
+		function buscar(superTarget) {
+			socket.emit("scraping-" + superTarget);
+			socket.on("scraping-message-" + superTarget, function (param) {
+				$(".progress-bar-" + superTarget)
+					.append("<div>Procesando pagina: " + param + "</div>")
+			});
+		}
+	</script>
+
+	<script></script>
+</head>
+
+<body>
+	<h1>Scrape</h1>
+	<hr>
+
+	<h1 class="font-bold text-3xl mt-5 mb-5 text-center">Carga de datos</h1>
+
+	<div class="flex flex-col sm:flex-row ... text-center">
+		<div class="flex-1 ...">
+			<button
+				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
+				onclick="buscar('carrefour')">Carrefour</button>
+
+			<div class="progress-bar-carrefour" style="width: 50%; margin: 50px">
+				<!-- <div class="progress-bar-carre progress-bar-striped active" role="progressbar" aria-valuenow="0"
+					aria-valuemin="0" aria-valuemax="100" style="width: 0%">
+					<span class="progress-bar-label-carre">0%</span>
+				</div> -->
+			</div>
+
+		</div>
+		<div class="flex-1 ...">
+			<button
+				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
+				onclick="buscar('mami')">SuperMami</button>
+
+			<div class="progress-bar-mami" style="width: 50%; margin: 50px">
+				<!-- <div class="progress-bar-mami progress-bar-striped active" role="progressbar" aria-valuenow="0"
+					aria-valuemin="0" aria-valuemax="100" style="width: 0%">
+					<span class="progress-bar-label-mami">0%</span>
+				</div> -->
+			</div>
+		</div>
+		<div class="flex-1 ...">
+			<button
+				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
+				onclick="buscar('disco')">Disco</button>
+			<div class="progress-bar-disco" style="width: 50%; margin: 50px">
+				<!-- <div class="progress-bar-disco progress-bar-striped active" role="progressbar" aria-valuenow="0"
+					aria-valuemin="0" aria-valuemax="100" style="width: 0%">
+					<span class="progress-bar-label-disco">0%</span>
+				</div> -->
+			</div>
+		</div>
+		<div class="flex-1 ...">
+			<button
+				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
+				onclick="
+				buscar('hiper')">Hiperlibertad</button>
+			<div class="progress-bar-hiper" style="width: 50%; margin: 50px">
+				<!-- <div class="progress-bar-hiper progress-bar-striped active" role="progressbar" aria-valuenow="0"
+					aria-valuemin="0" aria-valuemax="100" style="width: 0%">
+					<span class="progress-bar-label-hiper">0%</span>
+				</div> -->
+			</div>
+		</div>
+	</div>
+</body>
+
+</html>

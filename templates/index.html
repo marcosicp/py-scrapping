@@ -1,0 +1,535 @@
+<html>
+  <head>
+    <title>Precios</title>
+    <!-- href="/static/assets/style.css"-->
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static',filename='assets/style.css')}}" />
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static',filename='assets/emoji.css')}}" />
+    <script src="{{ url_for('static',filename='assets/twemoji.min.js')}}"></script>
+    <script src="{{ url_for('static',filename='assets/emoji.js')}}"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/toastify-js/1.6.1/toastify.min.css"
+      integrity="sha512-UiKdzM5DL+I+2YFxK+7TDedVyVm7HMp/bN85NeWMJNYortoll+Nd6PU9ZDrZiaOsdarOyk9egQm6LOJZi36L2g=="
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    />
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.2.4/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.8.3/modernizr.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"
+      integrity="sha512-q/dWJ3kcmjBLU4Qc47E4A9kTB4m3wuTY7vkFJDTZKjTs8jhyGQnaUrxa0Ytd0ssMZhbNua9hE+E7Qv1j+DyZwA=="
+      crossorigin="anonymous"
+    ></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/toastify-js/1.6.1/toastify.js"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              clifford: "#B3B3B3",
+            },
+          },
+        },
+      };
+    </script>
+
+    <script>
+      $(function () {
+        $("#myTable").on("click", "th", function () {
+          var index = $(this).index(),
+            rows = [],
+            thClass = $(this).hasClass("asc") ? "desc" : "asc";
+          $("#myTable th").removeClass("asc desc");
+          $(this).addClass(thClass);
+          $("#myTable tbody tr").each(function (index, row) {
+            rows.push($(row).detach());
+          });
+          rows.sort(function (a, b) {
+            var aValue = $(a).find("td").eq(index).text(),
+              bValue = $(b).find("td").eq(index).text();
+            return aValue > bValue ? 1 : aValue < bValue ? -1 : 0;
+          });
+          if ($(this).hasClass("desc")) {
+            rows.reverse();
+          }
+          $.each(rows, function (index, row) {
+            $("#myTable tbody").append(row);
+          });
+        });
+      });
+    </script>
+
+    <style>
+      /* Paste this css to your style sheet file or under head tag */
+      /* This only works with JavaScript, 
+if it's not present, don't show loader */
+      .no-js #loader {
+        display: none;
+      }
+      .js #loader {
+        display: block;
+        position: absolute;
+        left: 100px;
+        top: 0;
+      }
+      .se-pre-con {
+        position: fixed;
+        left: 0px;
+        top: 0px;
+        width: 100%;
+        height: 100%;
+        z-index: 9999;
+        background: url("static/images/loading-cargando.gif") center no-repeat #fff;
+      }
+      * {
+        box-sizing: border-box;
+      }
+
+      #txtSearch {
+        background-image: url("/css/searchicon.png");
+        background-position: 10px 12px;
+        background-repeat: no-repeat;
+        width: 100%;
+        font-size: 16px;
+        padding: 12px 20px 12px 40px;
+        border: 1px solid #ddd;
+        margin-bottom: 12px;
+      }
+
+      #myUL {
+        list-style-type: none;
+        padding: 0;
+        margin: 0;
+      }
+
+      #myUL li a {
+        border: 1px solid #ddd;
+        margin-top: -1px; /* Prevent double borders */
+        background-color: #f6f6f6;
+        padding: 12px;
+        text-decoration: none;
+        font-size: 18px;
+        color: black;
+        display: block;
+      }
+
+      #myUL li a:hover:not(.header) {
+        background-color: #eee;
+      }
+    </style>
+    <script>
+      // Wait for window load
+      $(window).load(function () {
+        // Animate loader off screen
+        $(".se-pre-con").fadeOut("slow");
+      });
+
+      function multiSearchAnd(text, searchWords) {
+        //count how many words to be searched
+        let totalWords = searchWords.length;
+        let found_words = 0;
+        let start = 0;
+
+        //while start counter is not equal (less than) totalWords (searchWords.length)
+        while (start != totalWords) {
+          //check each one word if exists in text
+          try {
+            if (text.match(new RegExp(searchWords[start], "i"))) {
+              //if you find a match add it to found_words counter
+              found_words++;
+            }
+            //increase start counter by one in order to search the next word at searchWords array
+            start++;
+            //another way but it did't worked was to shift the first element of the array
+            //somehow, when searchWords array got empty for the very first time, it did never got
+            //element again.. it was alwayw empty
+            //searchWords.shift();
+          } catch (error) {
+            // continue;
+          }
+        }
+        //check if found_words equals to totalWords and found_words is greater than 0
+        //so we found as many words as we was searching for inside text
+        //and we disallow to return true when found_words = 0
+        //(more specifically when totalWords AND found_words are not zero)
+        return found_words == totalWords && found_words > 0 ? true : false;
+      }
+
+      function fnSearch() {
+        var input, filter, ul, li, a, i, txtValue;
+        input = document.getElementById("txtSearch");
+        filter = input.value.toUpperCase();
+        ul = document.getElementsByClassName("datas");
+
+        for (i = 0; i < ul.length; i++) {
+          li = ul[i].children;
+
+          a = li[1];
+          z = filter.split(" ");
+          txtValue = a.textContent || a.innerText;
+
+          if (multiSearchAnd(txtValue, z)) {
+            ul[i].style.display = "";
+          } else {
+            ul[i].style.display = "none";
+          }
+        }
+      }
+    </script>
+
+    <script>
+      var lastSelectedRow;
+      var trs = document.getElementById("myTable");
+      document.addEventListener("DOMContentLoaded", function (event) {
+        //código a ejecutar cuando el DOM está listo para recibir acciones
+        trs = document.getElementById("myTable").tBodies[0].getElementsByTagName("tr");
+      });
+
+      // disable text selection
+      document.onselectstart = function () {
+        return false;
+      };
+
+      function toggleRow(row) {
+        row.className =
+          row.className == "datas border-b dark:border-gray-700 selected"
+            ? "datas border-b dark:border-gray-700"
+            : "datas border-b dark:border-gray-700 selected";
+        lastSelectedRow = row;
+      }
+
+      function selectRowsBetweenIndexes(indexes) {
+        indexes.sort(function (a, b) {
+          return a - b;
+        });
+
+        for (var i = indexes[0]; i <= indexes[1]; i++) {
+          trs[i].className = "datas border-b dark:border-gray-700 selected";
+        }
+      }
+
+      function RowClick(currenttr, lock) {
+        if (window.event.metaKey) {
+          toggleRow(currenttr);
+        }
+
+        if (window.event.button === 0) {
+          if (!window.event.ctrlKey && !window.event.shiftKey && !window.event.metaKey) {
+            clearAll();
+            toggleRow(currenttr);
+          }
+
+          if (window.event.shiftKey) {
+            selectRowsBetweenIndexes([lastSelectedRow.rowIndex, currenttr.rowIndex]);
+          }
+        }
+      }
+
+      function clearAll() {
+        for (var i = 0; i < trs.length; i++) {
+          trs[i].className = "datas border-b dark:border-gray-700";
+        }
+      }
+    </script>
+    <style>
+      .selected {
+        background: lightBlue;
+      }
+    </style>
+
+    <script>
+      function agregar(event) {
+        const superMercado = event.parentElement.parentElement.childNodes[7].innerText;
+
+        // DESABILITADO DE BOTON EN GRILLA GENERAL
+        // event.disable = true;
+        // $(event).removeClass("bg-green-300 hover:bg-green-400 text-green-800");
+        // $(event).addClass("bg-gray-200 hover:bg-gray-400 text-gray-800");
+
+        var checkValue = $(
+          "#myTableDiferencia" +
+            superMercado +
+            ' tbody tr:contains("' +
+            event.parentElement.parentElement.childNodes[3].innerText +
+            '")'
+        );
+
+        var cantValidation = 1;
+        if (checkValue.length > 0) {
+          var cantidad = parseInt(
+            $(
+              "#myTableDiferencia" +
+                superMercado +
+                ' tbody tr:contains("' +
+                event.parentElement.parentElement.childNodes[3].innerText +
+                '")'
+            )[0].childNodes[4].innerText
+          );
+
+          cantValidation = cantidad + cantValidation;
+          $(
+            "#myTableDiferencia" +
+              superMercado +
+              ' tbody tr:contains("' +
+              event.parentElement.parentElement.childNodes[3].innerText +
+              '")'
+          )[0].childNodes[4].innerText = cantValidation;
+        } else {
+          $("#myTableDiferencia" + superMercado + " tbody").append(
+            "<tr><td>" +
+              "<button onclick='eliminar(this)' class='inline-flex items-center px-1 py-1 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-md'><svg xmlns='http://www.w3.org/2000/svg' class='h-5 w-5' fill='none' viewBox='0 0 24 24' stroke='currentColor'>	  <path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16' />	</svg></button>" +
+              "</td><td >" +
+              event.parentElement.parentElement.childNodes[3].innerText +
+              "</td><td class='px-2'>" +
+              event.parentElement.parentElement.childNodes[5].innerText +
+              "</td><td style='display: none;'>" +
+              superMercado +
+              "</td><td class='text-center'>" +
+              cantValidation +
+              "</td></tr>"
+          );
+        }
+
+        const currentValue = $("#myTableDiferencia" + superMercado + " tfoot tr .totalCuenta")[0].innerText.replace(
+          "$",
+          ""
+        );
+        const newValue =
+          parseFloat(currentValue) +
+          parseFloat(event.parentElement.parentElement.childNodes[5].innerText.replace("$", "").replace(",", ""));
+        $("#myTableDiferencia" + superMercado + " tfoot tr .totalCuenta").replaceWith(
+          "<td class='totalCuenta px-2'>$" + newValue.toFixed(2) + "</td>"
+        );
+
+        var myToast = Toastify({
+          text: "Producto agregado",
+          duration: 3000,
+        });
+
+        myToast.showToast();
+      }
+
+      function eliminar(event) {
+        const superMercado = event.parentElement.parentElement.childNodes[3].innerText;
+        //elimino fila completa y resto
+        if (event.parentElement.parentElement.childNodes[4].innerText == "1") {
+          event.parentElement.parentElement.remove();
+        } else{
+          var cantLocal = parseInt( event.parentElement.parentElement.childNodes[4].innerText);
+          cantLocal--;
+          event.parentElement.parentElement.childNodes[4].innerText = cantLocal;
+        }
+
+        // CAMBIA COLOR DISPONIBILIDAD
+        // var botonGrilla = $(
+        //   '#myTable tbody tr:contains("' + event.parentElement.parentElement.childNodes[1].innerHTML + '")'
+        // )[0].childNodes[1].childNodes[1];
+        // botonGrilla.disable = false;
+        // $(botonGrilla).addClass("bg-green-300 hover:bg-green-400 text-green-800");
+        // $(botonGrilla).removeClass("bg-gray-200 hover:bg-gray-400 text-gray-800");
+
+        // VALOR TOTAL DEL PEDIDO EN DICHO SUPER
+        const currentValue = $("#myTableDiferencia" + superMercado + " tfoot tr .totalCuenta")[0].innerText.replace(
+          "$",
+          ""
+        );
+
+        // currentValue = currentValue - event.parentElement.parentElement.childNodes[4].innerText;
+        const newValue =
+          parseFloat(currentValue) -
+          parseFloat(event.parentElement.parentElement.childNodes[2].innerText.replace("$", "").replace(",", ""));
+
+        $("#myTableDiferencia" + superMercado + " tfoot tr .totalCuenta").replaceWith(
+          "<td class='totalCuenta px-2'>$" + newValue.toFixed(2) + "</td>"
+        );
+      }
+    </script>
+  </head>
+  <body>
+    <div class="se-pre-con"></div>
+    <!-- <h1>{{ h }}</h1> -->
+    <ul>
+      <li><a href="/supermercados" class="{{ a1 }}">Precios</a></li>
+      <li><a href="/supermercado-carrefour" class="{{ a2 }}">Carrefour</a></li>
+      <li><a href="/supermercado-supermami" class="{{ a3 }}">SuperMami</a></li>
+      <li><a href="/supermercado-disco" class="{{ a3 }}">Disco</a></li>
+      <li><a href="/supermercado-hiper" class="{{ a3 }}">HiperLibertad</a></li>
+    </ul>
+    <hr />
+    <!-- {% if todos[0] %} -->
+    <div class="columns-4 flex flex-row justify-center mt-5 items-center text-center">
+      <div class="ml-10">
+        <span class="bg-blue-600 font-bold text-white text-center py-1 px-2 text-xs rounded">Carre: {{carre}}</span>
+      </div>
+      <div class="ml-10">
+        <span class="bg-gray-500 font-bold text-white text-center py-1 px-2 text-xs rounded">SuperMami: {{mami}}</span>
+      </div>
+      <div class="ml-5">
+        <span class="bg-red-500 font-bold text-white text-center py-1 px-2 text-xs rounded"
+          >HiperLibertad: {{hiper}}</span
+        >
+      </div>
+      <div class="ml-5">
+        <span class="bg-purple-400 font-bold text-white text-center py-1 px-2 text-xs rounded">Disco: {{disco}}</span>
+      </div>
+      <div class="ml-5">
+        <span class="bg-gray-800 font-bold text-white text-center py-1 px-2 text-xs rounded"
+          >Total de productos: {{ hiper + carre + mami + disco}}
+        </span>
+      </div>
+    </div>
+    <br />
+
+    <div class="columns-4 flex flex-row justify-center mt-5">
+      <div class="ml-10 flex-col" style="max-width: 350">
+        SuperMami
+        <table id="myTableDiferenciaSuperMami" class="text-sm text-left text-gray-500 dark:text-gray-400">
+          <thead class="border-b bg-gray-800">
+            <tr id="row">
+              <th></th>
+              <th scope="col" class="text-sm font-medium text-white px-6 py-4">Nombre</th>
+              <th scope="col" class="text-sm font-medium text-white px-6 py-4">Precio</th>
+              <th scope="col" class="text-sm font-medium text-white px-6 py-4">Cant</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+          <tfoot style="border-top: 1px solid black">
+            <tr>
+              <td colspan="2" class="totalTextCuenta">Total</td>
+              <td class="totalCuenta px-4 py-2">0</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <div class="ml-10" style="max-width: 350">
+        Carrefour
+        <table id="myTableDiferenciaCarrefour" class="text-sm text-left text-gray-500 dark:text-gray-400">
+          <thead class="border-b bg-gray-800">
+            <tr id="row">
+              <th></th>
+              <th scope="col" class="text-sm font-medium text-white px-6 py-4">Nombre</th>
+              <th scope="col" class="text-sm font-medium text-white px-6 py-4">Precio</th>
+              <th scope="col" class="text-sm font-medium text-white px-6 py-4">Cant</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+          <tfoot style="border-top: 1px solid black">
+            <tr>
+              <td colspan="2" class="totalTextCuenta">Total</td>
+              <td class="totalCuenta text-center">0</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <div class="ml-10" style="max-width: 450">
+        Disco
+        <table id="myTableDiferenciaDisco" class="text-sm text-left text-gray-500 dark:text-gray-400">
+          <thead class="border-b bg-gray-800">
+            <tr id="row">
+              <th></th>
+              <th scope="col" class="text-sm font-medium text-white px-6 py-4">Nombre</th>
+              <th scope="col" class="text-sm font-medium text-white px-6 py-4">Precio</th>
+              <th scope="col" class="text-sm font-medium text-white px-6 py-4">Cant</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+          <tfoot style="border-top: 1px solid black">
+            <tr>
+              <td colspan="2" class="totalTextCuenta">Total</td>
+              <td class="totalCuenta text-center">0</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <div class="ml-10" style="max-width: 350">
+        HiperLibertad
+        <table id="myTableDiferenciaHiperlibertad" class="text-sm text-left text-gray-500 dark:text-gray-400">
+          <thead class="border-b bg-gray-800">
+            <tr id="row">
+              <th></th>
+              <th scope="col" class="text-sm font-medium text-white px-6 py-4">Nombre</th>
+              <th scope="col" class="text-sm font-medium text-white px-6 py-4">Precio</th>
+              <th scope="col" class="text-sm font-medium text-white px-6 py-4">Cant</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+          <tfoot style="border-top: 1px solid black">
+            <tr>
+              <td colspan="2" class="totalTextCuenta">Total</td>
+              <td class="totalCuenta text-center">0</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+    <div class="relative overflow-x-auto container mx-auto px-4 mt-10">
+      <input
+        type="text"
+        id="txtSearch"
+        onkeyup="fnSearch()"
+        placeholder="Busca por producto o marca"
+        title="Buscar por Producto o Marca"
+      />
+      <table id="myTable" class="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+        <thead class="border-b bg-gray-800">
+          <tr id="row">
+            <th scope="col" class="name text-sm font-medium text-white px-6 py-4">Acción</th>
+            <th scope="col" class="name text-sm font-medium text-white px-6 py-4">Nombre</th>
+            <th scope="col" class="pr text-sm font-medium text-white px-6 py-4">Precio</th>
+            <th scope="col" class="date text-sm font-medium text-white px-6 py-4">Super</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for todo in todos %}
+          <!-- <tr class="datas bg-white border-b dark:border-gray-700" onmousedown="RowClick(this,false);"> -->
+          <tr class="datas bg-white border-b dark:border-gray-700">
+            <td class="acciones px-6 py-2">
+              <button
+                onclick="agregar(this)"
+                class="inline-flex items-center px-1 py-1 bg-green-300 hover:bg-green-400 text-green-800 text-sm font-medium rounded-md"
+              >
+                <svg viewBox="0 0 20 20" enable-background="new 0 0 20 20" class="w-6 h-6 inline-block">
+                  <path
+                    fill="#FFFFFF"
+                    d="M16,10c0,0.553-0.048,1-0.601,1H11v4.399C11,15.951,10.553,16,10,16c-0.553,0-1-0.049-1-0.601V11H4.601
+                                        C4.049,11,4,10.553,4,10c0-0.553,0.049-1,0.601-1H9V4.601C9,4.048,9.447,4,10,4c0.553,0,1,0.048,1,0.601V9h4.399
+                                        C15.952,9,16,9.447,16,10z"
+                  />
+                </svg>
+              </button>
+              <!-- <button
+                onclick="eliminar(this)"
+                class="inline-flex items-center px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-md"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="h-5 w-5 mr-2"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                  />
+                </svg>
+              </button> -->
+            </td>
+
+            <td class="name px-6 py-2">{{ todo["name"].title() }}</td>
+            <td class="pr px-6 py-2">${{ todo["price"] }}</td>
+            <td class="date px-6 py-2">{{ todo["supermercado"] }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <!-- {% else %}
+		<h4>No Tasks in the List !!</h4>
+	{% endif %} -->
+    <hr />
+  </body>
+</html>

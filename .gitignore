@@ -1,0 +1,6 @@
+environment
+launch.json
+pipfile.lock
+
+.vscode
+__pycache__/*
