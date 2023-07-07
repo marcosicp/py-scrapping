@@ -14,6 +14,17 @@ import importlib.resources
 
 asession = AsyncHTMLSession()
 s = HTMLSession()
+global activeCarre
+activeCarre =True
+
+global activeDisco
+activeDisco =True
+
+global activeHiperlibertad
+activeHiperlibertad =True
+
+global activeSupermami
+activeSupermami =True
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
@@ -36,6 +47,10 @@ def scrape():
     return render_template('scrape.html', todos=[])
 
 
+@socketio.on('scraping-disco-stop')
+def scrape_disco_stop():
+    global activeDisco
+    activeDisco = False
 
 @socketio.on('scraping-disco')
 def scrape_disco():
@@ -62,7 +77,7 @@ def scrape_disco():
             except Exception:
                 print("Oops!  That was no valid number.  Try again...")
 
-        while (flag):
+        while (flag & activeDisco):
             emit("scraping-message-disco", page)
             page += 1
             print('scraping data from Disco - Almacén pagina: ' + str(page))
@@ -108,6 +123,11 @@ def scrape_disco():
         json.dump(jsondata, outfile)
     return render_template('index.html', todos=jsondata, carre=0, mami=0, hiper=0, disco=jsondata.__len__())
 
+@socketio.on('scraping-supermami-stop')
+def scrape_supermami_stop():
+    global activeSupermami
+    activeSupermami = False
+    
 @socketio.on('scraping-mami')
 def scrape_supermami():
     jsonData = []
@@ -140,23 +160,30 @@ def scrape_supermami():
             soup = BeautifulSoup(response.text, 'html.parser')
 
             productos = soup.find_all('div', class_='product')
-            if (len(productos) > 0):
-                for a in productos:
-                    item = {
-                        "supermercado": "SuperMami",
-                        "name": a.find("div", {"class": "description limitRow tooltipHere"}).text, "price":  a.find(
-                            "div", {"class": "precio-unidad"}).text.replace("$", "").replace("x un", "").replace("\t", "").replace("\r", "").replace("\n", "").replace("..", "")}
-                    jsonData.append(item)  # -- append item to json
-            else:
-                continue
+            if(activeSupermami):
+                if (len(productos) > 0):
+                    for a in productos:
+                        item = {
+                            "supermercado": "SuperMami",
+                            "name": a.find("div", {"class": "description limitRow tooltipHere"}).text, "price":  a.find(
+                                "div", {"class": "precio-unidad"}).text.replace("$", "").replace("x un", "").replace("\t", "").replace("\r", "").replace("\n", "").replace("..", "")}
+                        jsonData.append(item)  # -- append item to json
+                else:
+                    continue
+            else: break
 
         jsonData.sort(key=lambda x: x["name"])
         with open('supermami.json', 'w') as outfile:
             # -- save jsondata to 'carrefour.json' file
             json.dump(jsonData, outfile)
 
-        return render_template('index.html', todos=jsonData, carre=0, mami=jsonData.__len__(), hiper=0)
+        return render_template('index.html', todos=jsonData, carre=0, mami=jsonData.__len__(), hiper=0, disco=0)
 
+@socketio.on('scraping-carrefour-stop')
+def scrape_carrefour_stop():
+    global activeCarre
+    activeCarre = False
+    
 @socketio.on('scraping-carrefour')
 def scrape_carrefour():
     jsondata = []
@@ -182,13 +209,14 @@ def scrape_carrefour():
             except Exception:
                 print("Oops!  That was no valid number.  Try again...")
 
-        while (flag):
+        while (flag & activeCarre):
             page += 1
             emit("scraping-message-carrefour", page)
             print('scraping data from Carrefour - Almacén pagina: ' + str(page))
             url = 'https://www.carrefour.com.ar/Almacen/?page=' + \
                 str(page)  # -- set url
             response = s.get(url)
+            time.sleep(8)
             response.html.arender(sleep=8)
             # -- get data and parse
             soup = BeautifulSoup(response.text, 'html.parser')
@@ -229,6 +257,11 @@ def scrape_carrefour():
         json.dump(jsondata, outfile)
     return render_template('index.html', todos=jsondata, carre=jsondata.__len__(), mami=0, disco=0, hiper=0)
 
+@socketio.on('scraping-hiperlibertad-stop')
+def scrape_hiperlibertad_stop():
+    global activeHiperlibertad
+    activeHiperlibertad = False
+    
 @socketio.on('scraping-hiper')
 def scrape_hiperlibertad():
     # EN ESTE SCRAP ES IMPOSIBLE SABER EL TOTAL, ASI QUE CON UN WHILE != [] SE SOLUCIONA PROVISORIAMENTE
@@ -237,7 +270,7 @@ def scrape_hiperlibertad():
     flag = True
     attempt = 0
 
-    while (flag):
+    while (flag & activeHiperlibertad):
         emit("scraping-message-hiper", pageIncrement)
         url = 'https://www.hiperlibertad.com.ar/api/catalog_system/pub/products/search/almacen?O=OrderByPriceASC&_from=' + \
             str(pageIncrement) + '&_to=' + \
@@ -261,8 +294,11 @@ def scrape_hiperlibertad():
     jsondata.sort(key=lambda x: x["name"])
     with open('hiperlibertad.json', 'w') as outfile:
         json.dump(jsondata, outfile)
-        return render_template('index.html', todos=jsondata,  carre=0, mami=0, hiper=jsondata.__len__())
+        return render_template('index.html', todos=jsondata,  carre=0, mami=0, hiper=jsondata.__len__(), disco=0)
 
+@app.route('/')
+def redirected():
+    return redirect("/supermercados")
 
 @app.route("/supermercados")
 def supermercados():
