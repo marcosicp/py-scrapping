@@ -169,7 +169,9 @@ if it's not present, don't show loader */
           z = filter.split(" ");
           txtValue = a.textContent || a.innerText;
 
-          if (multiSearchAnd(txtValue, z)) {
+          b = li[3];
+          txtValue2 = b.textContent || b.innerText;
+          if (multiSearchAnd(txtValue, z) || multiSearchAnd(txtValue2, z)) {
             ul[i].style.display = "";
           } else {
             ul[i].style.display = "none";
@@ -315,8 +317,8 @@ if it's not present, don't show loader */
         //elimino fila completa y resto
         if (event.parentElement.parentElement.childNodes[4].innerText == "1") {
           event.parentElement.parentElement.remove();
-        } else{
-          var cantLocal = parseInt( event.parentElement.parentElement.childNodes[4].innerText);
+        } else {
+          var cantLocal = parseInt(event.parentElement.parentElement.childNodes[4].innerText);
           cantLocal--;
           event.parentElement.parentElement.childNodes[4].innerText = cantLocal;
         }
@@ -349,13 +351,13 @@ if it's not present, don't show loader */
   <body>
     <div class="se-pre-con"></div>
     <!-- <h1>{{ h }}</h1> -->
-    <ul>
+    <!-- <ul>
       <li><a href="/supermercados" class="{{ a1 }}">Precios</a></li>
       <li><a href="/supermercado-carrefour" class="{{ a2 }}">Carrefour</a></li>
       <li><a href="/supermercado-supermami" class="{{ a3 }}">SuperMami</a></li>
       <li><a href="/supermercado-disco" class="{{ a3 }}">Disco</a></li>
       <li><a href="/supermercado-hiper" class="{{ a3 }}">HiperLibertad</a></li>
-    </ul>
+    </ul> -->
     <hr />
     <!-- {% if todos[0] %} -->
     <div class="columns-4 flex flex-row justify-center mt-5 items-center text-center">
@@ -375,7 +377,7 @@ if it's not present, don't show loader */
       </div>
       <div class="ml-5">
         <span class="bg-gray-800 font-bold text-white text-center py-1 px-2 text-xs rounded"
-          >Total de productos: {{ hiper + carre + mami + disco}}
+          >Total de productos: {{ hiper + carre + mami + disco}}</span>
         </span>
       </div>
     </div>
@@ -474,7 +476,7 @@ if it's not present, don't show loader */
       <table id="myTable" class="w-full text-sm text-left text-gray-500 dark:text-gray-400">
         <thead class="border-b bg-gray-800">
           <tr id="row">
-            <th scope="col" class="name text-sm font-medium text-white px-6 py-4">Acción</th>
+            <th scope="col" class="name text-sm font-medium text-white px-6 py-4">Agregar</th>
             <th scope="col" class="name text-sm font-medium text-white px-6 py-4">Nombre</th>
             <th scope="col" class="pr text-sm font-medium text-white px-6 py-4">Precio</th>
             <th scope="col" class="date text-sm font-medium text-white px-6 py-4">Super</th>
@@ -521,7 +523,12 @@ if it's not present, don't show loader */
 
             <td class="name px-6 py-2">{{ todo["name"].title() }}</td>
             <td class="pr px-6 py-2">${{ todo["price"] }}</td>
-            <td class="date px-6 py-2">{{ todo["supermercado"] }}</td>
+            <td class="date px-6 py-2">
+              {% if todo["supermercado"] == "Carrefour" %} <img style="height:3em" src="static/images/carrefour.png" /> {% endif %} {% if
+              todo["supermercado"] == "SuperMami" %} <img style="height:2em" src="static/images/logo-super-mami.png" /> {% endif %} {% if
+              todo["supermercado"] == "Disco" %} <img style="height:3em" src="static/images/disco-logo.png" /> {% endif %} {% if
+              todo["supermercado"] == "Hiperlibertad" %} <img style="height:3em" src="static/images/libertad-logo.png" /> {% endif %}
+            </td>
           </tr>
           {% endfor %}
         </tbody>

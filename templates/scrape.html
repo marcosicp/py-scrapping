@@ -1,6 +1,7 @@
 <html>
 
 <head>
+	<title>Scrape</title>
 	<script src="//ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
 
 	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap.min.css">
@@ -44,13 +45,21 @@
 					.append("<div>Procesando pagina: " + param + "</div>")
 			});
 		}
+
+		function frenar(superTarget) {
+			socket.emit(superTarget);
+			// socket.on("scraping-message-" + superTarget, function (param) {
+			// 	$(".progress-bar-" + superTarget)
+			// 		.append("<div>Procesando pagina: " + param + "</div>")
+			// });
+		}
 	</script>
 
 	<script></script>
 </head>
 
 <body>
-	<h1>Scrape</h1>
+	<!-- <h1>Scrape</h1> -->
 	<hr>
 
 	<h1 class="font-bold text-3xl mt-5 mb-5 text-center">Carga de datos</h1>
@@ -67,7 +76,10 @@
 					<span class="progress-bar-label-carre">0%</span>
 				</div> -->
 			</div>
-
+			<button
+			class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
+			onclick="
+			frenar('scraping-carrefour-stop')">Frenar</button>
 		</div>
 		<div class="flex-1 ...">
 			<button
@@ -80,6 +92,10 @@
 					<span class="progress-bar-label-mami">0%</span>
 				</div> -->
 			</div>
+			<button
+				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
+				onclick="
+				frenar('scraping-supermami-stop')">Frenar</button>
 		</div>
 		<div class="flex-1 ...">
 			<button
@@ -91,6 +107,10 @@
 					<span class="progress-bar-label-disco">0%</span>
 				</div> -->
 			</div>
+			<button
+				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
+				onclick="
+				frenar('scraping-disco-stop')">Frenar</button>
 		</div>
 		<div class="flex-1 ...">
 			<button
@@ -103,6 +123,10 @@
 					<span class="progress-bar-label-hiper">0%</span>
 				</div> -->
 			</div>
+			<button
+				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
+				onclick="
+				frenar('scraping-hiperlibertad-stop')">Frenar</button>
 		</div>
 	</div>
 </body>
