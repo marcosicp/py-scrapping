@@ -242,7 +242,7 @@ if it's not present, don't show loader */
 
     <script>
       function agregar(event) {
-        const superMercado = event.parentElement.parentElement.childNodes[7].innerText;
+        const superMercado = event.parentElement.parentElement.childNodes[9].innerText;
 
         // DESABILITADO DE BOTON EN GRILLA GENERAL
         // event.disable = true;
@@ -480,6 +480,7 @@ if it's not present, don't show loader */
             <th scope="col" class="name text-sm font-medium text-white px-6 py-4">Nombre</th>
             <th scope="col" class="pr text-sm font-medium text-white px-6 py-4">Precio</th>
             <th scope="col" class="date text-sm font-medium text-white px-6 py-4">Super</th>
+            <th scope="col" class="date text-sm font-medium text-white px-6 py-4">Super</th>
           </tr>
         </thead>
         <tbody>
@@ -528,6 +529,9 @@ if it's not present, don't show loader */
               todo["supermercado"] == "SuperMami" %} <img style="height:2em" src="static/images/logo-super-mami.png" /> {% endif %} {% if
               todo["supermercado"] == "Disco" %} <img style="height:3em" src="static/images/disco-logo.png" /> {% endif %} {% if
               todo["supermercado"] == "Hiperlibertad" %} <img style="height:3em" src="static/images/libertad-logo.png" /> {% endif %}
+            </td>
+            <td class="date px-6 py-2">
+              {{ todo["supermercado"] }}
             </td>
           </tr>
           {% endfor %}
