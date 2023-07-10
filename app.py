@@ -9,7 +9,7 @@ import requests
 import time
 import asyncio
 import json
-import importlib.resources
+# import importlib.resources
 
 asession = AsyncHTMLSession()
 s = HTMLSession()
