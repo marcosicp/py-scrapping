@@ -1,7 +1,6 @@
 
 from flask import Flask, render_template, request, redirect, url_for
-from flask_socketio import SocketIO
-from flask_socketio import send, emit
+from flask_socketio import SocketIO, send, emit
 from bs4 import BeautifulSoup
 from requests_html import HTMLSession
 from requests_html import AsyncHTMLSession
@@ -174,7 +173,7 @@ def scrape_supermami():
 
         jsonData.sort(key=lambda x: x["name"])
         with open('supermami.json', 'w') as outfile:
-            # -- save jsondata to 'carrefour.json' file
+            # -- save jsondata to '.json' file
             json.dump(jsonData, outfile)
 
         return render_template('index.html', todos=jsonData, carre=0, mami=jsonData.__len__(), hiper=0, disco=0)
@@ -224,9 +223,9 @@ def scrape_carrefour():
             anchors = soup.find_all(
                 'div', class_='flex flex-column min-vh-100 w-100')
             if (len(anchors) > 0):
-                if (anchors[0].next.contents[0].name == 'button'):
-                    flag = False
-                    break
+                # if (anchors[0].next.contents[0].name == 'button'):
+                #     flag = False
+                #     break
                 # for a in anchors:
                 item = anchors[0].next.contents[0]
                 jsonitem = json.loads(item)
