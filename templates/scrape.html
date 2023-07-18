@@ -48,6 +48,9 @@
 
 		function frenar(superTarget) {
 			socket.emit(superTarget);
+			// socket.off().on("re_connect", function(msg) {
+            //             $(".report").append(msg.msg + "<br />");
+            //         });
 			// socket.on("scraping-message-" + superTarget, function (param) {
 			// 	$(".progress-bar-" + superTarget)
 			// 		.append("<div>Procesando pagina: " + param + "</div>")
