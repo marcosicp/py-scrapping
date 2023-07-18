@@ -1,6 +1,10 @@
 environment
 launch.json
 pipfile.lock
+adminpro/node_modules/*
+adminpro/.angular/*
+adminpro/.vscode
+adminpro/dist
 
 .vscode
 __pycache__/*

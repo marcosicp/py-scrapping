@@ -5,6 +5,7 @@
         "lyracons",
         "Mami",
         "mongodb",
+        "seccion",
         "socketio"
     ]
 }

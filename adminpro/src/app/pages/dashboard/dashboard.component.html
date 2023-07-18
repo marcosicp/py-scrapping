@@ -1,0 +1,25 @@
+<!-- <p>dashboard works!</p> -->
+
+<div *ngIf="items != undefined">
+    <input
+    type="text"
+    id="filter-text-box"
+    placeholder="Filter..."
+    (input)="onFilterTextBoxChanged()"
+  />
+    <ag-grid-angular
+    style="width: 100%; height: 600px"
+    class="ag-theme-alpine"
+    [columnDefs]="columnDefs"
+    [enableSorting]="true"
+    [enableFilter]="true"
+    
+    [defaultColDef]="defaultColDef"
+    [rowData]="items"
+    [rowSelection]="'multiple'"
+    [animateRows]="true"
+    (gridReady)="onGridReady($event)"
+  ></ag-grid-angular>
+
+    
+</div>
