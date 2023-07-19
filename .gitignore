@@ -1,8 +1,8 @@
 environment
 launch.json
 pipfile.lock
-adminpro/node_modules/*
-adminpro/.angular/*
+adminpro/node_modules
+adminpro/.angular
 adminpro/.vscode
 adminpro/dist
 
