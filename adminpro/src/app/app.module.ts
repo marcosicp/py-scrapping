@@ -19,6 +19,8 @@ import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 // import { AppRoutingComponent } from './app-routing/app-routing.component';
 import { MatGridListModule } from '@angular/material/grid-list';
 import { AgGridModule } from 'ag-grid-angular';
+import { HashLocationStrategy, LocationStrategy } from '@angular/common';
+
 
 @NgModule({
   declarations: [
@@ -43,7 +45,8 @@ import { AgGridModule } from 'ag-grid-angular';
     MatGridListModule,
     AgGridModule,
   ],
-  providers: [AppService],
+  
+  providers: [AppService, { provide: LocationStrategy, useClass: HashLocationStrategy },],
   schemas: [CUSTOM_ELEMENTS_SCHEMA],
   bootstrap: [AppComponent],
 })

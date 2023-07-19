@@ -1,546 +1,59 @@
-<html>
+<!DOCTYPE html>
+<html lang="en" data-critters-container>
   <head>
-    <title>Precios</title>
-    <!-- href="/static/assets/style.css"-->
-    <link rel="stylesheet" type="text/css" href="{{ url_for('static',filename='assets/style.css')}}" />
-    <link rel="stylesheet" type="text/css" href="{{ url_for('static',filename='assets/emoji.css')}}" />
-    <script src="{{ url_for('static',filename='assets/twemoji.min.js')}}"></script>
-    <script src="{{ url_for('static',filename='assets/emoji.js')}}"></script>
-    <link
-      rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/toastify-js/1.6.1/toastify.min.css"
-      integrity="sha512-UiKdzM5DL+I+2YFxK+7TDedVyVm7HMp/bN85NeWMJNYortoll+Nd6PU9ZDrZiaOsdarOyk9egQm6LOJZi36L2g=="
-      crossorigin="anonymous"
-      referrerpolicy="no-referrer"
-    />
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.2.4/jquery.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.8.3/modernizr.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script
-      src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"
-      integrity="sha512-q/dWJ3kcmjBLU4Qc47E4A9kTB4m3wuTY7vkFJDTZKjTs8jhyGQnaUrxa0Ytd0ssMZhbNua9hE+E7Qv1j+DyZwA=="
-      crossorigin="anonymous"
-    ></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/toastify-js/1.6.1/toastify.js"></script>
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            colors: {
-              clifford: "#B3B3B3",
-            },
-          },
-        },
-      };
-    </script>
+    <meta charset="utf-8">
+    <title>AdminPro</title>
+    <base href="/">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="icon" type="image/png" sizes="16x16" href="./assets/images/favicon.png">
 
-    <script>
-      $(function () {
-        $("#myTable").on("click", "th", function () {
-          var index = $(this).index(),
-            rows = [],
-            thClass = $(this).hasClass("asc") ? "desc" : "asc";
-          $("#myTable th").removeClass("asc desc");
-          $(this).addClass(thClass);
-          $("#myTable tbody tr").each(function (index, row) {
-            rows.push($(row).detach());
-          });
-          rows.sort(function (a, b) {
-            var aValue = $(a).find("td").eq(index).text(),
-              bValue = $(b).find("td").eq(index).text();
-            return aValue > bValue ? 1 : aValue < bValue ? -1 : 0;
-          });
-          if ($(this).hasClass("desc")) {
-            rows.reverse();
-          }
-          $.each(rows, function (index, row) {
-            $("#myTable tbody").append(row);
-          });
-        });
-      });
-    </script>
+    <!-- Bootstrap Core CSS -->
+    <link href="./assets/plugins/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Custom CSS -->
+    <style>@import url("https://fonts.googleapis.com/css?family=Montserrat:300,400,500,600,700");@import url(./assets/scss/icons/font-awesome/css/font-awesome.min.css);@import url(./assets/scss/icons/simple-line-icons/css/simple-line-icons.css);@import url(./assets/scss/icons/weather-icons/css/weather-icons.min.css);@import url(./assets/scss/icons/linea-icons/linea.css);@import url(./assets/scss/icons/themify-icons/themify-icons.css);@import url(./assets/scss/icons/flag-icon-css/flag-icon.min.css);@import url(./assets/scss/icons/material-design-iconic-font/css/materialdesignicons.min.css);@import url(./assets/css/spinners.css);@import url(./assets/css/animate.css);*{outline:none}body{background:#fff;font-family:"Montserrat", sans-serif;margin:0;overflow-x:hidden;color:#67757c;font-weight:300}html{position:relative;min-height:100%;background:#ffffff;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}@-webkit-keyframes heartbit{0%{-webkit-transform:scale(0);opacity:0.0}25%{-webkit-transform:scale(0.1);opacity:0.1}50%{-webkit-transform:scale(0.5);opacity:0.3}75%{-webkit-transform:scale(0.8);opacity:0.5}100%{-webkit-transform:scale(1);opacity:0.0}}@-webkit-keyframes rotate{from{-webkit-transform:rotate(0deg)}to{-webkit-transform:rotate(360deg)}}@-webkit-keyframes ripple{0%{-webkit-box-shadow:0px 0px 0px 1px transparent;box-shadow:0px 0px 0px 1px transparent}50%{-webkit-box-shadow:0px 0px 0px 15px rgba(0, 0, 0, 0.1);box-shadow:0px 0px 0px 15px rgba(0, 0, 0, 0.1)}100%{-webkit-box-shadow:0px 0px 0px 15px transparent;box-shadow:0px 0px 0px 15px transparent}}@media (min-width: 768px){}@media (max-width: 767px){}</style><link href="./assets/css/style.css" rel="stylesheet" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="./assets/css/style.css"></noscript>
+    <!-- You can change the theme colors from here -->
+    <link href="./assets/css/colors/default-dark.css" id="theme" rel="stylesheet" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="./assets/css/colors/default-dark.css"></noscript>
+      <link rel="preconnect" href="https://fonts.gstatic.com">
+      <!-- <link rel="stylesheet" href="https://unpkg.com/ag-grid-community/styles/ag-theme-alpine.css" />
+      <link rel="stylesheet" href="https://unpkg.com/ag-grid-community/styles/ag-grid.css" /> -->
 
-    <style>
-      /* Paste this css to your style sheet file or under head tag */
-      /* This only works with JavaScript, 
-if it's not present, don't show loader */
-      .no-js #loader {
-        display: none;
-      }
-      .js #loader {
-        display: block;
-        position: absolute;
-        left: 100px;
-        top: 0;
-      }
-      .se-pre-con {
-        position: fixed;
-        left: 0px;
-        top: 0px;
-        width: 100%;
-        height: 100%;
-        z-index: 9999;
-        background: url("static/images/loading-cargando.gif") center no-repeat #fff;
-      }
-      * {
-        box-sizing: border-box;
-      }
+    <style type="text/css">@font-face{font-family:'Roboto';font-style:normal;font-weight:300;font-display:swap;src:url(https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmSU5fCRc4AMP6lbBP.woff2) format('woff2');unicode-range:U+0460-052F, U+1C80-1C88, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;}@font-face{font-family:'Roboto';font-style:normal;font-weight:300;font-display:swap;src:url(https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmSU5fABc4AMP6lbBP.woff2) format('woff2');unicode-range:U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;}@font-face{font-family:'Roboto';font-style:normal;font-weight:300;font-display:swap;src:url(https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmSU5fCBc4AMP6lbBP.woff2) format('woff2');unicode-range:U+1F00-1FFF;}@font-face{font-family:'Roboto';font-style:normal;font-weight:300;font-display:swap;src:url(https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmSU5fBxc4AMP6lbBP.woff2) format('woff2');unicode-range:U+0370-03FF;}@font-face{font-family:'Roboto';font-style:normal;font-weight:300;font-display:swap;src:url(https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmSU5fCxc4AMP6lbBP.woff2) format('woff2');unicode-range:U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;}@font-face{font-family:'Roboto';font-style:normal;font-weight:300;font-display:swap;src:url(https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmSU5fChc4AMP6lbBP.woff2) format('woff2');unicode-range:U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20CF, U+2113, U+2C60-2C7F, U+A720-A7FF;}@font-face{font-family:'Roboto';font-style:normal;font-weight:300;font-display:swap;src:url(https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmSU5fBBc4AMP6lQ.woff2) format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;}@font-face{font-family:'Roboto';font-style:normal;font-weight:400;font-display:swap;src:url(https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu72xKKTU1Kvnz.woff2) format('woff2');unicode-range:U+0460-052F, U+1C80-1C88, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;}@font-face{font-family:'Roboto';font-style:normal;font-weight:400;font-display:swap;src:url(https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu5mxKKTU1Kvnz.woff2) format('woff2');unicode-range:U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;}@font-face{font-family:'Roboto';font-style:normal;font-weight:400;font-display:swap;src:url(https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu7mxKKTU1Kvnz.woff2) format('woff2');unicode-range:U+1F00-1FFF;}@font-face{font-family:'Roboto';font-style:normal;font-weight:400;font-display:swap;src:url(https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4WxKKTU1Kvnz.woff2) format('woff2');unicode-range:U+0370-03FF;}@font-face{font-family:'Roboto';font-style:normal;font-weight:400;font-display:swap;src:url(https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu7WxKKTU1Kvnz.woff2) format('woff2');unicode-range:U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;}@font-face{font-family:'Roboto';font-style:normal;font-weight:400;font-display:swap;src:url(https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu7GxKKTU1Kvnz.woff2) format('woff2');unicode-range:U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20CF, U+2113, U+2C60-2C7F, U+A720-A7FF;}@font-face{font-family:'Roboto';font-style:normal;font-weight:400;font-display:swap;src:url(https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxKKTU1Kg.woff2) format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;}@font-face{font-family:'Roboto';font-style:normal;font-weight:500;font-display:swap;src:url(https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmEU9fCRc4AMP6lbBP.woff2) format('woff2');unicode-range:U+0460-052F, U+1C80-1C88, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;}@font-face{font-family:'Roboto';font-style:normal;font-weight:500;font-display:swap;src:url(https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmEU9fABc4AMP6lbBP.woff2) format('woff2');unicode-range:U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;}@font-face{font-family:'Roboto';font-style:normal;font-weight:500;font-display:swap;src:url(https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmEU9fCBc4AMP6lbBP.woff2) format('woff2');unicode-range:U+1F00-1FFF;}@font-face{font-family:'Roboto';font-style:normal;font-weight:500;font-display:swap;src:url(https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmEU9fBxc4AMP6lbBP.woff2) format('woff2');unicode-range:U+0370-03FF;}@font-face{font-family:'Roboto';font-style:normal;font-weight:500;font-display:swap;src:url(https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmEU9fCxc4AMP6lbBP.woff2) format('woff2');unicode-range:U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;}@font-face{font-family:'Roboto';font-style:normal;font-weight:500;font-display:swap;src:url(https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmEU9fChc4AMP6lbBP.woff2) format('woff2');unicode-range:U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20CF, U+2113, U+2C60-2C7F, U+A720-A7FF;}@font-face{font-family:'Roboto';font-style:normal;font-weight:500;font-display:swap;src:url(https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmEU9fBBc4AMP6lQ.woff2) format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;}</style>
+    <style type="text/css">@font-face{font-family:'Material Icons';font-style:normal;font-weight:400;src:url(https://fonts.gstatic.com/s/materialicons/v140/flUhRq6tzZclQEJ-Vdg-IuiaDsNcIhQ8tQ.woff2) format('woff2');}.material-icons{font-family:'Material Icons';font-weight:normal;font-style:normal;font-size:24px;line-height:1;letter-spacing:normal;text-transform:none;display:inline-block;white-space:nowrap;word-wrap:normal;direction:ltr;-webkit-font-feature-settings:'liga';-webkit-font-smoothing:antialiased;}</style>
+<style>html{--mat-option-selected-state-label-text-color:#c2185b;--mat-option-label-text-color:white;--mat-option-hover-state-layer-color:rgba(255, 255, 255, .08);--mat-option-focus-state-layer-color:rgba(255, 255, 255, .08);--mat-option-selected-state-layer-color:rgba(255, 255, 255, .08)}html{--mat-optgroup-label-text-color:white}html{--mat-option-label-text-font:Roboto, sans-serif;--mat-option-label-text-line-height:24px;--mat-option-label-text-size:16px;--mat-option-label-text-tracking:.03125em;--mat-option-label-text-weight:400}html{--mat-optgroup-label-text-font:Roboto, sans-serif;--mat-optgroup-label-text-line-height:24px;--mat-optgroup-label-text-size:16px;--mat-optgroup-label-text-tracking:.03125em;--mat-optgroup-label-text-weight:400}html{--mat-select-panel-background-color:#424242;--mat-select-enabled-trigger-text-color:rgba(255, 255, 255, .87);--mat-select-disabled-trigger-text-color:rgba(255, 255, 255, .38);--mat-select-placeholder-text-color:rgba(255, 255, 255, .6);--mat-select-enabled-arrow-color:rgba(255, 255, 255, .54);--mat-select-disabled-arrow-color:rgba(255, 255, 255, .38);--mat-select-focused-arrow-color:rgba(194, 24, 91, .87);--mat-select-invalid-arrow-color:rgba(244, 67, 54, .87)}html{--mat-select-trigger-text-font:Roboto, sans-serif;--mat-select-trigger-text-line-height:24px;--mat-select-trigger-text-size:16px;--mat-select-trigger-text-tracking:.03125em;--mat-select-trigger-text-weight:400}html{--mat-autocomplete-background-color:#424242}html{--mat-menu-item-label-text-color:white;--mat-menu-item-icon-color:white;--mat-menu-item-hover-state-layer-color:rgba(255, 255, 255, .08);--mat-menu-item-focus-state-layer-color:rgba(255, 255, 255, .08);--mat-menu-container-color:#424242}html{--mat-menu-item-label-text-font:Roboto, sans-serif;--mat-menu-item-label-text-size:16px;--mat-menu-item-label-text-tracking:.03125em;--mat-menu-item-label-text-line-height:24px;--mat-menu-item-label-text-weight:400}html{--mat-paginator-container-text-color:rgba(255, 255, 255, .87);--mat-paginator-container-background-color:#424242;--mat-paginator-enabled-icon-color:rgba(255, 255, 255, .54);--mat-paginator-disabled-icon-color:rgba(255, 255, 255, .12)}html{--mat-paginator-container-size:56px}html{--mat-paginator-container-text-font:Roboto, sans-serif;--mat-paginator-container-text-line-height:20px;--mat-paginator-container-text-size:12px;--mat-paginator-container-text-tracking:.0333333333em;--mat-paginator-container-text-weight:400;--mat-paginator-select-trigger-text-size:12px}html{--mdc-checkbox-disabled-selected-icon-color:rgba(255, 255, 255, .38);--mdc-checkbox-disabled-unselected-icon-color:rgba(255, 255, 255, .38);--mdc-checkbox-selected-checkmark-color:#000;--mdc-checkbox-selected-focus-icon-color:#b0bec5;--mdc-checkbox-selected-hover-icon-color:#b0bec5;--mdc-checkbox-selected-icon-color:#b0bec5;--mdc-checkbox-selected-pressed-icon-color:#b0bec5;--mdc-checkbox-unselected-focus-icon-color:#eeeeee;--mdc-checkbox-unselected-hover-icon-color:#eeeeee;--mdc-checkbox-unselected-icon-color:rgba(255, 255, 255, .54);--mdc-checkbox-unselected-pressed-icon-color:rgba(255, 255, 255, .54);--mdc-checkbox-selected-focus-state-layer-color:#b0bec5;--mdc-checkbox-selected-hover-state-layer-color:#b0bec5;--mdc-checkbox-selected-pressed-state-layer-color:#b0bec5;--mdc-checkbox-unselected-focus-state-layer-color:white;--mdc-checkbox-unselected-hover-state-layer-color:white;--mdc-checkbox-unselected-pressed-state-layer-color:white}html{--mdc-checkbox-state-layer-size:40px}html{--mat-expansion-container-background-color:#424242;--mat-expansion-container-text-color:white;--mat-expansion-actions-divider-color:rgba(255, 255, 255, .12);--mat-expansion-header-hover-state-layer-color:rgba(255, 255, 255, .04);--mat-expansion-header-focus-state-layer-color:rgba(255, 255, 255, .04);--mat-expansion-header-disabled-state-text-color:rgba(255, 255, 255, .3);--mat-expansion-header-text-color:white;--mat-expansion-header-description-color:rgba(255, 255, 255, .7);--mat-expansion-header-indicator-color:rgba(255, 255, 255, .7)}html{--mat-expansion-header-collapsed-state-height:48px;--mat-expansion-header-expanded-state-height:64px}html{--mat-expansion-header-text-font:Roboto, sans-serif;--mat-expansion-header-text-size:14px;--mat-expansion-header-text-weight:500;--mat-expansion-header-text-line-height:inherit;--mat-expansion-header-text-tracking:inherit;--mat-expansion-container-text-font:Roboto, sans-serif;--mat-expansion-container-text-line-height:20px;--mat-expansion-container-text-size:14px;--mat-expansion-container-text-tracking:.0178571429em;--mat-expansion-container-text-weight:400}html{--mat-stepper-header-icon-foreground-color:white;--mat-stepper-header-selected-state-icon-background-color:#c2185b;--mat-stepper-header-selected-state-icon-foreground-color:white;--mat-stepper-header-done-state-icon-background-color:#c2185b;--mat-stepper-header-done-state-icon-foreground-color:white;--mat-stepper-header-edit-state-icon-background-color:#c2185b;--mat-stepper-header-edit-state-icon-foreground-color:white;--mat-stepper-container-color:#424242;--mat-stepper-line-color:rgba(255, 255, 255, .12);--mat-stepper-header-hover-state-layer-color:rgba(255, 255, 255, .04);--mat-stepper-header-focus-state-layer-color:rgba(255, 255, 255, .04);--mat-stepper-header-label-text-color:rgba(255, 255, 255, .7);--mat-stepper-header-optional-label-text-color:rgba(255, 255, 255, .7);--mat-stepper-header-selected-state-label-text-color:white;--mat-stepper-header-error-state-label-text-color:#f44336;--mat-stepper-header-icon-background-color:rgba(255, 255, 255, .7);--mat-stepper-header-error-state-icon-foreground-color:#f44336;--mat-stepper-header-error-state-icon-background-color:transparent}html{--mat-stepper-header-height:72px}html{--mat-stepper-container-text-font:Roboto, sans-serif;--mat-stepper-header-label-text-font:Roboto, sans-serif;--mat-stepper-header-label-text-size:14px;--mat-stepper-header-label-text-weight:400;--mat-stepper-header-error-state-label-text-size:16px;--mat-stepper-header-selected-state-label-text-size:16px;--mat-stepper-header-selected-state-label-text-weight:400}.mat-typography{font-size:14px;font-weight:400;line-height:20px;font-family:Roboto,sans-serif;letter-spacing:.0178571429em}.mat-typography p{margin:0 0 12px}html,body{height:100%}body{margin:0;font-family:Roboto,Helvetica Neue,sans-serif}</style><link rel="stylesheet" href="styles.cc359e262f9fa1b6.css" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="styles.cc359e262f9fa1b6.css"></noscript></head>
+  <body class="fix-header card-no-border fix-sidebar mat-typography">
+    <!-- ROOT DE LA APP -->
+    <app-root></app-root>
 
-      #txtSearch {
-        background-image: url("/css/searchicon.png");
-        background-position: 10px 12px;
-        background-repeat: no-repeat;
-        width: 100%;
-        font-size: 16px;
-        padding: 12px 20px 12px 40px;
-        border: 1px solid #ddd;
-        margin-bottom: 12px;
-      }
-
-      #myUL {
-        list-style-type: none;
-        padding: 0;
-        margin: 0;
-      }
-
-      #myUL li a {
-        border: 1px solid #ddd;
-        margin-top: -1px; /* Prevent double borders */
-        background-color: #f6f6f6;
-        padding: 12px;
-        text-decoration: none;
-        font-size: 18px;
-        color: black;
-        display: block;
-      }
-
-      #myUL li a:hover:not(.header) {
-        background-color: #eee;
-      }
-    </style>
-    <script>
-      // Wait for window load
-      $(window).load(function () {
-        // Animate loader off screen
-        $(".se-pre-con").fadeOut("slow");
-      });
-
-      function multiSearchAnd(text, searchWords) {
-        //count how many words to be searched
-        let totalWords = searchWords.length;
-        let found_words = 0;
-        let start = 0;
-
-        //while start counter is not equal (less than) totalWords (searchWords.length)
-        while (start != totalWords) {
-          //check each one word if exists in text
-          try {
-            if (text.match(new RegExp(searchWords[start], "i"))) {
-              //if you find a match add it to found_words counter
-              found_words++;
-            }
-            //increase start counter by one in order to search the next word at searchWords array
-            start++;
-            //another way but it did't worked was to shift the first element of the array
-            //somehow, when searchWords array got empty for the very first time, it did never got
-            //element again.. it was alwayw empty
-            //searchWords.shift();
-          } catch (error) {
-            // continue;
-          }
-        }
-        //check if found_words equals to totalWords and found_words is greater than 0
-        //so we found as many words as we was searching for inside text
-        //and we disallow to return true when found_words = 0
-        //(more specifically when totalWords AND found_words are not zero)
-        return found_words == totalWords && found_words > 0 ? true : false;
-      }
-
-      function fnSearch() {
-        var input, filter, ul, li, a, i, txtValue;
-        input = document.getElementById("txtSearch");
-        filter = input.value.toUpperCase();
-        ul = document.getElementsByClassName("datas");
-
-        for (i = 0; i < ul.length; i++) {
-          li = ul[i].children;
-
-          a = li[1];
-          z = filter.split(" ");
-          txtValue = a.textContent || a.innerText;
-
-          b = li[3];
-          txtValue2 = b.textContent || b.innerText;
-          if (multiSearchAnd(txtValue, z) || multiSearchAnd(txtValue2, z)) {
-            ul[i].style.display = "";
-          } else {
-            ul[i].style.display = "none";
-          }
-        }
-      }
-    </script>
-
-    <script>
-      var lastSelectedRow;
-      var trs = document.getElementById("myTable");
-      document.addEventListener("DOMContentLoaded", function (event) {
-        //código a ejecutar cuando el DOM está listo para recibir acciones
-        trs = document.getElementById("myTable").tBodies[0].getElementsByTagName("tr");
-      });
-
-      // disable text selection
-      document.onselectstart = function () {
-        return false;
-      };
-
-      function toggleRow(row) {
-        row.className =
-          row.className == "datas border-b dark:border-gray-700 selected"
-            ? "datas border-b dark:border-gray-700"
-            : "datas border-b dark:border-gray-700 selected";
-        lastSelectedRow = row;
-      }
-
-      function selectRowsBetweenIndexes(indexes) {
-        indexes.sort(function (a, b) {
-          return a - b;
-        });
-
-        for (var i = indexes[0]; i <= indexes[1]; i++) {
-          trs[i].className = "datas border-b dark:border-gray-700 selected";
-        }
-      }
-
-      function RowClick(currenttr, lock) {
-        if (window.event.metaKey) {
-          toggleRow(currenttr);
-        }
-
-        if (window.event.button === 0) {
-          if (!window.event.ctrlKey && !window.event.shiftKey && !window.event.metaKey) {
-            clearAll();
-            toggleRow(currenttr);
-          }
-
-          if (window.event.shiftKey) {
-            selectRowsBetweenIndexes([lastSelectedRow.rowIndex, currenttr.rowIndex]);
-          }
-        }
-      }
-
-      function clearAll() {
-        for (var i = 0; i < trs.length; i++) {
-          trs[i].className = "datas border-b dark:border-gray-700";
-        }
-      }
-    </script>
-    <style>
-      .selected {
-        background: lightBlue;
-      }
-    </style>
-
-    <script>
-      function agregar(event) {
-        const superMercado = event.parentElement.parentElement.childNodes[9].innerText;
-
-        // DESABILITADO DE BOTON EN GRILLA GENERAL
-        // event.disable = true;
-        // $(event).removeClass("bg-green-300 hover:bg-green-400 text-green-800");
-        // $(event).addClass("bg-gray-200 hover:bg-gray-400 text-gray-800");
-
-        var checkValue = $(
-          "#myTableDiferencia" +
-            superMercado +
-            ' tbody tr:contains("' +
-            event.parentElement.parentElement.childNodes[3].innerText +
-            '")'
-        );
-
-        var cantValidation = 1;
-        if (checkValue.length > 0) {
-          var cantidad = parseInt(
-            $(
-              "#myTableDiferencia" +
-                superMercado +
-                ' tbody tr:contains("' +
-                event.parentElement.parentElement.childNodes[3].innerText +
-                '")'
-            )[0].childNodes[4].innerText
-          );
-
-          cantValidation = cantidad + cantValidation;
-          $(
-            "#myTableDiferencia" +
-              superMercado +
-              ' tbody tr:contains("' +
-              event.parentElement.parentElement.childNodes[3].innerText +
-              '")'
-          )[0].childNodes[4].innerText = cantValidation;
-        } else {
-          $("#myTableDiferencia" + superMercado + " tbody").append(
-            "<tr><td>" +
-              "<button onclick='eliminar(this)' class='inline-flex items-center px-1 py-1 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-md'><svg xmlns='http://www.w3.org/2000/svg' class='h-5 w-5' fill='none' viewBox='0 0 24 24' stroke='currentColor'>	  <path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16' />	</svg></button>" +
-              "</td><td >" +
-              event.parentElement.parentElement.childNodes[3].innerText +
-              "</td><td class='px-2'>" +
-              event.parentElement.parentElement.childNodes[5].innerText +
-              "</td><td style='display: none;'>" +
-              superMercado +
-              "</td><td class='text-center'>" +
-              cantValidation +
-              "</td></tr>"
-          );
-        }
-
-        const currentValue = $("#myTableDiferencia" + superMercado + " tfoot tr .totalCuenta")[0].innerText.replace(
-          "$",
-          ""
-        );
-        const newValue =
-          parseFloat(currentValue) +
-          parseFloat(event.parentElement.parentElement.childNodes[5].innerText.replace("$", "").replace(",", ""));
-        $("#myTableDiferencia" + superMercado + " tfoot tr .totalCuenta").replaceWith(
-          "<td class='totalCuenta px-2'>$" + newValue.toFixed(2) + "</td>"
-        );
-
-        var myToast = Toastify({
-          text: "Producto agregado",
-          duration: 3000,
-        });
-
-        myToast.showToast();
-      }
-
-      function eliminar(event) {
-        const superMercado = event.parentElement.parentElement.childNodes[3].innerText;
-        //elimino fila completa y resto
-        if (event.parentElement.parentElement.childNodes[4].innerText == "1") {
-          event.parentElement.parentElement.remove();
-        } else {
-          var cantLocal = parseInt(event.parentElement.parentElement.childNodes[4].innerText);
-          cantLocal--;
-          event.parentElement.parentElement.childNodes[4].innerText = cantLocal;
-        }
-
-        // CAMBIA COLOR DISPONIBILIDAD
-        // var botonGrilla = $(
-        //   '#myTable tbody tr:contains("' + event.parentElement.parentElement.childNodes[1].innerHTML + '")'
-        // )[0].childNodes[1].childNodes[1];
-        // botonGrilla.disable = false;
-        // $(botonGrilla).addClass("bg-green-300 hover:bg-green-400 text-green-800");
-        // $(botonGrilla).removeClass("bg-gray-200 hover:bg-gray-400 text-gray-800");
-
-        // VALOR TOTAL DEL PEDIDO EN DICHO SUPER
-        const currentValue = $("#myTableDiferencia" + superMercado + " tfoot tr .totalCuenta")[0].innerText.replace(
-          "$",
-          ""
-        );
-
-        // currentValue = currentValue - event.parentElement.parentElement.childNodes[4].innerText;
-        const newValue =
-          parseFloat(currentValue) -
-          parseFloat(event.parentElement.parentElement.childNodes[2].innerText.replace("$", "").replace(",", ""));
-
-        $("#myTableDiferencia" + superMercado + " tfoot tr .totalCuenta").replaceWith(
-          "<td class='totalCuenta px-2'>$" + newValue.toFixed(2) + "</td>"
-        );
-      }
-    </script>
-  </head>
-  <body>
-    <div class="se-pre-con"></div>
-    <!-- <h1>{{ h }}</h1> -->
-    <!-- <ul>
-      <li><a href="/supermercados" class="{{ a1 }}">Precios</a></li>
-      <li><a href="/supermercado-carrefour" class="{{ a2 }}">Carrefour</a></li>
-      <li><a href="/supermercado-supermami" class="{{ a3 }}">SuperMami</a></li>
-      <li><a href="/supermercado-disco" class="{{ a3 }}">Disco</a></li>
-      <li><a href="/supermercado-hiper" class="{{ a3 }}">HiperLibertad</a></li>
-    </ul> -->
-    <hr />
-    <!-- {% if todos[0] %} -->
-    <div class="columns-4 flex flex-row justify-center mt-5 items-center text-center">
-      <div class="ml-10">
-        <span class="bg-blue-600 font-bold text-white text-center py-1 px-2 text-xs rounded">Carre: {{carre}}</span>
-      </div>
-      <div class="ml-10">
-        <span class="bg-gray-500 font-bold text-white text-center py-1 px-2 text-xs rounded">SuperMami: {{mami}}</span>
-      </div>
-      <div class="ml-5">
-        <span class="bg-red-500 font-bold text-white text-center py-1 px-2 text-xs rounded"
-          >HiperLibertad: {{hiper}}</span
-        >
-      </div>
-      <div class="ml-5">
-        <span class="bg-purple-400 font-bold text-white text-center py-1 px-2 text-xs rounded">Disco: {{disco}}</span>
-      </div>
-      <div class="ml-5">
-        <span class="bg-gray-800 font-bold text-white text-center py-1 px-2 text-xs rounded"
-          >Total de productos: {{ hiper + carre + mami + disco}}</span>
-        </span>
+    <!-- PRELOADER -->
+    <div class="preloader">
+      <div class="loader">
+        <div class="loader__figure"></div>
+        <p class="loader__label">CARGANDO...</p>
       </div>
     </div>
-    <br />
 
-    <div class="columns-4 flex flex-row justify-center mt-5">
-      <div class="ml-10 flex-col" style="max-width: 350">
-        SuperMami
-        <table id="myTableDiferenciaSuperMami" class="text-sm text-left text-gray-500 dark:text-gray-400">
-          <thead class="border-b bg-gray-800">
-            <tr id="row">
-              <th></th>
-              <th scope="col" class="text-sm font-medium text-white px-6 py-4">Nombre</th>
-              <th scope="col" class="text-sm font-medium text-white px-6 py-4">Precio</th>
-              <th scope="col" class="text-sm font-medium text-white px-6 py-4">Cant</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-          <tfoot style="border-top: 1px solid black">
-            <tr>
-              <td colspan="2" class="totalTextCuenta">Total</td>
-              <td class="totalCuenta px-4 py-2">0</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-      <div class="ml-10" style="max-width: 350">
-        Carrefour
-        <table id="myTableDiferenciaCarrefour" class="text-sm text-left text-gray-500 dark:text-gray-400">
-          <thead class="border-b bg-gray-800">
-            <tr id="row">
-              <th></th>
-              <th scope="col" class="text-sm font-medium text-white px-6 py-4">Nombre</th>
-              <th scope="col" class="text-sm font-medium text-white px-6 py-4">Precio</th>
-              <th scope="col" class="text-sm font-medium text-white px-6 py-4">Cant</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-          <tfoot style="border-top: 1px solid black">
-            <tr>
-              <td colspan="2" class="totalTextCuenta">Total</td>
-              <td class="totalCuenta text-center">0</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-      <div class="ml-10" style="max-width: 450">
-        Disco
-        <table id="myTableDiferenciaDisco" class="text-sm text-left text-gray-500 dark:text-gray-400">
-          <thead class="border-b bg-gray-800">
-            <tr id="row">
-              <th></th>
-              <th scope="col" class="text-sm font-medium text-white px-6 py-4">Nombre</th>
-              <th scope="col" class="text-sm font-medium text-white px-6 py-4">Precio</th>
-              <th scope="col" class="text-sm font-medium text-white px-6 py-4">Cant</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-          <tfoot style="border-top: 1px solid black">
-            <tr>
-              <td colspan="2" class="totalTextCuenta">Total</td>
-              <td class="totalCuenta text-center">0</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-      <div class="ml-10" style="max-width: 350">
-        HiperLibertad
-        <table id="myTableDiferenciaHiperlibertad" class="text-sm text-left text-gray-500 dark:text-gray-400">
-          <thead class="border-b bg-gray-800">
-            <tr id="row">
-              <th></th>
-              <th scope="col" class="text-sm font-medium text-white px-6 py-4">Nombre</th>
-              <th scope="col" class="text-sm font-medium text-white px-6 py-4">Precio</th>
-              <th scope="col" class="text-sm font-medium text-white px-6 py-4">Cant</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-          <tfoot style="border-top: 1px solid black">
-            <tr>
-              <td colspan="2" class="totalTextCuenta">Total</td>
-              <td class="totalCuenta text-center">0</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-    </div>
-    <div class="relative overflow-x-auto container mx-auto px-4 mt-10">
-      <input
-        type="text"
-        id="txtSearch"
-        onkeyup="fnSearch()"
-        placeholder="Busca por producto o marca"
-        title="Buscar por Producto o Marca"
-      />
-      <table id="myTable" class="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-        <thead class="border-b bg-gray-800">
-          <tr id="row">
-            <th scope="col" class="name text-sm font-medium text-white px-6 py-4">Agregar</th>
-            <th scope="col" class="name text-sm font-medium text-white px-6 py-4">Nombre</th>
-            <th scope="col" class="pr text-sm font-medium text-white px-6 py-4">Precio</th>
-            <th scope="col" class="date text-sm font-medium text-white px-6 py-4">Super</th>
-            <th scope="col" class="date text-sm font-medium text-white px-6 py-4">Super</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for todo in todos %}
-          <!-- <tr class="datas bg-white border-b dark:border-gray-700" onmousedown="RowClick(this,false);"> -->
-          <tr class="datas bg-white border-b dark:border-gray-700">
-            <td class="acciones px-6 py-2">
-              <button
-                onclick="agregar(this)"
-                class="inline-flex items-center px-1 py-1 bg-green-300 hover:bg-green-400 text-green-800 text-sm font-medium rounded-md"
-              >
-                <svg viewBox="0 0 20 20" enable-background="new 0 0 20 20" class="w-6 h-6 inline-block">
-                  <path
-                    fill="#FFFFFF"
-                    d="M16,10c0,0.553-0.048,1-0.601,1H11v4.399C11,15.951,10.553,16,10,16c-0.553,0-1-0.049-1-0.601V11H4.601
-                                        C4.049,11,4,10.553,4,10c0-0.553,0.049-1,0.601-1H9V4.601C9,4.048,9.447,4,10,4c0.553,0,1,0.048,1,0.601V9h4.399
-                                        C15.952,9,16,9.447,16,10z"
-                  />
-                </svg>
-              </button>
-              <!-- <button
-                onclick="eliminar(this)"
-                class="inline-flex items-center px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-md"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  class="h-5 w-5 mr-2"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                  />
-                </svg>
-              </button> -->
-            </td>
-
-            <td class="name px-6 py-2">{{ todo["name"].title() }}</td>
-            <td class="pr px-6 py-2">${{ todo["price"] }}</td>
-            <td class="date px-6 py-2">
-              {% if todo["supermercado"] == "Carrefour" %} <img style="height:3em" src="static/images/carrefour.png" /> {% endif %} {% if
-              todo["supermercado"] == "SuperMami" %} <img style="height:2em" src="static/images/logo-super-mami.png" /> {% endif %} {% if
-              todo["supermercado"] == "Disco" %} <img style="height:3em" src="static/images/disco-logo.png" /> {% endif %} {% if
-              todo["supermercado"] == "Hiperlibertad" %} <img style="height:3em" src="static/images/libertad-logo.png" /> {% endif %}
-            </td>
-            <td class="date px-6 py-2">
-              {{ todo["supermercado"] }}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    <!-- {% else %}
-		<h4>No Tasks in the List !!</h4>
-	{% endif %} -->
-    <hr />
-  </body>
+    <!--  -->
+    <!-- JQUERY & PLUGINS -->
+    <!--  -->
+    <script src="./assets/plugins/jquery/jquery.min.js"></script>
+    <!-- Bootstrap tether Core JavaScript -->
+    <script src="./assets/plugins/bootstrap/js/popper.min.js"></script>
+    <script src="./assets/plugins/bootstrap/js/bootstrap.min.js"></script>
+    <!-- slimscrollbar scrollbar JavaScript -->
+    <script src="./assets/js/perfect-scrollbar.jquery.min.js"></script>
+    <!--Wave Effects -->
+    <script src="./assets/js/waves.js"></script>
+    <!--Menu sidebar -->
+    <script src="/assets/js/sidebarmenu.js"></script>
+    <!--stickey kit -->
+    <script src="./assets/plugins/sticky-kit-master/dist/sticky-kit.min.js"></script>
+    <script src="./assets/plugins/sparkline/jquery.sparkline.min.js"></script>
+    <!--Custom JavaScript -->
+    <script src="./assets/js/custom.js"></script>
+    <!-- ============================================================== -->
+    <!-- Style switcher -->
+    <!-- ============================================================== -->
+    <script src="./assets/plugins/styleswitcher/jQuery.style.switcher.js"></script>
+  <script src="runtime.131e633693fc3e79.js" type="module"></script><script src="polyfills.8721d19078b74347.js" type="module"></script><script src="main.173e20dfdc249232.js" type="module"></script></body>
 </html>

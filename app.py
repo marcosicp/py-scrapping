@@ -32,7 +32,7 @@ activeHiperlibertad =True
 global activeSupermami
 activeSupermami =True
 
-app = Flask(__name__)
+app = Flask(__name__,static_url_path='',)
 CORS(app)
 app.config['SECRET_KEY'] = 'secret!'
 socketio = SocketIO(app)
@@ -385,8 +385,9 @@ def scrape_hiperlibertad():
     return render_template('index.html', todos=jsondata,  carre=0, mami=0, hiper=jsondata.__len__(), disco=0)
 
 @app.route('/')
-def redirected():
-    return redirect("/supermercados")
+def root():
+    return render_template('index.html') # Return index.html 
+    # return redirect("/supermercados")
 
 @app.route("/supermercados")
 def ReturnJSON():

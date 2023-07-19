@@ -3,22 +3,21 @@ import { AgGridAngular } from 'ag-grid-angular';
 import { ColDef, GridApi, GridReadyEvent } from 'ag-grid-community';
 import { Observable } from 'rxjs';
 import { AppService } from 'src/app/service/app.service';
-// import {MatGridListModule} from '@angular/material/grid-list';
+
 
 @Component({
   selector: 'app-dashboard',
   templateUrl: './dashboard.component.html',
-  // standalone:true,
-  // imports: [MatGridListModule],
+
   styles: [],
 })
 export class DashboardComponent implements OnInit {
-  items?: Array<any>;
+  items?: any;
   // Each Column Definition results in one Column.
   public columnDefs: ColDef[] = [
     { field: 'name', sortable: true, filter: true, suppressSizeToFit: true,flex:1, },
-    { field: 'price', sortable: true, filter: true, suppressSizeToFit: true ,flex:0,},
-    { field: 'supermercado', sortable: true, filter: true, suppressSizeToFit: true,flex:0, },
+    { field: 'price', sortable: true, filter: true, suppressSizeToFit: true ,flex:1,},
+    { field: 'supermercado', sortable: true, filter: true, suppressSizeToFit: true,flex:1, },
   ];
   // DefaultColDef sets props common to all Columns
   public defaultColDef: ColDef = {
@@ -36,14 +35,12 @@ export class DashboardComponent implements OnInit {
   ngOnInit() {
     this.http.getExams().subscribe((a) => {
       // debugger;
-      this.items = a.todos;
-      // this.rowData$ = this.items;
+      this.items = a;
     });
   }
 
   // Example load data from server
   onGridReady(params: GridReadyEvent) {
-    this.rowData$ = this.http.getExams();
     this.gridApi = params.api;
   }
 
