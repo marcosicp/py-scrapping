@@ -38,19 +38,22 @@
 	</script>
 
 	<script>
-		function buscar(superTarget) {
-			socket.emit("scraping-" + superTarget);
+		function buscar(superTarget, categoria_) {
+
+			var obj = { categoria: categoria_ };
+
+			socket.emit("scraping-" + superTarget, obj);
 			socket.on("scraping-message-" + superTarget, function (param) {
 				$(".progress-bar-" + superTarget)
 					.append("<div>Procesando pagina: " + param + "</div>")
 			});
 		}
 
-		function frenar(superTarget) {
+		function frenar(superTarget, categoria) {
 			socket.emit(superTarget);
 			// socket.off().on("re_connect", function(msg) {
-            //             $(".report").append(msg.msg + "<br />");
-            //         });
+			//             $(".report").append(msg.msg + "<br />");
+			//         });
 			// socket.on("scraping-message-" + superTarget, function (param) {
 			// 	$(".progress-bar-" + superTarget)
 			// 		.append("<div>Procesando pagina: " + param + "</div>")
@@ -71,7 +74,10 @@
 		<div class="flex-1 ...">
 			<button
 				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
-				onclick="buscar('carrefour')">Carrefour</button>
+				onclick="buscar('carrefour', document.getElementById('carre-param').value)">Carrefour</button>
+			<div class="form-control-wrapper">
+				<input type="text" id="carre-param" class="form-control floating-label" placeholder="Categoria">
+			</div>
 
 			<div class="progress-bar-carrefour" style="width: 50%; margin: 50px">
 				<!-- <div class="progress-bar-carre progress-bar-striped active" role="progressbar" aria-valuenow="0"
@@ -80,15 +86,17 @@
 				</div> -->
 			</div>
 			<button
-			class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
-			onclick="
+				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
+				onclick="
 			frenar('scraping-carrefour-stop')">Frenar</button>
 		</div>
 		<div class="flex-1 ...">
 			<button
 				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
-				onclick="buscar('mami')">SuperMami</button>
-
+				onclick="buscar('mami', document.getElementById('mami-param').value)">SuperMami</button>
+				<div class="form-control-wrapper">
+					<input type="text" id="mami-param" class="form-control floating-label" placeholder="Categoria">
+				</div>
 			<div class="progress-bar-mami" style="width: 50%; margin: 50px">
 				<!-- <div class="progress-bar-mami progress-bar-striped active" role="progressbar" aria-valuenow="0"
 					aria-valuemin="0" aria-valuemax="100" style="width: 0%">
@@ -103,7 +111,10 @@
 		<div class="flex-1 ...">
 			<button
 				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
-				onclick="buscar('disco')">Disco</button>
+				onclick="buscar('disco', document.getElementById('disco-param').value)">Disco</button>
+				<div class="form-control-wrapper">
+					<input type="text" id="disco-param" class="form-control floating-label" placeholder="Categoria">
+				</div>
 			<div class="progress-bar-disco" style="width: 50%; margin: 50px">
 				<!-- <div class="progress-bar-disco progress-bar-striped active" role="progressbar" aria-valuenow="0"
 					aria-valuemin="0" aria-valuemax="100" style="width: 0%">
@@ -119,7 +130,10 @@
 			<button
 				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
 				onclick="
-				buscar('hiper')">Hiperlibertad</button>
+				buscar('hiper', document.getElementById('hiper-param').value)">Hiperlibertad</button>
+				<div class="form-control-wrapper">
+					<input type="text" id="hiper-param" class="form-control floating-label" placeholder="Categoria">
+				</div>
 			<div class="progress-bar-hiper" style="width: 50%; margin: 50px">
 				<!-- <div class="progress-bar-hiper progress-bar-striped active" role="progressbar" aria-valuenow="0"
 					aria-valuemin="0" aria-valuemax="100" style="width: 0%">

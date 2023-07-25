@@ -19,6 +19,7 @@ export class AppService {
     // debugger;
     return this.http
       .get(`https://p-cd22.onrender.com/supermercados`)
+      // .get(`http://127.0.0.1:3000/supermercados`)
       
   }
 }
