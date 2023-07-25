@@ -251,96 +251,69 @@ def scrape_carrefour_stop():
 @socketio.on('scraping-carrefour')
 def scrape_carrefour():
     jsondata = []
-    page = 1
-    driver = webdriver.Chrome()
-    driver.get("https://www.carrefour.com.ar/Almacen/")
-    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-    driver.switch_to.window(driver.current_window_handle)
-    time.sleep(10)
-    delay = 5
-  
-    results = driver.find_elements(By.CLASS_NAME, "valtech-carrefourar-search-result-0-x-galleryItem")
-    if(results.__len__() == 0):
-        return
+    categorias = ["almacen", "desayuno-y-merienda"]
     
-    else:
-        emit("scraping-message-carrefour", str(page) + "-" + str(results.__len__()))
-        total = int(driver.find_element(By.CLASS_NAME, "valtech-carrefourar-search-result-0-x-totalProducts--layout").text.split(" ")[0])
-        
-        # ya que le pego levanto los datos de la primera pegada
-        for htmlItem in results:
-            try:
-                section =htmlItem.find_element(By.XPATH, "*")
-                name =section.find_element(By.CLASS_NAME, "vtex-product-summary-2-x-productBrand").text
-                price =section.find_element(By.CLASS_NAME, "vtex-flex-layout-0-x-flexColChild--wrapPrice").text
-                # emit("scraping-message-carrefour", page)
-                jsonitea = {
-                    "supermercado": "Carrefour", "name": name,
-                    "price": price}
-                jsondata.append(jsonitea)
-            except Exception:
-                print("Oops!  That was no valid number.  Try again...")
-        
-        for i in range(2, int((total/16)-1)):
-            if not (activeCarre):
-                break
+    subcategorias = ["aceites-y-vinagres","arroz-y-legumbres", "caldos-sopas-y-pure",
+               "enlatados-y-conservas","harinas", "pastas-secas","reposteria-y-postres",
+               "sal-aderezos-y-saborizadores", "snacks"]
+    
+    driver = webdriver.Chrome()
+    
+    for categoria in categorias:
+        for subcategoria in subcategorias:
+            driver.get("https://www.carrefour.com.ar/"+ categoria +"/" + subcategoria)
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            driver.switch_to.window(driver.current_window_handle)
+            time.sleep(10)
+            total = int(driver.find_element(By.CLASS_NAME, "valtech-carrefourar-search-result-0-x-totalProducts--layout").text.split(" ")[0])
+            if(total == 0):
+                return
             
-            url = 'https://www.carrefour.com.ar/Almacen/?page=' + \
-                str(page)  # -- set url
-            response = _hTMLSession.get(url)
-            response.html.arender(sleep=8)
-            # -- get data and parse
-            soup = BeautifulSoup(response.text, 'html.parser')
-
-            anchors = soup.find_all(
-                'div', class_='flex flex-column min-vh-100 w-100')
-            if (len(anchors) > 0):
-                if (anchors[0].next.name != 'script'):
-                    flag = False
+            
+            for i in range(1, int((total/16))):
+                if not (activeCarre):
                     break
-                # for a in anchors:
-                item = anchors[0].next.contents[0]
-                jsonitem = json.loads(item)
+                
+                url = 'https://www.carrefour.com.ar/Almacen/' + subcategoria + '?page=' + \
+                    str(i)  # -- set url
+                response = _hTMLSession.get(url)
+                response.html.arender(sleep=8)
+                # -- get data and parse
+                soup = BeautifulSoup(response.text, 'html.parser')
 
-                for jsonitemi in jsonitem["itemListElement"]:
-                    try:
-                        if ("name" in jsonitemi["item"]):
-                            jsonitea = {"supermercado": "Carrefour",
-                                        "name": jsonitemi["item"]["name"], "price": jsonitemi["item"]["offers"]["lowPrice"]}
-                            jsondata.append(jsonitea)
-                            attempt = 0
-                    except Exception:
-                        print("Oops!  That was no valid number.  Try again...")
-                        continue
-            # driver.get("https://www.carrefour.com.ar/Almacen/?page=" + str(i))
-            # driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            # driver.switch_to.window(driver.current_window_handle)
-            # time.sleep(10)
-            # delay = 5
+                anchors = soup.find_all(
+                    'div', class_='flex flex-column min-vh-100 w-100')
+                if (len(anchors) > 0):
+                    if (anchors[0].next.name != 'script'):
+                        flag = False
+                        break
+                    # for a in anchors:
+                    item = anchors[0].next.contents[0]
+                    jsonitem = json.loads(item)
+
+                    for jsonitemi in jsonitem["itemListElement"]:
+                        try:
+                            if ("name" in jsonitemi["item"]):
+                                jsonitea = {"supermercado": "Carrefour",
+                                            "name": jsonitemi["item"]["name"], 
+                                            "brand": jsonitemi["item"]["brand"]["name"],
+                                            "sku": jsonitemi["item"]["sku"], 
+                                            "price": jsonitemi["item"]["offers"]["lowPrice"]}
+                                if not any(element['name'] in jsonitea['name'] for element in jsondata):
+                                    print('Chirp')
+                                    jsondata.append(jsonitea)
+                                # attempt = 0
+                        except Exception:
+                            print("Oops!  That was no valid number.  Try again...")
+                            continue
             
-            # results = driver.find_elements(By.CLASS_NAME, "valtech-carrefourar-search-result-0-x-galleryItem")
-            # if(results.__len__ == 0):
-            #     break
+                emit("scraping-message-carrefour", str(i) + "-" + str(total))
             
-            emit("scraping-message-carrefour", str(i) + "-" + str(results.__len__()))
-            
-            # for htmlItem in results:
-            #     try:
-            #         section =htmlItem.find_element(By.XPATH, "*")
-            #         name =section.find_element(By.CLASS_NAME, "vtex-product-summary-2-x-productBrand").text
-            #         price =section.find_element(By.CLASS_NAME, "vtex-flex-layout-0-x-flexColChild--wrapPrice").text
-            #         jsonitea = {
-            #             "supermercado": "Carrefour", "name": name,
-            #             "price": price}
-            #         jsondata.append(jsonitea)
-            #     except Exception:
-            #         print("Oops!  That was no valid number.  Try again...")
-        
     emit("scraping-message-carrefour", "PROCESO TERMINADO CON " + str(jsondata.__len__()) + " productos")
     jsondata.sort(key=lambda x: x["name"])
     with open('carrefour.json', 'w') as outfile:
         json.dump(jsondata, outfile)
-    return render_template('index.html', todos=jsondata, carre=jsondata.__len__(), mami=0, disco=0, hiper=0)
+    # return render_template('index.html', todos=jsondata, carre=jsondata.__len__(), mami=0, disco=0, hiper=0)
 
 @socketio.on('scraping-hiperlibertad-stop')
 def scrape_hiperlibertad_stop():
@@ -382,7 +355,7 @@ def scrape_hiperlibertad():
     
     emit("scraping-message-hiper", "PROCESO TERMINADO CON " + str(jsondata.__len__()) + " productos")
     print("Proceso HiperLibertad termino OK, con " + str(jsondata.__len__()) +  " productos")
-    return render_template('index.html', todos=jsondata,  carre=0, mami=0, hiper=jsondata.__len__(), disco=0)
+    # return render_template('index.html', todos=jsondata,  carre=0, mami=0, hiper=jsondata.__len__(), disco=0)
 
 @app.route('/')
 def root():
