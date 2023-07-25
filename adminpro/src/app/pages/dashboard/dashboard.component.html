@@ -5,24 +5,24 @@
       <div class="card-body">
         <div *ngIf="items != undefined" class="row justify-content-center">
           <div class="col-3 text-center">
-            <img style="width: 70px; height: 70px;  background-color: whitesmoke" src="./assets/images/carrefour.png" class="rounded img-fluid"
-              alt="..." />
-              <span  class="badge badge-primary" style="font-weight: bold;">{{items!.carre}}</span>
+            <img style="height: 70px;  background-color: whitesmoke" src="./assets/images/carrefour.png"
+              class="rounded img-fluid" alt="..." />
+            <span class="badge badge-primary" style="font-weight: bold;">{{items!.carre}}</span>
           </div>
           <div class="col-3 text-center">
             <img style="width: 70px; height: 70px;  background-color: whitesmoke" src="./assets/images/disco-logo.png"
               class="rounded img-responsive" alt="..." />
-              <span class="badge badge-danger" style="font-weight: bold;">{{items!.disco}}</span>
+            <span class="badge badge-danger" style="font-weight: bold;">{{items!.disco}}</span>
           </div>
           <div class="col-3 text-center">
-            <img style="height: 70px;; background-color: whitesmoke" src="./assets/images/libertad-logo.png"
+            <img style="height: 70px; width: 70px; background-color: whitesmoke" src="./assets/images/libertad-logo.png"
               class="rounded" alt="..." />
-              <span class="badge badge-warning" style="font-weight: bold;">{{items!.hiper}}</span>
+            <span class="badge badge-warning" style="font-weight: bold;">{{items!.hiper}}</span>
           </div>
           <div class="col-3 text-center">
-            <img width="70px" style=" height: 70px; background-color: whitesmoke" src="./assets/images/logo-super-mami.png"
-              class="rounded" alt="..." />
-              <span class="badge badge-danger" style="font-weight: bold;">{{items!.mami}}</span>
+            <img width="70px" style=" height: 70px;width: 70px;  background-color: whitesmoke"
+              src="./assets/images/logo-super-mami.jpeg" class="rounded" alt="..." />
+            <span class="badge badge-danger" style="font-weight: bold;">{{items!.mami}}</span>
           </div>
         </div>
       </div>
@@ -31,7 +31,7 @@
 </div>
 
 
-<br/>
+<br />
 
 
 <div class="row">
@@ -41,12 +41,12 @@
 
         <div *ngIf="items != undefined">
 
-          
+
           <input type="text" class="form-control" id="filter-text-box" placeholder="Filter..."
             (input)="onFilterTextBoxChanged()" />
-          <br >
-          <br >
-          <br >
+          <br>
+          <br>
+          <br>
           <ag-grid-angular style="width: 100%; height: 600px" class="ag-theme-alpine" [columnDefs]="columnDefs"
             [enableSorting]="true" [enableFilter]="true" [defaultColDef]="defaultColDef" [rowData]="items.todos"
             [rowSelection]="'multiple'" [animateRows]="true" (gridReady)="onGridReady($event)"></ag-grid-angular>

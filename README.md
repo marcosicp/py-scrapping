@@ -7,3 +7,5 @@ Run current file
 
 Angular en adminpro folder
 Buildear antes de deploy
+
+ng build --baseHref=”/static/”            

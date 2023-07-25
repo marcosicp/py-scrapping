@@ -1,4 +1,5 @@
 
+
 from flask import Flask, render_template, request, redirect, url_for, jsonify
 from flask_socketio import SocketIO, send, emit
 from bs4 import BeautifulSoup
@@ -7,7 +8,6 @@ from requests_html import AsyncHTMLSession
 import os
 import requests
 import time
-import asyncio
 import json
 import importlib.resources
 from selenium import webdriver
@@ -21,18 +21,18 @@ from flask_cors import CORS
 asession = AsyncHTMLSession()
 _hTMLSession = HTMLSession()
 global activeCarre
-activeCarre =True
+activeCarre = True
 
 global activeDisco
-activeDisco =True
+activeDisco = True
 
 global activeHiperlibertad
-activeHiperlibertad =True
+activeHiperlibertad = True
 
 global activeSupermami
-activeSupermami =True
+activeSupermami = True
 
-app = Flask(__name__,static_url_path='',)
+app = Flask(__name__, static_url_path='',)
 CORS(app)
 app.config['SECRET_KEY'] = 'secret!'
 socketio = SocketIO(app)
@@ -58,68 +58,77 @@ def scrape():
 def scrape_disco_stop():
     global activeDisco
     activeDisco = False
-    
+
     # socketio.socketio. removeAllListeners("scraping-disco")
 
-#este scrap carga todo con el boton Mostrar Mas, una vez cargados todos se procesan
+# este scrap carga todo con el boton Mostrar Mas, una vez cargados todos se procesan
+
+
 @socketio.on('scraping-disco')
-def scrape_disco():
+def scrape_disco(categoria):
     try:
         jsondata = []
         secciones_ = []
         page = 1
-        
+
         driver = webdriver.Chrome()
-        
+
         driver.maximize_window()
         driver.implicitly_wait(50)
-        
+
         driver.get("https://www.disco.com.ar/almacen")
         time.sleep(5)
-        seccionesReq = WebDriverWait(driver, 15).until(EC.visibility_of_all_elements_located((By.CLASS_NAME, "categoryList-container__items")))
-        
-        secciones = seccionesReq[0].find_elements(By.CLASS_NAME, "categoryItem")
-        
+        seccionesReq = WebDriverWait(driver, 15).until(EC.visibility_of_all_elements_located(
+            (By.CLASS_NAME, "categoryList-container__items")))
+
+        secciones = seccionesReq[0].find_elements(
+            By.CLASS_NAME, "categoryItem")
+
         for seccion in secciones:
             href_ = seccion.get_attribute('href').split(".ar/")[1]
             secciones_.append(href_)
-        
+
         print("secciones " + str(secciones.__len__()))
-        
+
         for seccion in secciones_:
-            ## SCRAP DE SECCION
+            # SCRAP DE SECCION
             driver.get("https://www.disco.com.ar/" + seccion)
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
+            driver.execute_script(
+                "window.scrollTo(0, document.body.scrollHeight/2);")
             # driver.switch_to.window(driver.current_window_handle)
             time.sleep(5)
-            
+
             # LEO EL TOTAL DE LA SECCION
-            total = int(driver.find_element(By.CLASS_NAME, "vtex-search-result-3-x-totalProducts--layout").text.split(" ")[0])
-            todos = WebDriverWait(driver, 15).until(EC.visibility_of_all_elements_located((By.ID, "gallery-layout-container")))
+            total = int(driver.find_element(
+                By.CLASS_NAME, "vtex-search-result-3-x-totalProducts--layout").text.split(" ")[0])
+            todos = WebDriverWait(driver, 15).until(
+                EC.visibility_of_all_elements_located((By.ID, "gallery-layout-container")))
             results = todos[0].find_elements(By.XPATH, "*")
-            emit("scraping-message-disco", str(page) + "-" + str(results.__len__()))
-            if(results.__len__() == 0):
+            emit("scraping-message-disco", str(page) +
+                 "-" + str(results.__len__()))
+            if (results.__len__() == 0):
                 return
-            
+
             else:
                 # for i in range(2, 10): #test
-                for i in range(4, int((total/20))+1):
+                for i in range(2, int((total/20))+1):
                     if not (activeDisco):
                         break
-                    
+
                     try:
                         # driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
                         # buttonMas = WebDriverWait(driver, 15).until(EC.visibility_of_all_elements_located((By.XPATH, "//*[contains(text(), 'Mostrar más')]")))
-                        
+
                         # time.sleep(3)
                         # buttonMas[0].click()
                         # time.sleep(3)
-                        
-                        emit("scraping-message-disco", page)
+
+                        emit("scraping-message-disco", i)
                         # page += 1
-                        print('scraping data from Disco - ' + seccion +' pagina: ' + str(i))
+                        print('scraping data from Disco - ' +
+                              seccion + ' pagina: ' + str(i))
                         url = 'https://www.disco.com.ar/' + seccion + '?page=' + \
-                            str(page)  # -- set url
+                            str(i)  # -- set url
                         response = _hTMLSession.get(url)
                         response.html.arender(sleep=8)
                         # -- get data and parse
@@ -140,10 +149,13 @@ def scrape_disco():
                                     if ("name" in jsonitemi["item"]):
                                         jsonitea = {"supermercado": "Disco",
                                                     "name": jsonitemi["item"]["name"], "price": jsonitemi["item"]["offers"]["lowPrice"]}
-                                        jsondata.append(jsonitea)
+                                        if not any(element['name'] in jsonitea['name'] for element in jsondata):
+                                            print('Chirp')
+                                            jsondata.append(jsonitea)
                                         attempt = 0
                                 except Exception:
-                                    print("Oops!  That was no valid number.  Try again...")
+                                    print(
+                                        "Oops!  That was no valid number.  Try again...")
                                     continue
                         else:
                             # print('la pagina anterior debe ser reprocesada Disco - Almacen pagina: ' + str(page))
@@ -154,42 +166,34 @@ def scrape_disco():
                             #     flag=False
                             #     break
                             continue
-                        emit("scraping-message-disco", str(i) + "-" + str(results.__len__()))
+                        emit("scraping-message-disco", str(i) +
+                             "-" + str(results.__len__()))
                     except Exception:
-                        emit("scraping-message-disco", "Error al cargar la pagina:" + str(i))
+                        emit("scraping-message-disco",
+                             "Error al cargar la pagina:" + str(i))
                         continue
-            
-                # todos = WebDriverWait(driver, 15).until(EC.visibility_of_all_elements_located((By.ID, "gallery-layout-container")))
-                # results = todos[0].find_elements(By.XPATH, "*")
-                # for htmlItem in results:
-                #     try:
-                #         section =htmlItem.find_element(By.XPATH, "*")
-                #         name =section.find_element(By.CLASS_NAME, "vtex-product-summary-2-x-nameContainer").text
-                #         price =section.find_element(By.CLASS_NAME, "vtex-flex-layout-0-x-flexRow--mainRow-price-box").text
-                #         jsonitea = {
-                #             "supermercado": "Disco", "name": name,
-                #             "price": price}
-                #         jsondata.append(jsonitea)
-                #     except Exception:
-                #         print("Oops!  That was no valid number.  Try again...")
 
             jsondata.sort(key=lambda x: x["name"])
             fileName = seccion.split("/")[1]
             with open('.disco/almacen/'+fileName+'.json', 'w') as outfile:
                 json.dump(jsondata, outfile)
                 jsondata.clear()
-        
-        emit("scraping-message-disco", "PROCESO TERMINADO CON " + str(jsondata.__len__()) + " productos")
-        print("Proceso Disco termino OK, con " + str(jsondata.__len__()) +  " productos")
+
+        emit("scraping-message-disco", "PROCESO TERMINADO CON " +
+             str(jsondata.__len__()) + " productos")
+        print("Proceso Disco termino OK, con " +
+              str(jsondata.__len__()) + " productos")
         return render_template('index.html', todos=jsondata, carre=0, mami=0, hiper=0, disco=jsondata.__len__())
     except Exception:
         print("Oops!  That was no valid number.  Try again...")
+
 
 @socketio.on('scraping-supermami-stop')
 def scrape_supermami_stop():
     global activeSupermami
     activeSupermami = False
-    
+
+
 @socketio.on('scraping-mami')
 def scrape_supermami():
     jsonData = []
@@ -222,7 +226,7 @@ def scrape_supermami():
             soup = BeautifulSoup(response.text, 'html.parser')
 
             productos = soup.find_all('div', class_='product')
-            if(activeSupermami):
+            if (activeSupermami):
                 if (len(productos) > 0):
                     for a in productos:
                         item = {
@@ -232,15 +236,19 @@ def scrape_supermami():
                         jsonData.append(item)  # -- append item to json
                 else:
                     continue
-            else: break
+            else:
+                break
 
         jsonData.sort(key=lambda x: x["name"])
         with open('supermami.json', 'w') as outfile:
             # -- save jsondata to '.json' file
             json.dump(jsonData, outfile)
-        emit("scraping-message-mami", "PROCESO TERMINADO CON " + str(jsonData.__len__()) + " productos")
-        print("Proceso Mami termino OK, con " + str(jsonData.__len__()) +  " productos")
+        emit("scraping-message-mami", "PROCESO TERMINADO CON " +
+             str(jsonData.__len__()) + " productos")
+        print("Proceso Mami termino OK, con " +
+              str(jsonData.__len__()) + " productos")
         return render_template('index.html', todos=jsonData, carre=0, mami=jsonData.__len__(), hiper=0, disco=0)
+
 
 @socketio.on('scraping-carrefour-stop')
 def scrape_carrefour_stop():
@@ -248,78 +256,168 @@ def scrape_carrefour_stop():
     activeCarre = False
 
 # CON SELENIUM
+
+
 @socketio.on('scraping-carrefour')
-def scrape_carrefour():
+def scrape_carrefour(param):
     jsondata = []
-    categorias = ["almacen", "desayuno-y-merienda"]
-    
-    subcategorias = ["aceites-y-vinagres","arroz-y-legumbres", "caldos-sopas-y-pure",
-               "enlatados-y-conservas","harinas", "pastas-secas","reposteria-y-postres",
-               "sal-aderezos-y-saborizadores", "snacks"]
-    
+
+    # buscar secciones y subsecciones dinamicamente
+    categorias = [{"categoria": "almacen", "subcategorias": ["aceites-y-vinagres", "arroz-y-legumbres", "caldos-sopas-y-pure",
+                                                             "enlatados-y-conservas", "harinas", "pastas-secas", "reposteria-y-postres",
+                                                             "sal-aderezos-y-saborizadores", "snacks"]},
+                  {"categoria": "desayuno-y-merienda", "subcategorias": ["azucar-y-endulzantes", "budines-y-magdalenas", "cafe", "cereales-y-barritas",
+                                                                          "galletitas-bizcochitos-y-tostadas", "golosinas-y-chocolates", "infusiones", "mermeladas-y-otros-dulces", "yerba"]}]
+
     driver = webdriver.Chrome()
-    
-    for categoria in categorias:
-        for subcategoria in subcategorias:
-            driver.get("https://www.carrefour.com.ar/"+ categoria +"/" + subcategoria)
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            driver.switch_to.window(driver.current_window_handle)
-            time.sleep(10)
-            total = int(driver.find_element(By.CLASS_NAME, "valtech-carrefourar-search-result-0-x-totalProducts--layout").text.split(" ")[0])
-            if(total == 0):
-                return
-            
-            
-            for i in range(1, int((total/16))):
-                if not (activeCarre):
-                    break
-                
-                url = 'https://www.carrefour.com.ar/Almacen/' + subcategoria + '?page=' + \
-                    str(i)  # -- set url
-                response = _hTMLSession.get(url)
-                response.html.arender(sleep=8)
-                # -- get data and parse
-                soup = BeautifulSoup(response.text, 'html.parser')
+    categoreq = next((x for x in categorias if x["categoria"] == param["categoria"]), None)
 
-                anchors = soup.find_all(
-                    'div', class_='flex flex-column min-vh-100 w-100')
-                if (len(anchors) > 0):
-                    if (anchors[0].next.name != 'script'):
-                        flag = False
+    if(categoreq is not None):
+        emit("scraping-message-carrefour", "Scrapeando categoria: " + categoreq["categoria"] )
+        for subcategoria in categoreq["subcategorias"]:
+            try:
+                emit("scraping-message-carrefour", "Inicio Scrap sub-categoria: " + subcategoria)
+                driver.get("https://www.carrefour.com.ar/" +
+                        categoreq["categoria"] + "/" + subcategoria)
+                driver.execute_script(
+                    "window.scrollTo(0, document.body.scrollHeight);")
+                driver.switch_to.window(driver.current_window_handle)
+                time.sleep(10)
+                total = int(driver.find_element(
+                    By.CLASS_NAME, "valtech-carrefourar-search-result-0-x-totalProducts--layout").text.split(" ")[0])
+                if (total == 0):
+                    return
+
+                for i in range(1, int((total/16))):
+                    if not (activeCarre):
                         break
-                    # for a in anchors:
-                    item = anchors[0].next.contents[0]
-                    jsonitem = json.loads(item)
 
-                    for jsonitemi in jsonitem["itemListElement"]:
-                        try:
-                            if ("name" in jsonitemi["item"]):
-                                jsonitea = {"supermercado": "Carrefour",
-                                            "name": jsonitemi["item"]["name"], 
-                                            "brand": jsonitemi["item"]["brand"]["name"],
-                                            "sku": jsonitemi["item"]["sku"], 
-                                            "price": jsonitemi["item"]["offers"]["lowPrice"]}
-                                if not any(element['name'] in jsonitea['name'] for element in jsondata):
-                                    print('Chirp')
-                                    jsondata.append(jsonitea)
-                                # attempt = 0
-                        except Exception:
-                            print("Oops!  That was no valid number.  Try again...")
-                            continue
+                    url = 'https://www.carrefour.com.ar/' + categoreq["categoria"] + '/' + subcategoria + '?page=' + \
+                        str(i)  # -- set url
+                    response = _hTMLSession.get(url)
+                    response.html.arender(sleep=8)
+                    # -- get data and parse
+                    soup = BeautifulSoup(response.text, 'html.parser')
+
+                    anchors = soup.find_all(
+                        'div', class_='flex flex-column min-vh-100 w-100')
+                    if (len(anchors) > 0):
+                        if (anchors[0].next.name != 'script'):
+                            flag = False
+                            break
+                        # for a in anchors:
+                        item = anchors[0].next.contents[0]
+                        jsonitem = json.loads(item)
+
+                        for jsonitemi in jsonitem["itemListElement"]:
+                            try:
+                                if ("name" in jsonitemi["item"]):
+                                    jsonitea = {"supermercado": "Carrefour",
+                                                "name": jsonitemi["item"]["name"],
+                                                "brand": jsonitemi["item"]["brand"]["name"],
+                                                "sku": jsonitemi["item"]["sku"],
+                                                "price": jsonitemi["item"]["offers"]["lowPrice"]}
+                                    if not any(element['name'] in jsonitea['name'] for element in jsondata):
+                                        print('Chirp')
+                                        jsondata.append(jsonitea)
+                                    # attempt = 0
+                            except Exception:
+                                emit("scraping-message-carrefour", "Error al construir array de subcategoria: " + subcategoria)
+                                print("Error al construir array")
+                                continue
+
+                    emit("scraping-message-carrefour", str(i) + "-" + str(total))
             
-                emit("scraping-message-carrefour", str(i) + "-" + str(total))
+            except Exception:
+                emit("scraping-message-carrefour", "Error en scraper al traer productos")
+                print("Error en scraper al traer productos")
+                continue
+        fileName = categoreq["categoria"]
+        with open('.carrefour/almacen/'+fileName+'.json', 'w') as outfile:
+            json.dump(jsondata, outfile)
+            jsondata.clear()
+        return
+        
+    for categoria in categorias:
+        emit("scraping-message-carrefour", "Scrapeando categoria: " + categoria["categorias"] )
+        for subcategoria in categoria["subcategorias"]:
+            try:
+                emit("scraping-message-carrefour", "Inicio Scrap sub-categoria: " + subcategoria)
+                driver.get("https://www.carrefour.com.ar/" +
+                        categoria["categoria"] + "/" + subcategoria)
+                driver.execute_script(
+                    "window.scrollTo(0, document.body.scrollHeight);")
+                driver.switch_to.window(driver.current_window_handle)
+                time.sleep(10)
+                total = int(driver.find_element(
+                    By.CLASS_NAME, "valtech-carrefourar-search-result-0-x-totalProducts--layout").text.split(" ")[0])
+                if (total == 0):
+                    return
+
+                for i in range(1, int((total/16))):
+                    if not (activeCarre):
+                        break
+
+                    url = 'https://www.carrefour.com.ar/' + categoria["categoria"] + '/' + subcategoria + '?page=' + \
+                        str(i)  # -- set url
+                    response = _hTMLSession.get(url)
+                    response.html.arender(sleep=8)
+                    # -- get data and parse
+                    soup = BeautifulSoup(response.text, 'html.parser')
+
+                    anchors = soup.find_all(
+                        'div', class_='flex flex-column min-vh-100 w-100')
+                    if (len(anchors) > 0):
+                        if (anchors[0].next.name != 'script'):
+                            flag = False
+                            break
+                        # for a in anchors:
+                        item = anchors[0].next.contents[0]
+                        jsonitem = json.loads(item)
+
+                        for jsonitemi in jsonitem["itemListElement"]:
+                            try:
+                                if ("name" in jsonitemi["item"]):
+                                    jsonitea = {"supermercado": "Carrefour",
+                                                "name": jsonitemi["item"]["name"],
+                                                "brand": jsonitemi["item"]["brand"]["name"],
+                                                "sku": jsonitemi["item"]["sku"],
+                                                "price": jsonitemi["item"]["offers"]["lowPrice"]}
+                                    if not any(element['name'] in jsonitea['name'] for element in jsondata):
+                                        print('Chirp')
+                                        jsondata.append(jsonitea)
+                                    # attempt = 0
+                            except Exception:
+                                emit("scraping-message-carrefour", "Error al construir array de subcategoria: " + subcategoria)
+                                print("Error al construir array")
+                                continue
+
+                    emit("scraping-message-carrefour", str(i) + "-" + str(total))
             
-    emit("scraping-message-carrefour", "PROCESO TERMINADO CON " + str(jsondata.__len__()) + " productos")
-    jsondata.sort(key=lambda x: x["name"])
-    with open('carrefour.json', 'w') as outfile:
-        json.dump(jsondata, outfile)
+            except Exception:
+                emit("scraping-message-carrefour", "Error en scraper al traer productos")
+                print("Error en scraper al traer productos")
+                continue
+        fileName = categoria["categorias"]
+        with open('.carrefour/almacen/'+fileName+'.json', 'w') as outfile:
+            json.dump(jsondata, outfile)
+            jsondata.clear()
+        # with open('carrefour.json', 'w') as outfile:
+        #     json.dump(jsondata, outfile)   
+    emit("scraping-message-carrefour", "PROCESO TERMINADO CON " +
+         str(jsondata.__len__()) + " productos")
+    # jsondata.sort(key=lambda x: x["name"])
+    # with open('carrefour.json', 'w') as outfile:
+    #     json.dump(jsondata, outfile)
     # return render_template('index.html', todos=jsondata, carre=jsondata.__len__(), mami=0, disco=0, hiper=0)
+
 
 @socketio.on('scraping-hiperlibertad-stop')
 def scrape_hiperlibertad_stop():
     global activeHiperlibertad
     activeHiperlibertad = False
-    
+
+
 @socketio.on('scraping-hiper')
 def scrape_hiperlibertad():
     # EN ESTE SCRAP ES IMPOSIBLE SABER EL TOTAL, ASI QUE CON UN WHILE != [] SE SOLUCIONA PROVISORIAMENTE
@@ -352,23 +450,40 @@ def scrape_hiperlibertad():
     jsondata.sort(key=lambda x: x["name"])
     with open('hiperlibertad.json', 'w') as outfile:
         json.dump(jsondata, outfile)
-    
-    emit("scraping-message-hiper", "PROCESO TERMINADO CON " + str(jsondata.__len__()) + " productos")
-    print("Proceso HiperLibertad termino OK, con " + str(jsondata.__len__()) +  " productos")
+
+    emit("scraping-message-hiper", "PROCESO TERMINADO CON " +
+         str(jsondata.__len__()) + " productos")
+    print("Proceso HiperLibertad termino OK, con " +
+          str(jsondata.__len__()) + " productos")
     # return render_template('index.html', todos=jsondata,  carre=0, mami=0, hiper=jsondata.__len__(), disco=0)
+
 
 @app.route('/')
 def root():
-    return render_template('index.html') # Return index.html 
+    return render_template('index.html')  # Return index.html
     # return redirect("/supermercados")
+
+
+def remove_duplicates_by_key(objects_list, key):
+    unique_keys = set()
+    new_objects_list = []
+
+    for obj in objects_list:
+        if obj[key] not in unique_keys:
+            unique_keys.add(obj[key])
+            new_objects_list.append(obj)
+
+    return new_objects_list
+
 
 @app.route("/supermercados")
 def ReturnJSON():
-    data4=[]
+    data4 = []
     for a in os.listdir(".disco/almacen"):
-        # fileName=a+".json"
         with open(".disco/almacen/"+a) as file3:
             data4 = data4 + json.load(file3)
+    new_objects_list = remove_duplicates_by_key(data4, 'name')
+    data4 = new_objects_list
     with open('carrefour.json') as fp:
         data1 = json.load(fp)
         with open("supermami.json") as file1:
@@ -380,9 +495,11 @@ def ReturnJSON():
                 data = data1 + data2 + data3 + data4
                 data.sort(key=lambda x: x["name"])
 
-    ret = {'todos':data, 'carre':data1.__len__(), 'disco':data4.__len__(), 'mami':data2.__len__(), 'hiper':data3.__len__()}
+    ret = {'todos': data, 'carre': data1.__len__(), 'disco': data4.__len__(
+    ), 'mami': data2.__len__(), 'hiper': data3.__len__()}
     # return render_template('index.html', todos=data, carre=data1.__len__(), disco=data4.__len__(), mami=data2.__len__(), hiper=data3.__len__())
     return jsonify(ret)
+
 
 @app.route("/supermercado-carrefour")
 def supermercadosCarrefour():
@@ -400,8 +517,9 @@ def supermercadosDisco():
         data = json.load(fp)
         data.sort(key=lambda x: x["name"])
 
-    return render_template('index.html', todos=data, carre=0, mami=0, hiper=0,disco=data.__len__()
+    return render_template('index.html', todos=data, carre=0, mami=0, hiper=0, disco=data.__len__()
                            )
+
 
 @app.route("/supermercado-hiper")
 def supermercadosHiper():
@@ -409,7 +527,7 @@ def supermercadosHiper():
         data = json.load(fp)
         data.sort(key=lambda x: x["name"])
 
-    return render_template('index.html', todos=data, carre=0, mami=0, hiper= data.__len__(), disco=0)
+    return render_template('index.html', todos=data, carre=0, mami=0, hiper=data.__len__(), disco=0)
 
 
 @app.route("/supermercado-supermami")
@@ -418,10 +536,16 @@ def supermercadosSupermami():
         data = json.load(fp)
         data.sort(key=lambda x: x["name"])
 
-    return render_template('index.html', todos=data, carre=0, mami=data.__len__(), hiper= 0, disco=0)
+    return render_template('index.html', todos=data, carre=0, mami=data.__len__(), hiper=0, disco=0)
+
 
 if __name__ == '__main__':
     if cf_port is None:
         socketio.run(app, port=3000, debug=True)
     else:
         socketio.run(app, port=int(cf_port), debug=True)
+
+
+class MyObject:
+    def __init__(self, name):
+        self.name = name
