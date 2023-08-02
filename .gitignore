@@ -8,3 +8,6 @@ adminpro/dist
 
 .vscode
 __pycache__/*
+api/scrapers/__pycache__/*
+api/__pycache__/*
+api/helpers/__pycache__/*

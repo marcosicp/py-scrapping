@@ -1,0 +1,13 @@
+/* app.component.scss */
+.input-container {
+    display: flex;
+    align-items: center;
+    border: 1px solid #ccc;
+    border-radius: 30px;
+    /* padding: 8px; */
+  }
+  
+  .mat-icon {
+    /* margin-right: 8px; */
+    color: #888; /* Icon color */
+  }

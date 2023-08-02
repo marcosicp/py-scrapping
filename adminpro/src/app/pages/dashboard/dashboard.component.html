@@ -5,24 +5,49 @@
       <div class="card-body">
         <div *ngIf="items != undefined" class="row justify-content-center">
           <div class="col-3 text-center">
-            <img style="height: 70px;  background-color: whitesmoke" src="./assets/images/carrefour.png"
-              class="rounded img-fluid" alt="..." />
-            <span class="badge badge-primary" style="font-weight: bold;">{{items!.carre}}</span>
+            <img
+              style="height: 70px; background-color: whitesmoke"
+              src="./assets/images/carrefour.png"
+              class="rounded img-fluid"
+              alt="..."
+            />
+            <span class="badge badge-primary" style="font-weight: bold">{{
+              items!.carre
+            }}</span>
           </div>
           <div class="col-3 text-center">
-            <img style="width: 70px; height: 70px;  background-color: whitesmoke" src="./assets/images/disco-logo.png"
-              class="rounded img-responsive" alt="..." />
-            <span class="badge badge-danger" style="font-weight: bold;">{{items!.disco}}</span>
+            <img
+              style="width: 70px; height: 70px; background-color: whitesmoke"
+              src="./assets/images/disco-logo.png"
+              class="rounded img-responsive"
+              alt="..."
+            />
+            <span class="badge badge-danger" style="font-weight: bold">{{
+              items!.disco
+            }}</span>
           </div>
           <div class="col-3 text-center">
-            <img style="height: 70px; width: 70px; background-color: whitesmoke" src="./assets/images/libertad-logo.png"
-              class="rounded" alt="..." />
-            <span class="badge badge-warning" style="font-weight: bold;">{{items!.hiper}}</span>
+            <img
+              style="height: 70px; width: 70px; background-color: whitesmoke"
+              src="./assets/images/libertad-logo.png"
+              class="rounded"
+              alt="..."
+            />
+            <span class="badge badge-warning" style="font-weight: bold">{{
+              items!.hiper
+            }}</span>
           </div>
           <div class="col-3 text-center">
-            <img width="70px" style=" height: 70px;width: 70px;  background-color: whitesmoke"
-              src="./assets/images/logo-super-mami.jpeg" class="rounded" alt="..." />
-            <span class="badge badge-danger" style="font-weight: bold;">{{items!.mami}}</span>
+            <img
+              width="70px"
+              style="height: 70px; width: 70px; background-color: whitesmoke"
+              src="./assets/images/logo-super-mami.jpeg"
+              class="rounded"
+              alt="..."
+            />
+            <span class="badge badge-danger" style="font-weight: bold">{{
+              items!.mami
+            }}</span>
           </div>
         </div>
       </div>
@@ -30,26 +55,128 @@
   </div>
 </div>
 
+<div class="row">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-body">
+        <div *ngIf="items != undefined" class="row justify-content-center">
+          <div class="col-3 text-center">
+            <ag-grid-angular
+            #agGrid4
+            style="width: 100%; height: 200px"
+            class="ag-theme-alpine"
+            [columnDefs]="columnDefsGeneric"
+            [rowData]="itemsCarre"
+            [animateRows]="true"
+            (gridReady)="onGridReady4($event)"
+            [overlayNoRowsTemplate]="noRowsTemplate"
+          ></ag-grid-angular>
+          </div>
+          <div class="col-3 text-center">
+            <ag-grid-angular
+            #agGrid3
+            style="width: 100%; height: 200px"
+            class="ag-theme-alpine"
+            [columnDefs]="columnDefsGeneric"
+            [rowData]="itemsDisco"
+            [animateRows]="true"
+            (gridReady)="onGridReady3($event)"
+            [overlayNoRowsTemplate]="noRowsTemplate"
+          ></ag-grid-angular>
+          </div>
+          <div class="col-3 text-center">
+            <ag-grid-angular
+            #agGrid2
+            style="width: 100%; height: 200px"
+            class="ag-theme-alpine"
+            [columnDefs]="columnDefsGeneric"
+            [rowData]="itemsHiper"
+            [animateRows]="true"
+            (gridReady)="onGridReady2($event)"
+            [overlayNoRowsTemplate]="noRowsTemplate"
+          ></ag-grid-angular>
+          </div>
+          <div class="col-3 text-center">
+            <ag-grid-angular
+            #agGrid1
+            style="width: 100%; height: 200px"
+            class="ag-theme-alpine"
+            [columnDefs]="columnDefsGeneric"
+            [rowData]="itemsMami"
+            [animateRows]="true"
+            (gridReady)="onGridReady1($event)"
+            [overlayNoRowsTemplate]="noRowsTemplate"
+          ></ag-grid-angular>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
-<br />
-
+<!-- <br /> -->
+<div class="row">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-body">
+        Busca los productos que necesites y agrégalos a la lista para
+        compararlos! No te olvides de agrear el producto equivalente en el super
+        de competencia
+      </div>
+    </div>
+  </div>
+</div>
 
 <div class="row">
   <div class="col-12">
     <div class="card">
       <div class="card-body">
-
         <div *ngIf="items != undefined">
+          <div class="input-container" style="height: 50px">
+            <input
+              matInput
+              type="text"
+              style="border: 0; border-radius: 30px"
+              class="form-control rounded-pill"
+              id="filter-text-box"
+              placeholder="Busca tu producto o supermercado..."
+              (input)="onFilterTextBoxChanged()"
+            />
+            <!-- <div matSuffix style="position: relative; bottom: 8px;">💡</div> -->
+            <!-- <mat-icon matPrefix class="my-icon">sentiment_very_satisfied</mat-icon> -->
+            <div
+              layout-align="center center"
+              style="
+                margin-right: 8px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 50%;
+                width: 38px;
+                height: 35px;
+                background-color: cornflowerblue;
+              "
+              class="border-bottom-0 border rounded-pill ms-n5"
+              type="button"
+            >
+              <mat-icon style="color: white">search</mat-icon>
+            </div>
+          </div>
+          <br />
 
-
-          <input type="text" class="form-control" id="filter-text-box" placeholder="Filter..."
-            (input)="onFilterTextBoxChanged()" />
-          <br>
-          <br>
-          <br>
-          <ag-grid-angular style="width: 100%; height: 600px" class="ag-theme-alpine" [columnDefs]="columnDefs"
-            [enableSorting]="true" [enableFilter]="true" [defaultColDef]="defaultColDef" [rowData]="items.todos"
-            [rowSelection]="'multiple'" [animateRows]="true" (gridReady)="onGridReady($event)"></ag-grid-angular>
+          <ag-grid-angular
+            style="width: 100%; height: 600px"
+            class="ag-theme-alpine"
+            [columnDefs]="columnDefs"
+            [enableSorting]="true"
+            [enableFilter]="true"
+            [defaultColDef]="defaultColDef"
+            [rowData]="items.todos"
+            [suppressRowClickSelection]="true"
+            [rowSelection]="rowSelection"
+            [animateRows]="true"
+            (gridReady)="onGridReady($event)"
+          ></ag-grid-angular>
         </div>
       </div>
     </div>

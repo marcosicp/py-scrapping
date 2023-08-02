@@ -39,10 +39,14 @@
 
 	<script>
 		function buscar(superTarget, categoria_) {
-
+			debugger;
 			var obj = { categoria: categoria_ };
+			const Http = new XMLHttpRequest();
+			const url='http://127.0.0.1:3000/scraping-changomas?category=' + categoria_;
+			Http.open("POST", url);
+			Http.send();
 
-			socket.emit("scraping-" + superTarget, obj);
+			// socket.emit("scraping-" + superTarget, obj);
 			socket.on("scraping-message-" + superTarget, function (param) {
 				$(".progress-bar-" + superTarget)
 					.append("<div>Procesando pagina: " + param + "</div>")
@@ -50,7 +54,10 @@
 		}
 
 		function frenar(superTarget, categoria) {
-			socket.emit(superTarget);
+			const url='http://127.0.0.1:3000/scraping-changomas?category=' + categoria_;
+			Http.open("GET", url);
+			Http.send();
+			// socket.emit(superTarget);
 			// socket.off().on("re_connect", function(msg) {
 			//             $(".report").append(msg.msg + "<br />");
 			//         });
@@ -144,6 +151,26 @@
 				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
 				onclick="
 				frenar('scraping-hiperlibertad-stop')">Frenar</button>
+		</div>
+
+		<div class="flex-1 ...">
+			<button
+				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
+				onclick="
+				buscar('changomas', document.getElementById('changomas-param').value)">ChangoMas</button>
+				<div class="form-control-wrapper">
+					<input type="text" id="changomas-param" class="form-control floating-label" placeholder="Categoria">
+				</div>
+			<div class="progress-bar-changomas" style="width: 50%; margin: 50px">
+				<!-- <div class="progress-bar-hiper progress-bar-striped active" role="progressbar" aria-valuenow="0"
+					aria-valuemin="0" aria-valuemax="100" style="width: 0%">
+					<span class="progress-bar-label-hiper">0%</span>
+				</div> -->
+			</div>
+			<button
+				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
+				onclick="
+				frenar('scraping-changomas-stop')">Frenar</button>
 		</div>
 	</div>
 </body>

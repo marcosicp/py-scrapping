@@ -20,6 +20,8 @@ import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { MatGridListModule } from '@angular/material/grid-list';
 import { AgGridModule } from 'ag-grid-angular';
 import { HashLocationStrategy, LocationStrategy } from '@angular/common';
+import { MatIconModule } from '@angular/material/icon';
+import { TotalValueRenderer } from './pages/dashboard/cellRender';
 
 
 @NgModule({
@@ -35,6 +37,7 @@ import { HashLocationStrategy, LocationStrategy } from '@angular/common';
     ProgressComponent,
     Grafica1Component,
     PagesComponent,
+    TotalValueRenderer
     // AppRoutingComponent
   ],
   imports: [
@@ -43,6 +46,7 @@ import { HashLocationStrategy, LocationStrategy } from '@angular/common';
     HttpClientModule,
     NoopAnimationsModule,
     MatGridListModule,
+    MatIconModule,
     AgGridModule,
   ],
   
