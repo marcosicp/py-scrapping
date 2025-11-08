@@ -16,10 +16,9 @@ export class AppService {
 
   // GET list of public, future events
   getExams(): Observable<any> {
-    // debugger;
     return this.http
-      .get(`https://p-cd22.onrender.com/supermercados`)
-      // .get(`http://127.0.0.1:3000/supermercados`)
+      // .get(`https://p-cd22.onrender.com/supermercados`)
+      .get(`http://127.0.0.1:3000/supermercados`)
       
   }
 }

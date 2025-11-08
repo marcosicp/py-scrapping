@@ -12,7 +12,7 @@ import { TotalValueRenderer } from './cellRender';
 })
 export class DashboardComponent implements OnInit {
   items?: any;
-  noRowsTemplate = "¡Agrega tus productos!";
+  noRowsTemplate = '¡Agrega tus productos!';
   itemsCarre?: any[] = [];
   itemsDisco?: any[] = [];
   itemsMami?: any[] = [];
@@ -26,7 +26,7 @@ export class DashboardComponent implements OnInit {
       flex: 0,
       sortable: true,
       filter: true,
-      cellStyle: {textAlign: 'center'},
+      cellStyle: { textAlign: 'center' },
       cellRenderer: TotalValueRenderer,
       cellRendererParams: {
         clicked: (data: any) => {
@@ -36,19 +36,49 @@ export class DashboardComponent implements OnInit {
       },
     },
     {
-      field: 'name',headerName:'Nombre',
+      field: 'name',
+      headerName: 'Nombre',
+      sortable: true,
+      filter: true,
+      suppressSizeToFit: true,
+      flex: 2,
+    },
+
+    {
+      field: 'sku',
+      headerName: 'SKU',
       sortable: true,
       filter: true,
       suppressSizeToFit: true,
       flex: 2,
     },
     {
-      field: 'price',
-      headerName:'Precio',
+      field: 'brand',
+      headerName: 'Marca',
       sortable: true,
       filter: true,
       suppressSizeToFit: true,
-      cellRenderer: (param: any) =>{ return '$' + param.value},
+      // cellRenderer: (param: any) =>{ return '$' + param.value},
+      flex: 1,
+    },
+    {
+      field: 'unidad',
+      headerName: 'Medida',
+      sortable: true,
+      filter: true,
+      suppressSizeToFit: true,
+      // cellRenderer: (param: any) =>{ return '$' + param.value},
+      flex: 1,
+    },
+    {
+      field: 'price',
+      headerName: 'Precio',
+      sortable: true,
+      filter: true,
+      suppressSizeToFit: true,
+      cellRenderer: (param: any) => {
+        return '$' + param.value;
+      },
       flex: 1,
     },
     {
@@ -65,14 +95,16 @@ export class DashboardComponent implements OnInit {
       field: 'name',
       suppressSizeToFit: true,
       flex: 1,
-      headerName:'Nombre',
-      cellStyle: {fontSize: '11px'}
+      headerName: 'Nombre',
+      cellStyle: { fontSize: '11px' },
     },
     {
       field: 'price',
-      headerName:'Precio',
-      cellStyle: {fontSize: '11px'},
-      cellRenderer: (param: any) =>{ return '$' + param.value},
+      headerName: 'Precio',
+      cellStyle: { fontSize: '11px' },
+      cellRenderer: (param: any) => {
+        return '$' + param.value;
+      },
       suppressSizeToFit: true,
       flex: 1,
     },
@@ -136,14 +168,13 @@ export class DashboardComponent implements OnInit {
   }
 
   totalRow(api: any, listaSuper: any) {
-    var result = { name: 'Total',price: 0 };
+    var result = { name: 'Total', price: 0 };
     const calcTotalCols = ['price'];
     calcTotalCols.forEach((params) => {
       listaSuper.forEach((line: { [x: string]: any }) => {
         result.price = Number(result.price) + Number(line[params]);
       });
     });
-
 
     api.setPinnedBottomRowData([result]);
   }
