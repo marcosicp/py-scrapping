@@ -1,5 +1,5 @@
 from threading import Thread
-from flask import Blueprint, render_template, request, jsonify, url_for, Flask, current_app
+from flask import Blueprint, render_template, request, jsonify, url_for, Flask, current_app, send_from_directory
 import os
 import json
 import asyncio
@@ -20,7 +20,7 @@ def redirect_url():
 
 @app_file2.route('/')
 def root():
-    return render_template('index.html')  # Return index.html
+    return send_from_directory(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static'), 'index.html')
 # return redirect("/supermercados")
 
 @app_file2.route("/scrape")
@@ -153,8 +153,7 @@ def supermercadosCarrefour():
         data = json.load(fp)
         data.sort(key=lambda x: x["name"])
 
-    return render_template('index.html', todos=data, carre=data.__len__(), mami=0, hiper=0, disco=0
-                        )
+    return send_from_directory(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static'), 'index.html')
 
 
 @app_file2.route("/supermercado-disco")
@@ -163,8 +162,7 @@ def supermercadosDisco():
         data = json.load(fp)
         data.sort(key=lambda x: x["name"])
 
-    return render_template('index.html', todos=data, carre=0, mami=0, hiper=0, disco=data.__len__()
-                        )
+    return send_from_directory(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static'), 'index.html')
 
 
 @app_file2.route("/supermercado-hiper")
@@ -173,7 +171,7 @@ def supermercadosHiper():
         data = json.load(fp)
         data.sort(key=lambda x: x["name"])
 
-    return render_template('index.html', todos=data, carre=0, mami=0, hiper=data.__len__(), disco=0)
+    return send_from_directory(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static'), 'index.html')
 
 
 @app_file2.route("/supermercado-supermami")
@@ -182,5 +180,5 @@ def supermercadosSupermami():
         data = json.load(fp)
         data.sort(key=lambda x: x["name"])
 
-    return render_template('index.html', todos=data, carre=0, mami=data.__len__(), hiper=0, disco=0)
+    return send_from_directory(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static'), 'index.html')
 
