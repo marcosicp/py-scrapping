@@ -42,7 +42,7 @@
 			debugger;
 			var obj = { categoria: categoria_ };
 			const Http = new XMLHttpRequest();
-			const url='http://127.0.0.1:3000/scraping-changomas?category=' + categoria_;
+			const url='http://127.0.0.1:3000/scraping-'+ superTarget +'?category=' + categoria_;
 			Http.open("POST", url);
 			Http.send();
 
@@ -54,17 +54,10 @@
 		}
 
 		function frenar(superTarget, categoria) {
-			const url='http://127.0.0.1:3000/scraping-changomas?category=' + categoria_;
+			const url='http://127.0.0.1:3000/scraping-'+ superTarget+'?category=' + categoria_;
 			Http.open("GET", url);
 			Http.send();
-			// socket.emit(superTarget);
-			// socket.off().on("re_connect", function(msg) {
-			//             $(".report").append(msg.msg + "<br />");
-			//         });
-			// socket.on("scraping-message-" + superTarget, function (param) {
-			// 	$(".progress-bar-" + superTarget)
-			// 		.append("<div>Procesando pagina: " + param + "</div>")
-			// });
+			
 		}
 	</script>
 
@@ -100,11 +93,11 @@
 		<div class="flex-1 ...">
 			<button
 				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
-				onclick="buscar('mami', document.getElementById('mami-param').value)">SuperMami</button>
+				onclick="buscar('supermami', document.getElementById('mami-param').value)">SuperMami</button>
 				<div class="form-control-wrapper">
 					<input type="text" id="mami-param" class="form-control floating-label" placeholder="Categoria">
 				</div>
-			<div class="progress-bar-mami" style="width: 50%; margin: 50px">
+			<div class="progress-bar-supermami" style="width: 50%; margin: 50px">
 				<!-- <div class="progress-bar-mami progress-bar-striped active" role="progressbar" aria-valuenow="0"
 					aria-valuemin="0" aria-valuemax="100" style="width: 0%">
 					<span class="progress-bar-label-mami">0%</span>
@@ -137,11 +130,11 @@
 			<button
 				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
 				onclick="
-				buscar('hiper', document.getElementById('hiper-param').value)">Hiperlibertad</button>
+				buscar('hiperlibertad', document.getElementById('hiper-param').value)">Hiperlibertad</button>
 				<div class="form-control-wrapper">
 					<input type="text" id="hiper-param" class="form-control floating-label" placeholder="Categoria">
 				</div>
-			<div class="progress-bar-hiper" style="width: 50%; margin: 50px">
+			<div class="progress-bar-hiperlibertad" style="width: 50%; margin: 50px">
 				<!-- <div class="progress-bar-hiper progress-bar-striped active" role="progressbar" aria-valuenow="0"
 					aria-valuemin="0" aria-valuemax="100" style="width: 0%">
 					<span class="progress-bar-label-hiper">0%</span>

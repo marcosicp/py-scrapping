@@ -1,12 +1,9 @@
-# from api.helpers.py.helpers import remove_duplicates_by_key
-# from helpers import remove_duplicates_by_key
 from threading import Thread
-from flask import Blueprint, render_template, request, jsonify, url_for, Flask
-# from .scrapers import scrape_disco, scrape_supermami, scrape_carrefour, scrape_hiperlibertad, remove_duplicates_by_key
-# from .models import MyObject
+from flask import Blueprint, render_template, request, jsonify, url_for, Flask, current_app
 import os
 import json
-
+import asyncio
+from threading import Thread
 from api.helpers import remove_duplicates_by_key
 from api.scrapers.scrap_carrefour import ScrapeCarrefour
 from api.scrapers.scrap_changomas import ScrapeChangoMas
@@ -30,34 +27,57 @@ def root():
 def scrape():
     return render_template('scrape.html', todos=[])
 
-@app_file2.route("/scraping-disco")
-def scrapingDisco(categoria):
+@app_file2.route("/scraping-disco", methods=['POST'] )
+def scrapingDisco():
+    categoria = request.args.get('category')
     scrape_service = ScrapeDisco()
-    scrape_service.scrape_disco(categoria)
+    Thread(target = scrape_service.scrape_disco(categoria),).start()
     
-@app_file2.route("/scraping-hiperlibertad")
-def scrapingHiperlibertad(categoria):
+    return json.dumps({'success':True}), 200, {'ContentType':'application/json'} 
+    
+@app_file2.route("/scraping-hiperlibertad", methods=['POST'] )
+def scrapingHiperlibertad():
+    categoria = request.args.get('category')
     scrape_service = ScrapeHiperLibertad()
     scrape_service.scrape_hiperlibertad(categoria)
     
-@app_file2.route("/scraping-supermami")
-def scrapingSupermami(categoria):
+    return json.dumps({'success':True}), 200, {'ContentType':'application/json'} 
+    
+@app_file2.route("/scraping-supermami", methods=['POST'] )
+def scrapingSupermami():
+    categoria = request.args.get('category')
     scrape_service = ScrapeSuperMami()
     scrape_service.scrape_supermami(categoria)
+    return json.dumps({'success':True}), 200, {'ContentType':'application/json'} 
     
-@app_file2.route("/scraping-carrefour")
-def scrapingCarrefour(categoria):
+@app_file2.route("/scraping-supermami-stop")
+def scrapingSupermamiStop():
+    scrape_service = ScrapeSuperMami()
+    scrape_service.scrape_supermami_stop()
+    
+@app_file2.route("/scraping-carrefour", methods=['POST'] )
+def scrapingCarrefour():
+    categoria = request.args.get('category')
     scrape_service = ScrapeCarrefour()
-    scrape_service.scrape_carrefour(categoria)
+    Thread(target=scrape_service.scrape_carrefour, args=(categoria,)).start()
+    return json.dumps({'success':True}), 200, {'ContentType':'application/json'} 
     
 @app_file2.route("/scraping-changomas", methods=['POST'])
 def scrapingChangomas():
     categoria = request.args.get('category')
     scrape_service = ScrapeChangoMas()
-    scrape_service.scrape_changomas(categoria)
-    # pass
-    # thread = Thread(target=do_work, kwargs={'value': request.args.get('value', 20)})
-    # thread.start()
+    
+    # Función para ejecutar la función asíncrona en un hilo separado
+    def run_async_scraper():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(scrape_service.scrape_changomas(categoria))
+        finally:
+            loop.close()
+    
+    # Ejecutar en un hilo separado
+    Thread(target=run_async_scraper).start()
     
     return json.dumps({'success':True}), 200, {'ContentType':'application/json'} 
     
@@ -68,27 +88,63 @@ def scrapingChangomasStop():
 
 @app_file2.route("/supermercados")
 def ReturnJSON():
-    data4 = []
-    for a in os.listdir(".disco/almacen"):
-        with open(".disco/almacen/"+a) as file3:
-            data4 = data4 + json.load(file3)
-    new_objects_list = remove_duplicates_by_key(data4, 'name')
-    data4 = new_objects_list
-    with open('carrefour.json') as fp:
-        data1 = json.load(fp)
-        with open("supermami.json") as file1:
-            data2 = json.load(file1)
-            with open("hiperlibertad.json") as file2:
-                data3 = json.load(file2)
-                # with open("disco.json") as file3:
-                #     data4 = json.load(file3)
-                data = data1 + data2 + data3 + data4
-                data.sort(key=lambda x: x["name"])
+    try:
+        # Access MongoDB database and collection
+        mongodb_client = current_app.mongodb_client
+        database = mongodb_client.lalistitadev
+        collection = database.productos
+        
+        # Get all products from the database
+        all_products = list(collection.find({}, {"_id": 0}))  # Exclude MongoDB _id field
+        
+        # Organize products by supermarket
+        disco = []
+        carrefour = []
+        hiperlibertad = []
+        supermami = []
+        
+        for product in all_products:
+            supermarket = product.get("supermercado", "").lower()
+            if "disco" in supermarket:
+                disco.append(product)
+            elif "carrefour" in supermarket:
+                carrefour.append(product)
+            elif "hiperlibertad" in supermarket or "hiper" in supermarket:
+                hiperlibertad.append(product)
+            elif "supermami" in supermarket or "mami" in supermarket:
+                supermami.append(product)
+        
+        # Remove duplicates by name for each supermarket
+        disco = remove_duplicates_by_key(disco, 'name')
+        carrefour = remove_duplicates_by_key(carrefour, 'name')
+        hiperlibertad = remove_duplicates_by_key(hiperlibertad, 'name')
+        supermami = remove_duplicates_by_key(supermami, 'name')
+        
+        # Combine all products and sort by name
+        data = supermami + carrefour + hiperlibertad + disco
+        data.sort(key=lambda x: x.get("name", ""))
 
-    ret = {'todos': data, 'carre': data1.__len__(), 'disco': data4.__len__(
-    ), 'mami': data2.__len__(), 'hiper': data3.__len__()}
-    # return render_template('index.html', todos=data, carre=data1.__len__(), disco=data4.__len__(), mami=data2.__len__(), hiper=data3.__len__())
-    return jsonify(ret)
+        ret = {
+            'todos': data, 
+            'carre': len(carrefour), 
+            'disco': len(disco),
+            'mami': len(supermami), 
+            'hiper': len(hiperlibertad)
+        }
+        
+        return jsonify(ret)
+        
+    except Exception as e:
+        print(f"Error reading from MongoDB: {e}")
+        # Fallback to empty data if database fails
+        return jsonify({
+            'todos': [], 
+            'carre': 0, 
+            'disco': 0,
+            'mami': 0, 
+            'hiper': 0,
+            'error': 'Database connection error'
+        })
 
 
 @app_file2.route("/supermercado-carrefour")

@@ -5,7 +5,7 @@ import json
 import requests
 import time
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -32,13 +32,18 @@ class ScrapeChangoMas:
             secciones_ = []
             page = 1
 
-            driver = webdriver.Chrome()
+            service = Service('/usr/local/bin/chromedriver-141')
+            options = webdriver.ChromeOptions()
+            options.add_argument('--no-sandbox')
+            options.add_argument('--disable-dev-shm-usage')
+            # options.add_argument('--headless')  # Uncomment for background execution  
+            driver = webdriver.Chrome(service=service, options=options)
 
             driver.maximize_window()
             driver.implicitly_wait(50)
             notifyStatus("scraping-message-changomas", "Inicio scrap")
             
-            driver.get("https://www.masonline.com.ar/268?initialMap=productClusterIds&initialQuery=268&map=category-1,productclusternames&query=/desayuno-y-golosinas/mas-online---almacen")
+            driver.get("https://www.masonline.com.ar/3454?map=productClusterIds")
             time.sleep(5)
             seccionesReq = WebDriverWait(driver, 15).until(EC.visibility_of_all_elements_located(
                 (By.CLASS_NAME, "categoryList-container__items")))
@@ -74,7 +79,7 @@ class ScrapeChangoMas:
 
                 else:
                     # for i in range(2, 10): #test
-                    for i in range(2, int((total/20))+1):
+                    for i in range(2, 3):
                         if not (self.activeChangomas):
                             break
 
@@ -90,8 +95,7 @@ class ScrapeChangoMas:
                             # page += 1
                             print('scraping data from ChangoMas - ' +
                                   seccion + ' pagina: ' + str(i))
-                            url = 'https://www.masonline.com.ar/268?initialMap=productClusterIds&initialQuery=268&map=category-1,productclusternames&query=/desayuno-y-golosinas/mas-online---almacen/' + seccion + '?page=' + \
-                                str(i)  # -- set url
+                            url = 'https://www.masonline.com.ar/3454?map=productClusterIds'  # -- set url
                             response = _hTMLSession.get(url)
                             response.html.arender(sleep=8)
                             # -- get data and parse

@@ -1,13 +1,110 @@
+# Environment variables
+.env
+.env.local
+.env.development
+.env.test
+.env.production
 environment
-launch.json
-pipfile.lock
-adminpro/node_modules
-adminpro/.angular
-adminpro/.vscode
-adminpro/dist
 
-.vscode
-__pycache__/*
-api/scrapers/__pycache__/*
-api/__pycache__/*
-api/helpers/__pycache__/*
+# VS Code
+launch.json
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+pipfile.lock
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.env/
+
+# Flask
+instance/
+.webassets-cache
+
+# Scraped data directories
+.carrefour/
+.disco/
+.hiperlibertad/
+.changomas/
+.supermami/
+
+# JSON backup files
+*.json
+!package.json
+!package-lock.json
+!angular.json
+!tsconfig.json
+
+# Angular (frontend)
+adminpro/node_modules/
+adminpro/.angular/
+adminpro/.vscode/
+adminpro/dist/
+adminpro/package-lock.json
+
+# ChromeDriver and web drivers
+chromedriver*
+geckodriver*
+
+# Logs
+*.log
+logs/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Backup files
+*.bak
+*.backup
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Certificates and sensitive files
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+config.ini
+secrets.json
+.env
