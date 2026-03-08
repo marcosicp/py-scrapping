@@ -163,7 +163,7 @@ export class DashboardComponent implements OnInit {
   }
 
   onFilterTextBoxChanged() {
-    this.gridApi.setQuickFilter(
+    this.gridApi.setGridOption('quickFilterText',
       (document.getElementById('filter-text-box') as HTMLInputElement).value
     );
   }
