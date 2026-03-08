@@ -7,6 +7,7 @@ import { TotalValueRenderer } from './cellRender';
 
 @Component({
   selector: 'app-dashboard',
+  standalone: false,
   templateUrl: './dashboard.component.html',
   styleUrls: ['./dashboard.component.css'],
 })
@@ -162,7 +163,7 @@ export class DashboardComponent implements OnInit {
   }
 
   onFilterTextBoxChanged() {
-    this.gridApi.setQuickFilter(
+    this.gridApi.setGridOption('quickFilterText',
       (document.getElementById('filter-text-box') as HTMLInputElement).value
     );
   }

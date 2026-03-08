@@ -4,6 +4,7 @@ import { ICellRendererParams } from 'ag-grid-community';
 
 @Component({
   selector: 'total-value-component',
+  standalone: false,
   template: `
     <input
       type="checkbox"

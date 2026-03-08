@@ -14,7 +14,7 @@ import { Grafica1Component } from './pages/grafica1/grafica1.component';
 import { AppRoutingModule } from './app-routing.module';
 import { PagesComponent } from './pages/pages.component';
 import { AppService } from './service/app.service';
-import { HttpClientModule } from '@angular/common/http';
+import { provideHttpClient, withInterceptorsFromDi } from '@angular/common/http';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 // import { AppRoutingComponent } from './app-routing/app-routing.component';
 import { MatGridListModule } from '@angular/material/grid-list';
@@ -24,34 +24,26 @@ import { MatIconModule } from '@angular/material/icon';
 import { TotalValueRenderer } from './pages/dashboard/cellRender';
 
 
-@NgModule({
-  declarations: [
-    AppComponent,
-    RegisterComponent,
-    LoginComponent,
-    NoPageFoundComponent,
-    DashboardComponent,
-    BreadcrumbsComponent,
-    SidebarComponent,
-    HeaderComponent,
-    ProgressComponent,
-    Grafica1Component,
-    PagesComponent,
-    TotalValueRenderer
-    // AppRoutingComponent
-  ],
-  imports: [
-    BrowserModule,
-    AppRoutingModule,
-    HttpClientModule,
-    NoopAnimationsModule,
-    MatGridListModule,
-    MatIconModule,
-    AgGridModule,
-  ],
-  
-  providers: [AppService, { provide: LocationStrategy, useClass: HashLocationStrategy },],
-  schemas: [CUSTOM_ELEMENTS_SCHEMA],
-  bootstrap: [AppComponent],
-})
+@NgModule({ declarations: [
+        AppComponent,
+        RegisterComponent,
+        LoginComponent,
+        NoPageFoundComponent,
+        DashboardComponent,
+        BreadcrumbsComponent,
+        SidebarComponent,
+        HeaderComponent,
+        ProgressComponent,
+        Grafica1Component,
+        PagesComponent,
+        TotalValueRenderer
+        // AppRoutingComponent
+    ],
+    schemas: [CUSTOM_ELEMENTS_SCHEMA],
+    bootstrap: [AppComponent], imports: [BrowserModule,
+        AppRoutingModule,
+        NoopAnimationsModule,
+        MatGridListModule,
+        MatIconModule,
+        AgGridModule], providers: [AppService, { provide: LocationStrategy, useClass: HashLocationStrategy }, provideHttpClient(withInterceptorsFromDi()),] })
 export class AppModule {}
