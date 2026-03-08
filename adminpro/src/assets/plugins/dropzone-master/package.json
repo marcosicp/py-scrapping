@@ -12,23 +12,23 @@
   "main": "./dist/dropzone.js",
   "maintainers": [
     {
-      "name": "Matias Meno",
-      "email": "m@tias.me",
-      "web": "http://www.matiasmeno.com"
+      "name": "Marcos",
+      "email": "m@rcos.me",
+      "web": "http://www.marcos.com"
     }
   ],
   "contributors": [
     {
-      "name": "Matias Meno",
-      "email": "m@tias.me",
-      "web": "http://www.matiasmeno.com"
+      "name": "Marcos",
+      "email": "m@rcos.me",
+      "web": "http://www.marcos.com"
     }
   ],
   "scripts": {
     "test": "./test.sh"
   },
   "bugs": {
-    "email": "m@tias.me",
+    "email": "m@rcos.me",
     "url": "https://github.com/enyo/dropzone/issues"
   },
   "licenses": [
