@@ -11,9 +11,12 @@ from __future__ import annotations
 
 import copy
 from datetime import datetime, timezone
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Callable, Mapping, Optional, Sequence
 
 import bson
+
+from api.scrapers.base import BaseScraper
+from api.services.scraping import RunStatus
 
 
 class Result:
@@ -155,3 +158,34 @@ class InMemoryProductRepository:
         count = len(products)
         self.calls.append((supermercado, categoria, subcategoria, count))
         return count
+
+
+class RecordingReporter:
+    """ProgressReporter fake that records every message and state."""
+
+    def __init__(self) -> None:
+        self.messages: list[tuple[str, str]] = []
+        self.states: list[RunStatus] = []
+
+    def message(self, slug: str, text: str) -> None:
+        self.messages.append((slug, text))
+
+    def state(self, status: RunStatus) -> None:
+        self.states.append(status)
+
+
+def make_scraper(slug: str, label: str, run: Callable[..., Any],
+                 categories: Sequence[str] = ()) -> type:
+    """Build a ``BaseScraper`` subclass with ``run`` in the class namespace.
+
+    ``run`` is handed to ``type(...)`` so it becomes a real method: assigning
+    it after class creation would leave the abstract ``run`` untouched and
+    instantiation would fail.
+    """
+    class_name = "Scraper" + slug.replace("-", " ").title().replace(" ", "")
+    return type(class_name, (BaseScraper,), {
+        "slug": slug,
+        "label": label,
+        "categories": tuple(categories),
+        "run": run,
+    })

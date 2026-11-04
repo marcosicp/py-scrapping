@@ -73,10 +73,10 @@ app.py                  create_app() factory: CORS, SECRET_KEY, blueprint, Socke
 main.py                 WSGI entry point — `gunicorn main:app` uses this
 api/config.py           Settings (frozen dataclass) resolved from SECRET_KEY/MONGODB_*
 api/container.py        Services composition root: init_services/get_services (app.extensions['lalistita'])
-api/blueprints/         frontend.py (`/`, `/scrape`) + products.py (`/supermercados`); HTTP layer only
+api/blueprints/         frontend.py (`/`, `/scrape`) + products.py (`/supermercados`) + scrapers.py (`/api/scrapers` control API) + legacy.py (registry-generated `/scraping-<slug>` aliases); HTTP layer only
 api/services/           products.py — ProductService.catalog(): grouping/dedupe/count logic
 api/routes.py           Scraper-control routes and the dead `/supermercado-*` routes only (being replaced) (blueprint `app_file2`)
-api/sockets.py          SocketIO singleton + notifyStatus(channel, message)
+api/sockets.py          SocketIO singleton + notifyStatus(channel, message) + SocketIOReporter (scraper progress publisher)
 api/helpers.py          remove_duplicates_by_key(), name_parse() → {name, unidad}
 api/scrapers/*.py       One class per supermarket, uniform start/stop contract
 api/scrapers/base.py    Scraper contract: BaseScraper (slug/label/categories/run(ctx)) + ScrapeContext (report, should_stop, sleep, save, browser(), http)

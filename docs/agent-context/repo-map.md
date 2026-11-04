@@ -102,6 +102,19 @@ all HTTP shells over services.
 | GET | `/scrape` | `frontend.scrape` | renders `templates/scrape.html` (the only live template) |
 | GET | `/supermercados` | `products.supermercados` | `ProductService.catalog()` through the `ProductRepository` (Mongo `lalistitadev.productos`); any exception → empty payload + `error` key, HTTP 200 |
 
+### `api/blueprints/` — scraper control (`/api/scrapers`)
+
+Body shape of every status entry: `{**status.to_dict(), "categories": [...]}` (snapshot of `ScraperManager`).
+
+| Method | Path | Success | Error codes |
+| --- | --- | --- | --- |
+| GET | `/api/scrapers` | 200 `{"scrapers": [...]}` | — |
+| GET | `/api/scrapers/<slug>` | 200 status + categories | `unknown_scraper` (404) |
+| POST | `/api/scrapers/<slug>/start` | 202 status + categories | `unknown_scraper` (404), `invalid_category` (400, with `allowed`), `already_running` (409) |
+| POST | `/api/scrapers/<slug>/stop` | 202 status + categories | `unknown_scraper` (404), `not_running` (409) |
+
+Error bodies are `{"error": ..., "code": ...}`. `/scraping-<slug>` and `/scraping-<slug>-stop` are thin deprecated POST/GET+POST aliases of these endpoints, generated from the registry (registered slugs only): they return `{"success": true}` on 200 and the same status codes with `{"success": false, ...}` otherwise — unlike the old `/scraping-*` routes in `api/routes.py` (below, still served for the not-yet-ported scrapers) they never block the request and never run a second copy of the same scraper.
+
 There is **no** Disco stop route, no auth, no pagination, no filtering, and no
 write API other than "start a scraper".
 
