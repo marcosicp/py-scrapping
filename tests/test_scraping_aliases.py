@@ -1,4 +1,10 @@
-"""Legacy ``/scraping-<slug>`` aliases generated from the registry (D7)."""
+"""The registry-generated ``/scraping-<slug>`` start/stop aliases (D7).
+
+These are real, documented, deprecated aliases kept for compatibility: a
+START/STOP/409 contract identical to the ``/api/scrapers`` control routes,
+available for every registered slug. The per-slug sections below inject a
+fake scraper for each real slug so no real scrape is ever launched.
+"""
 import threading
 
 from api.container import EXTENSION_KEY
@@ -559,7 +565,7 @@ def test_scraping_changomas_stop_when_not_running_is_conflict(
     assert response.get_json()["code"] == "not_running"
 
 
-def test_no_legacy_rule_exists_for_an_unregistered_slug(scraper_app_factory):
+def test_no_rule_exists_for_an_unregistered_slug(scraper_app_factory):
     app = scraper_app_factory(make_scraper("fake", "Fake",
                                            lambda self, ctx: None))
     rules = {rule.rule for rule in app.url_map.iter_rules()}

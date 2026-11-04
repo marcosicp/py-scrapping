@@ -1,23 +1,21 @@
-"""Disco port (T9): offline fake-driver/fake-HTTP behavior + differential.
+"""Disco port (T9): offline fake-driver/fake-HTTP behavior.
 
-The legacy reference ``api.scrapers.scrap_disco`` runs against the same
-canned json-LD HTML with its Selenium ``webdriver`` / ``Service`` replaced
-by recorders, ``_hTMLSession.get`` monkeypatched, ``notifyStatus``
-silenced and ``time.sleep`` turned into a no-op; the stored documents and
-the page URL sequences of both runs must match once ``_id`` and
-``scraped_at`` are normalised away.
+Every test runs the ported scraper end to end against canned Selenium
+driver data and canned json-LD HTML served by a fake HTTP session: exact
+driver/HTTP request order, stored documents, progress messages and the
+console output. The legacy-vs-port differential suite that used to
+accompany these tests was removed with the legacy module in T14; the
+examples here still pin the ported quirks (page 1 never collected, the
+zero-total skip, the error and stop paths).
 """
 import json
 import threading
 from types import SimpleNamespace
 
 import pytest
-from flask import Flask
 
 from api.scrapers.base import ScrapeContext
 from api.scrapers.disco import ScraperDisco
-from api.scrapers.scrap_disco import ScrapeDisco as LegacyScraper
-from tests.fakes import FakeCollection
 
 # -- canned scenario ---------------------------------------------------------
 #
@@ -410,92 +408,3 @@ def test_page_level_error_is_reported_and_the_run_continues(repository,
     assert repository.calls == [("Disco", SUB1, None, 1)]
 
 
-# -- 6. legacy-vs-port differential -------------------------------------------
-
-# Legacy runs all 14 hardcoded subcategories; only these two carry items.
-LEGACY_TOTALS = {SUB1: 61, SUB2: 41}  # every other subcategory defaults to 0
-LEGACY_PAGES = {
-    page_url(SUB1, 2): jsonld_page([ITEM_A, ITEM_B]),
-    page_url(SUB1, 3): jsonld_page([ITEM_C]),
-    page_url(SUB2, 2): jsonld_page([ITEM_D]),
-}
-
-
-def run_legacy(monkeypatch, totals, pages):
-    """Run the legacy scraper offline (differential technique from T7/T8).
-
-    Fakes: ``_hTMLSession.get`` returns the canned json-LD HTML for every
-    page URL, ``notifyStatus`` is silenced, ``time.sleep`` is a no-op, and
-    Selenium's ``webdriver`` / ``Service`` are stubbed so the legacy
-    driver "starts" without any browser. MongoDB is a ``FakeCollection``
-    behind a pushed Flask app context, exactly like the legacy
-    ``save_to_mongodb`` expects.
-    """
-    import api.scrapers.scrap_disco as legacy
-
-    driver = FakeDriver(totals)
-    session = FakeSession(pages)
-
-    def fake_chrome(service=None, options=None):
-        return driver
-
-    def fake_options():
-        return SimpleNamespace(add_argument=lambda *args, **kwargs: None)
-
-    def fake_service(path):
-        return SimpleNamespace(path=path)
-
-    monkeypatch.setattr(legacy, "_hTMLSession", session)
-    monkeypatch.setattr(legacy, "notifyStatus",
-                        lambda channel, message: None)
-    monkeypatch.setattr(legacy, "time",
-                        SimpleNamespace(sleep=lambda seconds: None))
-    monkeypatch.setattr(legacy, "webdriver",
-                        SimpleNamespace(Chrome=fake_chrome,
-                                        ChromeOptions=fake_options))
-    monkeypatch.setattr(legacy, "Service", fake_service)
-
-    collection = FakeCollection()
-    flask_app = Flask("disco-differential")
-    flask_app.mongodb_client = SimpleNamespace(
-        lalistitadev=SimpleNamespace(productos=collection))
-    with flask_app.app_context():
-        LegacyScraper().scrape_disco("almacen")
-    return driver, session, collection
-
-
-def test_legacy_and_port_send_the_same_requests_and_store_the_same_documents(
-        monkeypatch, capsys, repository):
-    """The differential: same canned HTML and totals, two paths.
-
-    capsys keeps the legacy print noise out of the report output. The
-    legacy path walks all 14 hardcoded subcategories (12 of them read a
-    total of 0 and are skipped); the ported scraper runs the same verbatim
-    list, and both sides must request the same driver URLs and page URLs
-    and store the same documents once ``_id``/``scraped_at`` are gone.
-    """
-    legacy_driver, legacy_session, collection = run_legacy(
-        monkeypatch, LEGACY_TOTALS, LEGACY_PAGES)
-
-    port_driver = FakeDriver(LEGACY_TOTALS)
-    port_session = FakeSession(LEGACY_PAGES)
-    ScraperDisco().run(
-        make_ctx(port_session, repository, driver=port_driver)[0])
-
-    # Same driver visits (the 14 page-1 URLs), same order.
-    assert legacy_driver.urls == port_driver.urls
-    assert len(port_driver.urls) == 14
-    # Same HTTP page sequence: pages 2..N per subcategory, never page 1.
-    assert legacy_session.urls == port_session.urls == [
-        page_url(SUB1, 2), page_url(SUB1, 3), page_url(SUB2, 2)]
-    # Same stored documents once scraped_at/_id are normalised away.
-    assert normalise(collection.documents) == stored_documents(repository)
-    # Both sides saved exactly two subcategory batches, name-sorted.
-    assert repository.calls == [
-        ("Disco", SUB1, None, 3),
-        ("Disco", SUB2, None, 1),
-    ]
-    assert [doc["name"] for doc in stored_documents(repository)] == [
-        "Aceite Girasol", "Mayonesa Hellmann's", "Yerba Playadito",
-        "Arroz Gallo",
-    ]

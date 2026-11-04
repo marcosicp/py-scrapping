@@ -1,23 +1,20 @@
 """HiperLibertad scraper, ported to the scraper contract (T8).
 
-Mechanical port of ``api.scrapers.scrap_hiperlibertad`` (the byte-identical
-legacy reference, deleted in T14): the hardcoded 14-subcategory list, the
-VTEX search URL with its 50-item ``_from``/``_to`` paging, ``name_parse``
-and the stored keys are unchanged. Only the plumbing moved to the contract:
-``notifyStatus`` became ``ctx.report``, ``requests.get`` became
-``ctx.http.get``, ``time.sleep`` became ``ctx.sleep``, the
-``activeHiperlibertad`` flag became ``ctx.should_stop()`` and
-``save_to_mongodb`` became ``ctx.save`` (saving one subcategory at a time,
-like the legacy per-subcategory call).
+A mechanical port of the original requests-only module (deleted in T14): the
+hardcoded 14-subcategory list, the VTEX search URL with its 50-item
+``_from``/``_to`` paging, ``name_parse`` and the stored keys are unchanged.
+Only the plumbing moved to the contract: progress reports go through
+``ctx.report``, page fetches through ``ctx.http.get``, waits through
+``ctx.sleep``, the stop check through ``ctx.should_stop()`` and persistence
+through ``ctx.save`` (saving one subcategory at a time).
 
 Two deliberate, tested fixes:
 
-1. The legacy guard ``response.status_code == 200 | response.status_code
+1. The original guard ``response.status_code == 200 | response.status_code
    == 206`` chained ``==`` with the bitwise OR and was False for every
-   status, so the legacy scraper stored nothing (verified by the
-   differential test in ``tests/test_scraper_hiperlibertad.py``). The port
-   accepts both success codes with ``in (200, 206)``; any other status
-   keeps the legacy behavior (print the error and break).
+   status, so the pre-port scraper stored nothing ever. The port accepts
+   both success codes with ``in (200, 206)``; any other status keeps the
+   historical behavior (print the error and break).
 2. The legacy run built a Selenium Chrome driver and never used it in the
    API path. The port opens NO browser: it scrapes plain GET responses
    from the VTEX JSON API only.

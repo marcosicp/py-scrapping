@@ -1,25 +1,25 @@
 """Carrefour scraper, ported to the scraper contract (T10).
 
-Mechanical port of ``api.scrapers.scrap_carrefour`` (the byte-identical legacy
-reference, deleted in T14). The legacy ``scrape_carrefour(param)`` has two
-genuinely different collection paths and both are kept:
+A mechanical port of the original browser-driven module (deleted
+in T14). The original implementation has two genuinely different collection
+paths and both are kept:
 
 - **Path A — a category was requested** (``ctx.category is not None``): the
-  legacy ``param`` branch. Page ``?page=i`` documents come from the embedded
+  original ``param`` branch. Page ``?page=i`` documents come from the embedded
   ``<template data-varname="__STATE__">`` json-LD extraction over the shared
   HTTP session, and the stored keys are ``supermercado/name/brand/sku/price``
-  with NO ``unidad`` and NO ``name_parse`` — a legacy omission kept verbatim
+  with NO ``unidad`` and NO ``name_parse`` — an original omission kept verbatim
   (fixing it would silently change the collected data).
-- **Path B — no category** (all categories): the legacy ``else`` branch. Each
+- **Path B — no category** (all categories): the original ``else`` branch. Each
   subcategory is visited through the Chrome driver, the products are read
   from the ``render-provider`` script tag and go through ``name_parse`` (so
   they DO carry ``unidad``), and each category is saved once after all its
   subcategories.
 
-Plumbing moved to the contract: ``notifyStatus`` became ``ctx.report``,
-``self.activeCarre`` became ``ctx.should_stop()``, ``time.sleep`` became
-``ctx.sleep``, the driver comes from ``ctx.browser()`` (replacing the two
-guarded ``driver.quit()`` calls) and ``save_to_mongodb`` became ``ctx.save``.
+Plumbing moved to the contract: progress reports go through ``ctx.report``,
+the stop check through ``ctx.should_stop()``, waits through ``ctx.sleep``,
+the driver comes from ``ctx.browser()`` (replacing the two guarded
+``driver.quit()`` calls) and persistence through ``ctx.save``.
 
 Documented decisions (each commented and tested in
 ``tests/test_scraper_carrefour.py``):
@@ -35,8 +35,8 @@ Documented decisions (each commented and tested in
 3. The never-executed ``arender(sleep=8)`` statements are deleted, not
    replaced: they were never awaited, so they never ran (K-18).
 
-Two more legacy quirks, only hit by Path A (commented at the code, pinned by
-the differential tests):
+Two more original quirks of Path A the port reshaped (commented at the
+code, pinned by the behavior tests):
 
 - The legacy Path A visited page 1 through the Chrome driver to read the
   product total. The ported Path A builds NO browser: that visit became a

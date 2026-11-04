@@ -1,15 +1,13 @@
 """Disco scraper, ported to the scraper contract (T9).
 
-Mechanical port of ``api.scrapers.scrap_disco`` (the byte-identical legacy
-reference, deleted in T14): the hardcoded 14-subcategory list, the VTEX
-``?page=`` paging, the json-LD extraction, ``name_parse`` and the stored
-keys are unchanged. Only the plumbing moved to the contract:
-``notifyStatus`` became ``ctx.report``, ``_hTMLSession.get`` became
-``ctx.http.get``, ``time.sleep`` became ``ctx.sleep``, the
-``activeDisco`` flag became ``ctx.should_stop()``, ``save_to_mongodb``
-became ``ctx.save`` (saving one subcategory at a time, like the legacy
-per-subcategory call) and the driver comes from ``ctx.browser()``, so the
-two guarded ``driver.quit()`` calls disappeared.
+A mechanical port of the original browser-driven module (deleted
+in T14): the hardcoded 14-subcategory list, the VTEX ``?page=`` paging, the
+json-LD extraction, ``name_parse`` and the stored keys are unchanged. Only
+the plumbing moved to the contract: progress reports go through
+``ctx.report``, page fetches through ``ctx.http.get``, waits through
+``ctx.sleep``, the stop check through ``ctx.should_stop()``, persistence
+through ``ctx.save`` (saving one subcategory at a time) and the driver
+comes from ``ctx.browser()``.
 
 Documented decisions (each commented and tested in
 ``tests/test_scraper_disco.py``):

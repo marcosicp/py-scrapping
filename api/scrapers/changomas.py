@@ -1,20 +1,20 @@
 """ChangoMas scraper, ported to the scraper contract (T11) — the K-12 fix.
 
-Mechanical port of ``api.scrapers.scrap_changomas`` (the byte-identical legacy
-reference, deleted in T14): the discovery visit, the section discovery from
-the ``categoryList-container__items`` / ``categoryItem`` anchors, the section
+A mechanical port of the original browser-driven module (deleted
+in T14): the discovery visit, the section discovery from the
+``categoryList-container__items`` / ``categoryItem`` anchors, the section
 URL prefix, the scroll, the ``vtex-search-result-3-x-totalProducts--layout``
-total read (which the legacy never uses), the ``gallery-layout-container``
+total read (which the original never uses), the ``gallery-layout-container``
 result read, the empty-results abort, the 2-page-capped page loop, the
 json-LD extraction over the re-fetched discovery page, the substring dedupe
 guard, the per-section name sort and every print are kept verbatim.
 
-**The K-12 fix:** the legacy ended each section with
+**The K-12 fix:** the original implementation ended each section with
 ``open('.changomas/almacen/<file>.json', 'w')`` + ``json.dump`` — a silent
 data black hole: ``.changomas/`` is gitignored and nothing ever reaches
 MongoDB or the API. The port persists through the repository instead
 (``ctx.save`` → ``ProductRepository.replace_products``) and clears the
-accumulated list right after saving, exactly like the legacy cleared after
+accumulated list right after saving, exactly like the original cleared after
 writing. ``/supermercados`` still ignores the ``ChangoMas`` group until the
 dashboard gains one — that API half of K-12 stays a separate follow-up.
 
@@ -23,24 +23,23 @@ Documented decisions (each commented and tested in
 
 1. The ``if results.__len__() == 0: return`` abort ends the WHOLE run, kept
    verbatim: no further sections, no save, no final report.
-2. The legacy page loop re-fetches the DISCOVERY page (not the section page)
-   before parsing the json-LD — a quirk kept verbatim; fixing it would
-   silently change the collected data.
+2. The page loop re-fetches the DISCOVERY page (not the section page)
+   before parsing the json-LD — the original quirk kept verbatim; fixing it
+   would silently change the collected data.
 3. The never-executed ``arender(sleep=8)`` call is deleted, not replaced: it
    was never awaited, so it never ran (K-18).
-4. Unexpected errors propagate instead of being swallowed. The legacy outer
-   ``except Exception`` printed and returned, so a broken run looked
+4. Unexpected errors propagate instead of being swallowed. The original
+   outer ``except Exception`` printed and returned, so a broken run looked
    successful. The ported run lets them escape — the scraper manager marks
-   the run ``failed`` (the same decision 2 the other ports took). The legacy
+   the run ``failed`` (the same decision 2 the other ports took). The
    per-page ``try/except`` (print, continue) is kept.
 
-Plumbing: the legacy ``async def`` had no ``await`` inside, so it becomes a
-plain sync ``run(ctx)``; ``notifyStatus`` became ``ctx.report``,
-``_hTMLSession.get`` became ``ctx.http.get``, ``time.sleep`` became
-``ctx.sleep``, ``self.activeChangomas`` became ``ctx.should_stop()`` and the
-driver comes from ``ctx.browser()``, so the legacy ``driver.close()`` in the
-``finally`` disappeared. ``label`` is the accent-free ``"ChangoMas"`` — the
-same ASCII-safe value the legacy stored under ``supermercado``, matching the
+Plumbing: the original ``async def`` had no ``await`` inside, so it becomes
+a plain sync ``run(ctx)``; progress reports go through ``ctx.report``, page
+fetches through ``ctx.http.get``, waits through ``ctx.sleep``, the stop
+check through ``ctx.should_stop()`` and the driver comes from
+``ctx.browser()``. ``label`` is the accent-free ``"ChangoMas"`` — the same
+ASCII-safe value the original stored under ``supermercado``, matching the
 other ports.
 """
 

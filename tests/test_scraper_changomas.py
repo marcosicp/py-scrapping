@@ -1,17 +1,13 @@
-"""ChangoMas port (T11): offline fake-driver/fake-HTTP behavior + differential.
+"""ChangoMas port (T11): offline fake-driver/fake-HTTP behavior.
 
-The legacy reference ``api.scrapers.scrap_changomas`` runs against the same
-canned json-LD pages with its Selenium ``webdriver`` / ``Service`` /
-``WebDriverWait`` replaced by recorders, ``_hTMLSession.get`` monkeypatched,
-``notifyStatus`` silenced and ``time.sleep`` turned into a no-op; the stored
-documents and the driver/HTTP URL sequences of both runs must match once
-``_id`` and ``scraped_at`` are normalised away.
-
-The K-12 difference is asserted explicitly, not hidden: the legacy dumps
-``.changomas/almacen/<section>.json`` files (recorded in memory, nothing is
-written to disk), while the port saves through the repository.
+Every test runs the ported scraper end to end against canned Selenium data
+and canned json-LD pages: exact driver/HTTP request order, stored documents,
+progress messages and the console output. The legacy-vs-port differential
+suite that used to accompany these tests was removed with the legacy module
+in T14; the tests here still pin the ported quirks (the hardcoded
+page-loop URL, the empty-results whole-run abort, the "PROCESO TERMINADO
+CON 0 produtos" counter quirk, and the K-12 fix of never writing files).
 """
-import asyncio
 import json
 import threading
 from pathlib import Path
@@ -22,7 +18,6 @@ import pytest
 import api.scrapers.changomas as port_module
 from api.scrapers.base import ScrapeContext
 from api.scrapers.changomas import ScraperChangoMas
-from api.scrapers.scrap_changomas import ScrapeChangoMas as LegacyScraper
 
 # -- canned scenario ---------------------------------------------------------
 #
@@ -273,9 +268,8 @@ def fast_sleep(monkeypatch):
 def no_file_writes(monkeypatch):
     """Fail loudly if ANYTHING opens a file for writing (the K-12 guard).
 
-    The differential test replaces this guard with a recording fake so the
-    legacy ``open('.changomas/...')`` calls can be observed without touching
-    the filesystem.
+    The port persists through the repository, so no run may ever touch the
+    ``.changomas/`` dump directory the original implementation wrote to.
     """
     real_open = open
 
@@ -467,26 +461,7 @@ def test_page_loop_http_error_is_swallowed_like_the_legacy(monkeypatch,
     assert driver.quit_count == 1
 
 
-# -- 5. legacy-vs-port differential ------------------------------------------
-
-
-class _RecordingFile:
-    """Fake ``open(..., 'w')`` handle that records what json.dump wrote."""
-
-    def __init__(self):
-        self.chunks: list[str] = []
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
-
-    def write(self, text):
-        self.chunks.append(text)
-
-    def text(self):
-        return "".join(self.chunks)
+# -- local fakes --------------------------------------------------------------
 
 
 class InMemoryRepository:
@@ -506,105 +481,3 @@ class InMemoryRepository:
         return len(products)
 
 
-def stub_legacy(monkeypatch, driver, session, notifications, sleeps):
-    """Run the legacy scraper offline (differential technique from T7-T10)."""
-    import api.scrapers.scrap_changomas as legacy
-
-    def fake_chrome(service=None, options=None):
-        return driver
-
-    def fake_options():
-        return SimpleNamespace(add_argument=lambda *args, **kwargs: None)
-
-    def fake_service(path):
-        return SimpleNamespace(path=path)
-
-    fake_waits = make_fake_waits(driver)
-    monkeypatch.setattr(legacy, "_hTMLSession", session)
-    monkeypatch.setattr(legacy, "notifyStatus",
-                        lambda channel, message: notifications.append(message))
-    monkeypatch.setattr(legacy, "time",
-                        SimpleNamespace(sleep=sleeps.append))
-    monkeypatch.setattr(legacy, "webdriver",
-                        SimpleNamespace(Chrome=fake_chrome,
-                                        ChromeOptions=fake_options))
-    monkeypatch.setattr(legacy, "Service", fake_service)
-    monkeypatch.setattr(legacy, "WebDriverWait", fake_waits[0])
-    monkeypatch.setattr(legacy, "EC", fake_waits[1])
-    monkeypatch.setattr(legacy, "By", fake_waits[2])
-
-
-def test_legacy_and_port_visit_the_same_urls_and_store_the_same_documents(
-        monkeypatch, capsys, fast_sleep, repository):
-    """The differential: same canned data, two implementations.
-
-    capsys keeps the legacy print noise out of the report output. The K-12
-    difference is asserted explicitly: the legacy dumps .changomas JSON
-    files (recorded in memory) while the port saves through the repository.
-    """
-    legacy_driver = FakeDriver([HREF1, HREF2], RESULTS_COUNTS)
-    legacy_session = FakeSession({DISCOVERY_URL: list(DISCOVERY_PAGES)})
-    notifications: list[str] = []
-    sleeps: list[float] = []
-    stub_legacy(monkeypatch, legacy_driver, legacy_session, notifications,
-                sleeps)
-
-    legacy_files: dict[str, _RecordingFile] = {}
-
-    def recording_open(file, mode="r", *args, **kwargs):
-        if "w" in mode and str(file).startswith(".changomas/"):
-            handle = _RecordingFile()
-            legacy_files[str(file)] = handle
-            return handle
-        raise AssertionError(f"unexpected open: {file!r} mode={mode!r}")
-
-    monkeypatch.setattr("builtins.open", recording_open)
-
-    # The legacy is ``async def`` with no ``await``: run it through asyncio.
-    asyncio.run(LegacyScraper().scrape_changomas("almacen"))
-
-    # The port, over the same canned data.
-    port_driver = FakeDriver([HREF1, HREF2], RESULTS_COUNTS)
-    port_session = FakeSession({DISCOVERY_URL: list(DISCOVERY_PAGES)})
-    patch_waits(monkeypatch, port_driver)
-    ctx, port_messages, _ = make_ctx(port_session, repository,
-                                     driver=port_driver)
-    ScraperChangoMas().run(ctx)
-
-    # Same driver visits and same HTTP fetches, same order.
-    assert legacy_driver.urls == port_driver.urls
-    assert legacy_driver.urls == [DISCOVERY_URL, section_url(SEC1),
-                                  section_url(SEC2)]
-    assert legacy_session.urls == port_session.urls
-    assert legacy_session.urls == [DISCOVERY_URL, DISCOVERY_URL]
-    # Same 5 s waits on both sides (discovery + one per section).
-    assert sleeps == [5, 5, 5]
-    assert fast_sleep.requests == [5, 5, 5]
-
-    # THE K-12 DIFFERENCE, shown: the legacy wrote .changomas JSON files.
-    assert sorted(legacy_files) == [
-        ".changomas/almacen/aceites.json",
-        ".changomas/almacen/snacks.json",
-    ]
-    assert Path(".changomas").exists() is False
-    # ... while the port saved through the repository instead.
-    assert repository.calls == [
-        ("ChangoMas", "almacen", "aceites", 2),
-        ("ChangoMas", "almacen", "snacks", 1),
-    ]
-
-    # Same documents, per section, once scraped_at is normalised away.
-    for subcategoria in ("aceites", "snacks"):
-        legacy_docs = json.loads(
-            legacy_files[f".changomas/almacen/{subcategoria}.json"].text())
-        port_docs = [doc for doc in stored_documents(repository)
-                     if doc["subcategoria"] == subcategoria]
-        assert legacy_docs == [{key: doc[key]
-                                for key in ("supermercado", "name", "price")}
-                               for doc in port_docs]
-
-    # Same progress messages (the port's ctx.save adds its own save reports).
-    assert notifications == ["Inicio scrap",
-                             "PROCESO TERMINADO CON 0 productos"]
-    assert port_messages[0] == "Inicio scrap"
-    assert port_messages[-1] == "PROCESO TERMINADO CON 0 productos"

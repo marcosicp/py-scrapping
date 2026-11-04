@@ -1,22 +1,18 @@
-"""SuperMami port (T7): offline fake-HTTP behavior + legacy differential.
+"""SuperMami port (T7): offline fake-HTTP behavior.
 
-The legacy reference ``api.scrapers.scrap_supermami`` runs against the same
-canned HTML (with its ``arender`` coroutines deliberately created and never
-awaited, exactly like production) and the resulting stored documents must
-match the ported scraper's once ``scraped_at``/``_id`` are normalised away.
+Every test runs the ported scraper end to end against canned HTML and an
+in-memory repository: exact request order, stored documents, progress
+messages and the console output. The legacy-vs-port differential suite that
+used to accompany these tests was removed with the legacy module in T14.
 """
 import io
 import json
 import threading
-import warnings
 from contextlib import redirect_stdout
 from types import SimpleNamespace
 
 from api.scrapers.base import ScrapeContext
-from api.scrapers.scrap_supermami import ScrapeSuperMami as LegacyScraper
 from api.scrapers.supermami import ScraperSuperMami
-from flask import Flask
-from tests.fakes import FakeCollection, InMemoryProductRepository
 
 # -- canned HTML -------------------------------------------------------------
 
@@ -61,7 +57,7 @@ EXPECTED_DOCUMENTS = [
      "unidad": "1 kg", "brand": "Playadito", "price": 2500},
 ]
 
-# -- legacy URLs, copied verbatim from api/scrapers/scrap_supermami.py --------
+# -- the exact URLs the scraper requests --------------------------------------
 
 RESULTS_URL = ('https://www.supermami.com.ar/super/categoria/'
                'supermami-almacen/_/N-1tjm8rd?Nf=product.endDate%7CGTEQ+'
@@ -174,30 +170,7 @@ def test_full_run_keeps_the_legacy_console_progress(repository):
     assert "Proceso Mami termino OK, con 4 productos" in console
 
 
-# -- 1b. the preserved legacy quirk: empty pages do not advance countPages ----
-
-
-def test_empty_page_yields_the_same_requests_as_the_legacy(
-        monkeypatch, capsys, repository):
-    """Differential: when a page yields ZERO items the legacy loop did NOT
-    advance ``countPages`` (the increment is the last statement of the loop
-    body, after the empty-items ``continue``), so the next iteration
-    requested the SAME ``No=`` offset again. The port must reproduce that
-    sequence exactly for both empty positions."""
-    for pages, expected_urls in (
-            (EMPTY_MIDDLE_PAGES, [RESULTS_URL, page_url(0), page_url(36)]),
-            (EMPTY_FIRST_PAGES, [RESULTS_URL, page_url(0), page_url(0)])):
-        legacy_session, collection = run_legacy(monkeypatch, pages)
-
-        port_session = FakeSession(pages)
-        port_repository = InMemoryProductRepository()
-        ScraperSuperMami().run(make_ctx(port_session, port_repository)[0])
-
-        assert legacy_session.urls == port_session.urls == expected_urls, \
-            f"empty-page URL sequence diverged for {expected_urls}"
-        assert normalise(collection.documents) \
-            == normalise(port_repository.documents), \
-            f"empty-page stored documents diverged for {expected_urls}"
+# -- 1b. the preserved quirk: empty pages do not advance countPages ----------
 
 
 def test_empty_first_page_repeats_the_offset(repository):
@@ -256,54 +229,3 @@ def test_stop_mid_run_ends_the_run_and_still_saves(repository):
     ]
 
 
-# -- 3. legacy-vs-port differential -------------------------------------------
-
-def normalise(documents):
-    return [{key: value for key, value in doc.items()
-             if key not in ("_id", "scraped_at")}
-            for doc in documents]
-
-
-def run_legacy(monkeypatch, pages):
-    """Run the legacy scraper offline: fake HTTP, socket shim, fake Mongo."""
-    import api.scrapers.scrap_supermami as legacy
-
-    collection = FakeCollection()
-    flask_app = Flask("supermami-differential")
-    flask_app.mongodb_client = SimpleNamespace(
-        lalistitadev=SimpleNamespace(productos=collection))
-    session = FakeSession(pages)
-    monkeypatch.setattr(legacy, "_hTMLSession", session)
-    monkeypatch.setattr(legacy, "notifyStatus", lambda channel, message: None)
-    with warnings.catch_warnings():
-        # The legacy arener coroutines are created and never awaited in
-        # production too; silence the "coroutine never awaited" noise so the
-        # comparison stays about the data.
-        warnings.simplefilter("ignore", RuntimeWarning)
-        with flask_app.app_context():
-            LegacyScraper().scrape_supermami("almacen")
-    return session, collection
-
-
-def test_legacy_and_port_send_the_same_requests_and_store_the_same_documents(
-        monkeypatch, capsys):
-    # capsys keeps the legacy print noise out of the report output.
-    legacy_session, collection = run_legacy(monkeypatch, FULL_PAGES)
-
-    repository = InMemoryProductRepository()
-    port_session = FakeSession(FULL_PAGES)
-    ScraperSuperMami().run(make_ctx(port_session, repository)[0])
-
-    # Same requests, same order.
-    assert legacy_session.urls == port_session.urls
-    # Same stored documents once scraped_at/_id are normalised away.
-    assert normalise(collection.documents) == normalise(repository.documents)
-
-
-def test_legacy_writes_through_delete_many_and_insert_many(monkeypatch,
-                                                           capsys):
-    """The legacy persistence shape: replace the SuperMami slice wholesale."""
-    _, collection = run_legacy(monkeypatch, FULL_PAGES)
-
-    assert collection.events == ["delete_many", "insert_many"]
-    assert len(collection.documents) == 4

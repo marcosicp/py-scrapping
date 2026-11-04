@@ -21,7 +21,6 @@ from api.blueprints import register_blueprints
 from api.config import Settings
 from api.container import init_services
 from api.repositories.products import MongoProductRepository, ProductRepository
-from api.routes import app_file2
 from api.sockets import SocketIOReporter, configure_sockets
 
 # Load environment variables before `__main__` reads PORT (kept here so both
@@ -65,8 +64,8 @@ def create_app(settings: Settings | None = None, *,
     default MongoDB adapter.
 
     `scraper_registry` selects the registered scrapers (the default registry
-    is empty until T7-T11) and `reporter` where run progress goes; live runs
-    emit through the Socket.IO channels of the /scrape page.
+    holds all five supermarket scrapers) and `reporter` where run progress
+    goes; live runs emit through the Socket.IO channels of the /scrape page.
     """
     if settings is None:
         settings = Settings.from_env()
@@ -75,12 +74,6 @@ def create_app(settings: Settings | None = None, *,
     CORS(app)
     # Configurable, same default as before. A real rotation is K-13.
     app.config['SECRET_KEY'] = settings.secret_key
-
-    app.register_blueprint(app_file2)  # scraper control + dead alias routes
-    # The routes registered above still serve the not-yet-ported scrapers;
-    # porting one (T7-T11) must remove its old routes from `api/routes.py`,
-    # because the legacy aliases are generated for every registered slug and
-    # both endpoints would collide.
 
     configure_sockets(app)  # Initialize sockets for every entry point (K-1)
     _init_mongo(app, settings)  # Attach the database handles (K-2)

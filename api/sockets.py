@@ -1,9 +1,5 @@
 """SocketIO wiring for live scraper progress.
 
-`notifyStatus` is a legacy shim kept until the scrapers report progress through
-the scraper context (design D3); it is imported by the five scrapers, so its
-signature must not change.
-
 `SocketIOReporter` is the ProgressReporter the runner reports through: it
 emits the same `scraping-message-<slug>` channel (plain string payload) and
 the aggregated `scraper-status` snapshots.
@@ -19,10 +15,6 @@ if TYPE_CHECKING:
     from api.services.scraping import RunStatus
 
 socketio = SocketIO()
-
-
-def notifyStatus(paramText, paramValue):
-    socketio.emit(paramText, paramValue)
 
 
 def configure_sockets(app):

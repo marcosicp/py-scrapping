@@ -1,24 +1,22 @@
 """Tests for the shared HTTP session builder.
 
-``requests_html.HTMLSession`` injects a Safari ``User-Agent``; plain
-``requests`` would send ``python-requests/x.y``. The builder must reproduce
-exactly that header so the scrapers keep their historical request
-fingerprint.
+The scrapers must keep their historical request fingerprint: the exact
+Safari User-Agent the original sessions always sent. Plain ``requests``
+would send ``python-requests/x.y`` instead; the pin below is the exact
+literal string, character for character.
 """
 
-import pytest
 import requests
 
 from api.scrapers.http import BROWSER_USER_AGENT, build_http_session
 
-LEGACY_REQUESTS_HTML_USER_AGENT = (
+EXPECTED_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) "
-    "AppleWebKit/603.3.8 (KHTML, like Gecko) Version/10.1.2 Safari/603.3.8"
-)
+    "AppleWebKit/603.3.8 (KHTML, like Gecko) Version/10.1.2 Safari/603.3.8")
 
 
-def test_constant_matches_legacy_requests_html_user_agent():
-    assert BROWSER_USER_AGENT == LEGACY_REQUESTS_HTML_USER_AGENT
+def test_user_agent_constant_is_the_pinned_literal():
+    assert BROWSER_USER_AGENT == EXPECTED_USER_AGENT
 
 
 def test_build_http_session_returns_requests_session():
@@ -35,9 +33,3 @@ def test_build_http_session_sets_browser_user_agent():
         assert session.headers["User-Agent"] == BROWSER_USER_AGENT
     finally:
         session.close()
-
-
-def test_matches_requests_html_header_characterization():
-    requests_html = pytest.importorskip("requests_html")
-    legacy_session = requests_html.HTMLSession()
-    assert legacy_session.headers["User-Agent"] == BROWSER_USER_AGENT

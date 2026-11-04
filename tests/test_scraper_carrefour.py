@@ -1,37 +1,26 @@
-"""Carrefour port (T10): offline fake-driver/fake-HTTP behavior + differential.
+"""Carrefour port (T10): offline fake-driver/fake-HTTP behavior.
 
-The legacy reference ``api.scrapers.scrap_carrefour`` runs against the same
-canned pages with its Selenium ``webdriver`` / ``Service`` replaced by
-recorders, ``_hTMLSession.get`` monkeypatched, ``notifyStatus`` silenced and
-``time.sleep`` turned into a no-op; the stored documents and the driver URL
-sequences of both runs must match once ``_id`` and ``scraped_at`` are
-normalised away.
+Every test runs the ported scraper end to end against canned pages: exact
+driver/HTTP request order, stored documents, progress messages and the
+console output. The legacy-vs-port differential suite that used to
+accompany these tests was removed with the legacy module in T14; the
+tests here still pin the ported quirks for BOTH collection paths:
 
-The legacy ``scrape_carrefour(param)`` has two genuinely different collection
-paths and both are exercised:
-
-- Path A (a category was requested): json-LD ``template`` extraction over the
-  HTTP session, documents WITHOUT ``unidad``, no browser at all.
+- Path A (a category was requested): json-LD ``template`` extraction over
+  the HTTP session, documents WITHOUT ``unidad``, no browser at all, and
+  the ``total == 0`` abort of the whole run.
 - Path B (no category): driver visits, ``render-provider`` script JSON,
-  documents WITH ``unidad``, one save per category.
-
-Known legacy divergence, asserted explicitly (not hidden): the legacy Path A
-concatenates the whole category dict into its first progress message
-(``"Scrapeando categoria: " + categoryRequested`` → TypeError), so it crashed
-before scraping anything and never saved. The port keeps the message text
-with the category slug; the Path A differential test pins the divergence.
+  documents WITH ``unidad``, one save per category, plus the empty-result
+  no-op keep-slice behavior on Path A.
 """
 import json
 import threading
 from types import SimpleNamespace
 
 import pytest
-from flask import Flask
 
 from api.scrapers.base import ScrapeContext
 from api.scrapers.carrefour import ScraperCarrefour
-from api.scrapers.scrap_carrefour import ScrapeCarrefour as LegacyScraper
-from tests.fakes import FakeCollection
 
 # -- canned scenario ---------------------------------------------------------
 #
@@ -587,175 +576,3 @@ def test_path_b_broken_browser_propagates_and_still_quits(repository):
         ScraperCarrefour().run(ctx)
 
 
-# -- 7. legacy-vs-port differential -------------------------------------------
-
-# The legacy walks the full hardcoded 18-subcategory structure; only these
-# three subcategories carry items (every other one reads a total of 0).
-LEGACY_TOTALS = {
-    ("almacen", SUB1): 49,
-    ("almacen", SUB2): 33,
-    ("desayuno-y-merienda", SUB3): 49,
-}
-LEGACY_PAGES = {
-    ("almacen", SUB1, 1): [B_A, B_B],
-    ("almacen", SUB1, 2): [B_C],
-    ("almacen", SUB2, 1): [B_D],
-    ("desayuno-y-merienda", SUB3, 1): [B_E, B_F],
-    ("desayuno-y-merienda", SUB3, 2): [B_G],
-}
-
-
-def stub_legacy(monkeypatch, driver, session):
-    """Run the legacy scraper offline (differential technique from T7-T9)."""
-    import api.scrapers.scrap_carrefour as legacy
-
-    def fake_chrome(service=None, options=None):
-        return driver
-
-    def fake_options():
-        return SimpleNamespace(add_argument=lambda *args, **kwargs: None)
-
-    def fake_service(path):
-        return SimpleNamespace(path=path)
-
-    monkeypatch.setattr(legacy, "_hTMLSession", session)
-    monkeypatch.setattr(legacy, "notifyStatus",
-                        lambda channel, message: None)
-    monkeypatch.setattr(legacy, "time",
-                        SimpleNamespace(sleep=lambda seconds: None))
-    monkeypatch.setattr(legacy, "webdriver",
-                        SimpleNamespace(Chrome=fake_chrome,
-                                        ChromeOptions=fake_options))
-    monkeypatch.setattr(legacy, "Service", fake_service)
-    monkeypatch.setattr(legacy, "By",
-                        SimpleNamespace(CLASS_NAME="class name",
-                                        XPATH="xpath"))
-
-
-def run_legacy_path_b(monkeypatch):
-    """Run the legacy no-category branch against the canned driver data.
-
-    MongoDB is a ``FakeCollection`` behind a pushed Flask app context,
-    exactly like the legacy ``save_to_mongodb`` expects.
-    """
-    driver = FakeDriver(LEGACY_TOTALS, LEGACY_PAGES)
-    session = FakeSession({})
-    stub_legacy(monkeypatch, driver, session)
-
-    collection = FakeCollection()
-    flask_app = Flask("carrefour-differential")
-    flask_app.mongodb_client = SimpleNamespace(
-        lalistitadev=SimpleNamespace(productos=collection))
-    with flask_app.app_context():
-        LegacyScraper().scrape_carrefour(None)
-    return driver, session, collection
-
-
-def test_legacy_and_port_send_the_same_requests_and_store_the_same_documents(
-        monkeypatch, capsys, repository):
-    """The differential, Path B: same canned data, two paths.
-
-    capsys keeps the legacy print noise out of the report output. The legacy
-    walks all 18 subcategories (15 of them read a total of 0 and are
-    skipped); the ported scraper runs the same verbatim structure, and both
-    sides must issue the same driver URLs and store the same documents once
-    ``_id``/``scraped_at`` are normalised away. Decision 1 never diverges
-    here: the legacy ``if jsonData:`` guard matches the port's, and the
-    empty-result cases are pinned by the focused decision-1 tests above.
-    """
-    legacy_driver, legacy_session, collection = run_legacy_path_b(monkeypatch)
-
-    port_driver = FakeDriver(LEGACY_TOTALS, LEGACY_PAGES)
-    port_session = FakeSession({})
-    ctx, _, _ = make_ctx(port_session, repository, category=None,
-                         driver=port_driver)
-    ScraperCarrefour().run(ctx)
-
-    # Same driver visits: 18 base URLs + 5 ?page= URLs, same order.
-    assert legacy_driver.urls == port_driver.urls
-    assert len(port_driver.urls) == 23
-    # Path B is driver-only on both sides: the HTTP sessions stay empty.
-    assert legacy_session.urls == []
-    assert port_session.urls == []
-    # Same stored documents once scraped_at/_id are normalised away.
-    assert normalise(collection.documents) == stored_documents(repository)
-    # Both sides saved exactly one batch per category.
-    assert repository.calls == [
-        ("Carrefour", "almacen", None, 4),
-        ("Carrefour", "desayuno-y-merienda", None, 3),
-    ]
-    assert legacy_driver.quit_count == port_driver.quit_count == 1
-
-
-def run_legacy_path_a(monkeypatch):
-    """Run the legacy requested-category branch offline: it must crash.
-
-    The legacy concatenates the whole category dict into its first progress
-    message ("Scrapeando categoria: " + categoryRequested → TypeError), so
-    it raises before scraping anything and never saves. The divergence is
-    asserted by the caller.
-    """
-    driver = FakeDriver()
-    session = FakeSession({
-        page_url("almacen", SUB1, 1): template_page([ITEM_A, ITEM_B]),
-        page_url("almacen", SUB1, 2): template_page([ITEM_C]),
-    })
-    stub_legacy(monkeypatch, driver, session)
-
-    collection = FakeCollection()
-    seed = {"supermercado": "Carrefour", "name": "Dulce de leche viejo",
-            "categoria": "almacen"}
-    collection.documents.append(seed)
-    flask_app = Flask("carrefour-path-a-differential")
-    flask_app.mongodb_client = SimpleNamespace(
-        lalistitadev=SimpleNamespace(productos=collection))
-    with pytest.raises(TypeError):
-        with flask_app.app_context():
-            LegacyScraper().scrape_carrefour("almacen")
-    return session, collection, seed
-
-
-def test_path_a_legacy_crashes_but_the_port_scrapes(monkeypatch, capsys,
-                                                    repository):
-    """The differential, Path A: the legacy divergence asserted explicitly.
-
-    The legacy param branch never got to scrape anything (TypeError while
-    building its first progress message; K-18-style dead code), so there is
-    nothing to compare documents against. The test pins what the legacy DID
-    do — raise TypeError, fetch nothing, store nothing, leave the slice
-    intact — and what the port does instead: report the category slug and
-    store the collected documents.
-    """
-    legacy_session, collection, seed = run_legacy_path_a(monkeypatch)
-
-    # The legacy never fetched a page and never saved: the seed survives.
-    assert legacy_session.urls == []
-    assert collection.documents == [seed]
-
-    # The port scrapes the same canned pages and stores the documents.
-    port_session = FakeSession({
-        base_url("almacen", SUB1): base_page(49),
-        page_url("almacen", SUB1, 1): template_page([ITEM_A, ITEM_B]),
-        page_url("almacen", SUB1, 2): template_page([ITEM_C]),
-    })
-    ctx, _, built = make_ctx(port_session, repository, category="almacen",
-                             driver=None)
-    OneSubcategoryScraper().run(ctx)
-
-    assert built == []
-    assert port_session.urls == [base_url("almacen", SUB1),
-                                 page_url("almacen", SUB1, 1),
-                                 page_url("almacen", SUB1, 2)]
-    assert repository.calls == [("Carrefour", "almacen", None, 3)]
-    assert stored_documents(repository) == [
-        expected_doc_a("Aceite Girasol 900 ml", "Girasol", "1001", 1500.5),
-        expected_doc_a("Yerba Playadito 1 kg", "Playadito", "1002", 2500),
-        expected_doc_a("Mayonesa Hellmann's 500 gr", "Hellmann's", "1003",
-                       999.99),
-    ]
-
-
-def normalise(documents):
-    return [{key: value for key, value in doc.items()
-             if key not in ("_id", "scraped_at")}
-            for doc in documents]

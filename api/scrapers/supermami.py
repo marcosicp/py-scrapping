@@ -1,12 +1,12 @@
 """SuperMami scraper, ported to the scraper contract (T7).
 
-Mechanical port of ``api.scrapers.scrap_supermami`` (the byte-identical
-legacy reference, deleted in T14): URLs, selectors, the gtag
-``view_item_list`` extraction and the stored keys are unchanged. Only the
-plumbing moved to the contract: ``notifyStatus`` became ``ctx.report``,
-``save_to_mongodb`` became ``ctx.save`` and the never-awaited
-``arender(sleep=4)`` statements were dropped (they never executed, K-18).
-SuperMami needs no browser: it scrapes plain GET responses only.
+A mechanical port of the original requests-based module (deleted
+in T14): URLs, selectors, the gtag ``view_item_list`` extraction and the
+stored keys are unchanged. Only the plumbing moved to the contract: progress
+reports go through ``ctx.report``, persistence through ``ctx.save``, and
+the never-awaited ``arender(sleep=4)`` statements were dropped (they never
+executed, K-18). SuperMami needs no browser: it scrapes plain GET responses
+only.
 """
 
 from __future__ import annotations

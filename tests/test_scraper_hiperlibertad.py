@@ -1,13 +1,11 @@
-"""HiperLibertad port (T8): offline fake-HTTP behavior + legacy differential.
+"""HiperLibertad port (T8): offline fake-HTTP behavior.
 
-The legacy reference ``api.scrapers.scrap_hiperlibertad`` runs against the
-same canned VTEX JSON (with its never-used Selenium driver stubbed out so
-no browser starts) and the resulting stored documents are compared with
-the ported scraper's. The legacy status guard is broken on purpose (see
-the differential test): it is a chained comparison that is False for
-every status, so the legacy path stores nothing while the port accepts
-200/206 and stores the expected documents. That divergence is the tested
-fix #1; the never-used legacy driver is the tested fix #2.
+Every test runs the ported scraper end to end against canned VTEX JSON: exact
+URL sequence, stored documents, progress messages and the console output. The
+legacy-vs-port differential suite that used to accompany these tests was
+removed with the legacy module in T14; the tests here still pin the two fixes
+the port carries (the status guard accepting 200/206 where the param rewrite
+accepted nothing, and the run opening no browser at all).
 """
 import io
 import threading
@@ -15,13 +13,10 @@ from contextlib import redirect_stdout
 from types import SimpleNamespace
 
 import pytest
-from flask import Flask
 
 from api.scrapers.base import ScrapeContext
 from api.scrapers.hiperlibertad import ScraperHiperLibertad
-from api.scrapers.scrap_hiperlibertad import (
-    ScrapeHiperLibertad as LegacyScraper)
-from tests.fakes import FakeCollection, InMemoryProductRepository
+from tests.fakes import InMemoryProductRepository
 
 # -- fakes ------------------------------------------------------------------
 
@@ -88,7 +83,7 @@ HAPPY_RESPONSES = [
     FakeStatus(200, []),                # sub2 page 2: end
 ]
 
-# Legacy URLs, copied verbatim from api/scrapers/scrap_hiperlibertad.py.
+# The exact URLs the scraper requests.
 
 
 def vtex_url(categoria, subCategory, pageIncrement):
@@ -394,105 +389,3 @@ def test_no_browser_is_ever_built(repository):
     assert session.urls == HAPPY_URLS
 
 
-# -- 6. legacy-vs-port differential -------------------------------------------
-
-# Legacy runs all 14 hardcoded subcategories; only these two carry items.
-LEGACY_CANNED_ITEMS = {
-    SUB1: [[ITEM_A, ITEM_B], []],
-    SUB2: [[ITEM_C], []],
-}
-
-
-def run_legacy(monkeypatch):
-    """Run the legacy scraper offline (differential technique from T7).
-
-    Fakes: ``requests.get`` returns the canned JSON with status 200 for
-    every page, ``notifyStatus`` is silenced, and Selenium's ``webdriver`` /
-    ``Service`` are stubbed so the never-used legacy driver "starts" without
-    any browser. MongoDB is a ``FakeCollection`` behind a pushed Flask app
-    context, exactly like the legacy ``save_to_mongodb`` expects.
-    """
-    import api.scrapers.scrap_hiperlibertad as legacy
-
-    legacy_urls: list[str] = []
-
-    def fake_get(url, timeout=None):
-        legacy_urls.append(url)
-        for sub, pages in LEGACY_CANNED_ITEMS.items():
-            if f"/almacen/{sub}?" in url:
-                return FakeStatus(200, pages.pop(0) if pages else [])
-        # The other 12 subcategories also get a well-formed 200 page.
-        return FakeStatus(200, [])
-
-    class FakeDriver:
-        def quit(self):
-            pass
-
-    def fake_chrome(service=None, options=None):
-        return FakeDriver()
-
-    def fake_options():
-        return SimpleNamespace(add_argument=lambda *args, **kwargs: None)
-
-    def fake_service(path):
-        return SimpleNamespace(path=path)
-
-    monkeypatch.setattr(legacy, "requests",
-                        SimpleNamespace(get=fake_get))
-    monkeypatch.setattr(legacy, "notifyStatus",
-                        lambda channel, message: None)
-    monkeypatch.setattr(legacy, "webdriver",
-                        SimpleNamespace(Chrome=fake_chrome,
-                                        ChromeOptions=fake_options))
-    monkeypatch.setattr(legacy, "Service", fake_service)
-
-    collection = FakeCollection()
-    flask_app = Flask("hiperlibertad-differential")
-    flask_app.mongodb_client = SimpleNamespace(
-        lalistitadev=SimpleNamespace(productos=collection))
-    with flask_app.app_context():
-        LegacyScraper().scrape_hiperlibertad("almacen")
-    return legacy_urls, collection
-
-
-def test_legacy_stores_nothing_while_the_port_stores_the_expected_documents(
-        monkeypatch, capsys, repository):
-    """The differential: same canned JSON, two paths.
-
-    The legacy status guard is a chained comparison that is False for every
-    status, so the legacy scraper asks the API for all 14 subcategories,
-    rejects every response, and stores nothing. The ported scraper, fixed
-    to accept 200/206, stores the expected documents for its bounded
-    subcategory list. Both sides run against the same canned JSON offline.
-    """
-    # capsys keeps the legacy print noise out of the report output.
-    legacy_urls, collection = run_legacy(monkeypatch)
-    assert len(legacy_urls) == 14  # one page per hardcoded subcategory
-    # Fix #1 legacy behavior: the guard rejected status 200 every time.
-    assert collection.events == []
-    assert collection.documents == []
-
-    # The port, same canned pages, stores the expected documents.
-    port_repository = InMemoryProductRepository()
-    port_session = FakeSession(HAPPY_RESPONSES)
-    TwoSubcategoryScraper().run(
-        make_ctx(port_session, port_repository)[0])
-
-    assert collection.documents == []
-    assert port_session.urls == HAPPY_URLS
-    assert stored_documents(port_repository) == [
-        expected_doc("Aceite Girasol", "900 ml", "Girasol", "1001",
-                     1500.5, SUB1),
-        expected_doc("Yerba Playadito", "1 kg", "Playadito", "1002",
-                     2500, SUB1),
-        expected_doc("Mayonesa Hellmann's", "500 gr", "Hellmann's", "1003",
-                     999.99, SUB2),
-    ]
-
-
-def test_legacy_saves_through_delete_many_and_insert_many(monkeypatch,
-                                                         capsys):
-    """Documented legacy persistence shape (kept as evidence for T14): with
-    the broken guard the legacy path never reaches its fake Mongo at all."""
-    _, collection = run_legacy(monkeypatch)
-    assert collection.events == []
