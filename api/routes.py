@@ -5,7 +5,6 @@ import json
 import asyncio
 from api.scrapers.scrap_carrefour import ScrapeCarrefour
 from api.scrapers.scrap_changomas import ScrapeChangoMas
-from api.scrapers.scrap_disco import ScrapeDisco
 
 app_file2 = Blueprint('app_file2',__name__)
 # def configure_routes(app: Flask):
@@ -14,14 +13,6 @@ def redirect_url():
         request.referrer or \
         url_for('index')
 
-@app_file2.route("/scraping-disco", methods=['POST'] )
-def scrapingDisco():
-    categoria = request.args.get('category')
-    scrape_service = ScrapeDisco()
-    Thread(target = scrape_service.scrape_disco(categoria),).start()
-    
-    return json.dumps({'success':True}), 200, {'ContentType':'application/json'} 
-    
 @app_file2.route("/scraping-carrefour", methods=['POST'] )
 def scrapingCarrefour():
     categoria = request.args.get('category')
