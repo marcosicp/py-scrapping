@@ -79,6 +79,11 @@ api/routes.py           Scraper-control routes and the dead `/supermercado-*` ro
 api/sockets.py          SocketIO singleton + notifyStatus(channel, message)
 api/helpers.py          remove_duplicates_by_key(), name_parse() → {name, unidad}
 api/scrapers/*.py       One class per supermarket, uniform start/stop contract
+api/scrapers/base.py    Scraper contract: BaseScraper (slug/label/categories/run(ctx)) + ScrapeContext (report, should_stop, sleep, save, browser(), http)
+api/scrapers/registry.py ScraperRegistry (explicit registration, slug validation) + default_registry()
+api/scrapers/errors.py   ScraperError family: UnknownScraper, InvalidCategory, AlreadyRunning, NotRunning
+api/scrapers/http.py     Shared HTTP session with the legacy browser User-Agent (no requests-html)
+api/services/scraping.py ScraperManager + RunStatus/RunState (per-supermarket runs: threads, single-flight, cooperative stop)
 api/repositories/       ProductRepository port + Mongo adapter (replace inserts before deleting)
 tests/                  pytest suite (settings + app factory; no network, no DB, no Chrome)
 adminpro/src/app/       Angular 21 source (dashboard, login, register, progress, grafica1)
@@ -139,7 +144,12 @@ produces a diff; only source changes do.
 
 ## 6. Scraper contract
 
-Every scraper follows the same shape; preserve it when adding a supermarket.
+New scrapers implement `BaseScraper` (`api/scrapers/base.py`) and receive a
+`ScrapeContext` in `run(ctx)`; the legacy shape below still describes the
+scrapers not yet ported (T7-T11 in `odd/tasks/backend-architecture.md`).
+
+Every legacy scraper follows the same shape; preserve it when adding a
+supermarket to it.
 
 ```python
 class ScrapeX:
