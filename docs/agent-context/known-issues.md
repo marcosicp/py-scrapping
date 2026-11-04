@@ -315,9 +315,15 @@ warns.
 - `api/routes.py:1` and `:6` both `from threading import Thread`; `redirect_url()`
   (`:16`) is defined and never used.
 
-**Fix direction:** delete. Separately, decide whether `static/` should stay
-committed at all — see the note in `runbook.md` §4; an uncommitted build output
-with a deploy-time build step would remove a whole class of stale-bundle bugs.
+**Fix direction:** delete.
+
+Separately decided and shipped: `static/` is no longer versioned. It was 662
+files / 17 MB, and a single Angular rebuild produced a 3.8 MB diff of minified
+bundles — enough to make native review reject the candidate outright with
+`lens_context_budget_exceeded` (97.7% of the candidate was build output). It is
+now gitignored, built with `npm ci && npm run build`, produced inside the Docker
+image by a `node` stage, and `/` answers 503 with the command when the bundle is
+missing.
 
 ## <a id="k-17"></a>K-17 · Every API call scans the whole collection
 

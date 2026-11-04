@@ -24,6 +24,7 @@ note at the end of this file.
 | --- | --- | --- |
 | `.venv` | Python 3.15.x, provisioned, 53 packages | ✅ working |
 | Python target | 3.15.2 pinned in `.python-version`, `runtime.txt`, `Dockerfile`, `app.yaml`, CI | ✅ aligned |
+| `static/` bundle | **absent in a fresh clone** — gitignored build output | ⛔ `npm ci && npm run build` |
 | `python3` on PATH | still resolves to an older framework build because PATH order wins over `/usr/local/bin` | ⚠️ call `python3.15` explicitly |
 | `adminpro/node_modules` | absent | ⛔ `npm install` required |
 | Global `ng` | Angular CLI 14.x, `Node ... (Unsupported)` | ⛔ too old for Angular 21 — use the local CLI |
@@ -87,8 +88,9 @@ python app.py
 
 📖 INFERRED. Expects a reachable MongoDB.
 
-- App: <http://localhost:3000> — serves `static/index.html` (the committed
-  Angular bundle), **not** `adminpro/src`.
+- App: <http://localhost:3000> — serves `static/index.html` from the locally built
+  bundle. **If you have not built the frontend, `/` answers 503 with the build
+  command** — that is the designed behaviour, not a bug.
 - Scraper monitor: <http://localhost:3000/scrape>
 - API probe: <http://localhost:3000/supermercados> — returns the grouped payload,
   or an empty payload with `"error": "Database connection error"` if Mongo is
@@ -118,11 +120,12 @@ the Flask backend running on :3000, and relies on the blanket `CORS(app)`.
 ### Build consequences — read before running `ng build`
 
 - `angular.json:16-19` sets `outputPath: { "base": "../static", "browser": "" }`,
-  so the build writes **directly into the committed `static/`** directory.
-- Filenames are content-hashed (`main-KNNEIXUN.js`). A rebuild leaves the previous
-  hashes behind as orphans: the working tree gains new files and keeps stale ones.
-- `static/index.html` is overwritten by every build.
-- Never mix a build into a commit that is about something else.
+  so the build writes **directly into `static/`**, which is gitignored. A build
+  therefore produces no git diff at all — only source changes do.
+- Content-hashed filenames (`main-<hash>.js`) are replaced on every build, so
+  stale bundles cannot accumulate in version control any more. They can still
+  accumulate on disk if you build into a copy; the builder cleans its own
+  `outputPath`, so a normal build is self-cleaning.
 
 ## 5. Running a scraper
 
@@ -153,7 +156,7 @@ Before any of this works:
 
 | Path | Files | Status |
 | --- | --- | --- |
-| Docker | `Dockerfile` | ⛔ `CMD ... main:app` (`Dockerfile:22`) but there is **no `main.py`**. The image builds, the container crashes at start. |
+| Docker | `Dockerfile` | ⛔ `CMD ... main:app` (`Dockerfile:22`) but there is **no `main.py`**. The image builds, the container crashes at start. The frontend bundle **is** handled: a `node:24-alpine` stage runs `npm ci && npm run build` and the Python stage copies `static/` from it. |
 | Heroku-style | `Procfile` → `web: python app.py` | ⚠️ runs the Werkzeug dev server with `debug=True`; uses whatever `PORT` the platform injects |
 | Gunicorn (orphan) | `gunicorn_config.py` (`0.0.0.0:3000`, 2 workers) | ⛔ referenced by nothing |
 | App Engine | `app.yaml` (`runtime: python310`) | ⛔ no entrypoint declared |
@@ -186,8 +189,8 @@ on.
 | API alive | `curl -s localhost:3000/supermercados \| head -c 200` returns JSON with `todos` |
 | Data present | `mongo`/Atlas: `use lalistitadev; db.productos.countDocuments()` |
 | Scraper progressed | log lines + `/scrape` receives `scraping-message-<x>` events |
-| Frontend renders | `npx ng serve`, open :4200, grid shows rows (or empty grid when the API is down) |
-| Build matches source | `git status static/` shows the expected new hashes only |
+| Frontend renders | `npx ng build` first, then `GET /` → 200; without a build it must answer **503** with the build command |
+| Bundle is not versioned | `git ls-files static/` → empty, and `git status` stays clean after a build |
 
 ---
 

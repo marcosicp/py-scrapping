@@ -33,7 +33,7 @@ behind it.
                        │        │
                        │        └──► Mongo: lalistitadev.productos
                        ▼
-              static/index.html  (Angular 21 bundle, committed)
+              static/index.html  (Angular 21 bundle — gitignored, built locally)
 ```
 
 ## 2. Bootstrap — `app.py` (46 lines)
@@ -60,7 +60,7 @@ Blueprint name: `app_file2`.
 
 | Method | Path | Handler | Real behavior |
 | --- | --- | --- | --- |
-| GET | `/` | `root` (`:21`) | `send_from_directory(static, index.html)` |
+| GET | `/` | `root` (`:23`) | `send_from_directory(static, index.html)`; **503 with the build command** when the bundle is absent |
 | GET | `/scrape` | `scrape` (`:26`) | renders `templates/scrape.html` (the only live template) |
 | POST | `/scraping-disco` | `scrapingDisco` (`:30`) | **broken**: `Thread(target=scrape_disco(categoria),)` runs inline, then `Thread(target=None).start()` raises |
 | POST | `/scraping-hiperlibertad` | `scrapingHiperlibertad` (`:38`) | **blocking**: no thread, request waits for the full scrape |
@@ -169,7 +169,8 @@ code against `pymongo` and is imported by nothing.
   false`, deliberate, from the PR #18 migration.
 - Build system: `@angular-devkit/build-angular:application`;
   `outputPath: { base: "../static", browser: "" }` (`angular.json:16-19`) →
-  output lands directly in the repo's committed `static/`.
+  output lands directly in `static/`, which is **gitignored**: a build produces no
+  git diff, and a fresh clone must build before `/` answers.
 - Global scripts loaded via `angular.json` from `node_modules`: jQuery, Popper,
   Bootstrap 4.6, plus `src/assets/js/*` (perfect-scrollbar, sidebarmenu, custom,
   jQuery.style.switcher) — AdminPro template heritage.
@@ -196,7 +197,7 @@ code against `pymongo` and is imported by nothing.
 | `templates/scrape.html` | The only rendered template (`api/routes.py:26`). Loads SocketIO 4.0.1 from cdnjs and subscribes to `scraping-message-<supermarket>` channels. |
 | `templates/index.html`, `index3.html`, `index4.html`, `indexa.html` | Angular build output committed under `templates/` (`data-critters-container`). Dead. |
 | `templates/index2.html` | Older server-rendered page using `url_for('static', ...)`. No route renders it. |
-| `static/` | Committed Angular build: `index.html`, `main-*.js`, `polyfills-*.js`, `scripts-*.js`, `styles-*.css`, plus `assets/` and `media/`. Rebuilding adds new hashes and leaves the old ones behind. `static/prerendered-routes.json` is emitted but **silently ignored** by the global `*.json` rule — harmless (empty route map) and not needed for a CSR app. |
+| `static/` | **Gitignored Angular build output.** Contains `index.html`, `main-*.js`, `polyfills-*.js`, `scripts-*.js`, `styles-*.css`, `assets/` (copied from `adminpro/src/assets`), `media/` (assets the builder hashes because CSS references them) and `3rdpartylicenses.txt`. Fully reproducible from tracked sources — verified file by file before it was untracked. A clean clone has none of it. |
 | `supermami.json` (repo root) | A 368 KB scrape artifact that is tracked despite `*.json` being ignored. Reference data, not runtime input — the routes that read `*.json` want other filenames. |
 
 ## 8. File index

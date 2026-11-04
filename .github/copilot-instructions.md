@@ -6,9 +6,9 @@ This repository maintains a single tool-agnostic agent-context file:
 
 Minimum just to be safe in this repo:
 
-- **`static/` is committed Angular build output.** Never edit it by hand; the
-  source is `adminpro/src/`. `ng build` writes into `static/`
-  (`adminpro/angular.json:16`).
+- **`static/` is build output and is NOT versioned.** A fresh clone has no bundle:
+  `/` answers 503 with the build command until you run `cd adminpro && npm ci &&
+  npm run build`. Never edit it by hand; the source is `adminpro/src/`.
 - **`.gitignore` ignores `*.json` globally** (`.gitignore:56`). New JSON files
   are silently untracked unless you add an exception.
 - **`adminpro/node_modules` is not installed**, and **`.venv` is broken** — it

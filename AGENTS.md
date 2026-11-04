@@ -28,9 +28,11 @@ Browser ──► Flask (app.py, port 3000)
 
 ## 2. Hard rules
 
-1. **`static/` is build output, committed to git.** Never hand-edit it. Its
-   hashed filenames (`main-KNNEIXUN.js`) come from `ng build`. Source of truth is
-   `adminpro/src/`.
+1. **`static/` is build output and is NOT versioned.** It is gitignored; a
+   fresh clone has no bundle and `/` answers **503** with the build command. Build
+   it with `cd adminpro && npm ci && npm run build`. Never hand-edit it — the
+   source of truth is `adminpro/src/`, and every file in it is reproducible from
+   there (verified file by file).
 2. **Never add a `.json` file without checking `.gitignore` first.** It ignores
    `*.json` globally (`.gitignore:56`), with exceptions only for
    `package.json`, `package-lock.json`, `angular.json`, `tsconfig.json`. A new
@@ -75,7 +77,7 @@ adminpro/src/app/       Angular 21 source (dashboard, login, register, progress,
 templates/scrape.html   The ONLY template a route renders (SocketIO monitor)
 docs/agent-context/     Deep dives for agents — read when you need detail
 odd/tasks/              ODD feature documents
-static/                 Angular build output (committed, do not edit)
+static/                 Angular build output — GITIGNORED, build it locally
 ```
 
 **Dead / do not extend without deciding first:**
@@ -101,19 +103,20 @@ Full runbook with status per command:
 python3.15 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
+# Frontend bundle — REQUIRED before `/` will answer; static/ is not versioned
+cd adminpro && npm ci && npm run build && cd ..
+
 # Run (needs .env with MONGODB_URI)
 python app.py                       # http://localhost:3000  (also /scrape)
 
-# Frontend
-cd adminpro && npm install
-npm start                           # ng serve, dev server on :4200
-npm run build                       # ng build → output: ../static (hashed files)
+# Frontend dev server (bypasses the bundle entirely)
+cd adminpro && npm start             # ng serve on :4200
 ```
 
 Note: `adminpro/angular.json:16` sets `outputPath` to `{ "base": "../static",
-"browser": "" }`, so `ng build` writes **straight into the committed `static/`**.
-Any build dirties the working tree. Do not bundle a build with an unrelated
-change.
+"browser": "" }`, so `ng build` writes **straight into `static/`**, which is
+bookkeeping-free precisely because `static/` is gitignored. A build no longer
+produces a diff; only source changes do.
 
 ## 6. Scraper contract
 
