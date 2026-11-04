@@ -1,3 +1,6 @@
+# Keep the image build context small and deterministic.
+# The frontend bundle is not committed and is produced by the `frontend` stage,
+# so a developer's local build must never leak into this context.
 Dockerfile
 README.md
 *.pyc
@@ -5,3 +8,16 @@ README.md
 *.pyd
 __pycache__
 .pytest_cache
+
+# Never ship these
+static/
+.git/
+.venv/
+adminpro/node_modules/
+adminpro/dist/
+adminpro/.angular/
+
+# Not needed at runtime
+docs/
+odd/
+.DS_Store

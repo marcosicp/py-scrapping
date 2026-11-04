@@ -64,7 +64,12 @@ adminpro/node_modules/
 adminpro/.angular/
 adminpro/.vscode/
 adminpro/dist/
-adminpro/package-lock.json
+
+# Angular build output consumed by Flask at runtime.
+# NOT versioned: 662 files / 17 MB that made every rebuild a 3.8 MB diff and
+# made code review impossible. Build it with `cd adminpro && npm ci && npm run build`.
+# adminpro/package-lock.json IS tracked so that build is reproducible.
+/static/
 
 # ChromeDriver and web drivers
 chromedriver*
