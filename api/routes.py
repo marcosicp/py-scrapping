@@ -3,7 +3,6 @@ from flask import Blueprint, request, url_for, send_from_directory
 import os
 import json
 import asyncio
-from api.scrapers.scrap_carrefour import ScrapeCarrefour
 from api.scrapers.scrap_changomas import ScrapeChangoMas
 
 app_file2 = Blueprint('app_file2',__name__)
@@ -13,13 +12,6 @@ def redirect_url():
         request.referrer or \
         url_for('index')
 
-@app_file2.route("/scraping-carrefour", methods=['POST'] )
-def scrapingCarrefour():
-    categoria = request.args.get('category')
-    scrape_service = ScrapeCarrefour()
-    Thread(target=scrape_service.scrape_carrefour, args=(categoria,)).start()
-    return json.dumps({'success':True}), 200, {'ContentType':'application/json'} 
-    
 @app_file2.route("/scraping-changomas", methods=['POST'])
 def scrapingChangomas():
     categoria = request.args.get('category')

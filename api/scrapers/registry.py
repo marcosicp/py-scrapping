@@ -11,6 +11,7 @@ import re
 from typing import Iterable
 
 from api.scrapers.base import BaseScraper
+from api.scrapers.carrefour import ScraperCarrefour
 from api.scrapers.disco import ScraperDisco
 from api.scrapers.errors import UnknownScraper
 from api.scrapers.hiperlibertad import ScraperHiperLibertad
@@ -76,12 +77,13 @@ class ScraperRegistry:
 def default_registry() -> ScraperRegistry:
     """The registry used by the app.
 
-    ScraperSuperMami (T7), ScraperHiperLibertad (T8) and ScraperDisco
-    (T9) are ported; Carrefour and ChangoMás are still on the legacy
-    shape and get registered here one by one as they are ported (T10-T11).
+    ScraperSuperMami (T7), ScraperHiperLibertad (T8), ScraperDisco
+    (T9) and ScraperCarrefour (T10) are ported; ChangoMás is still on the
+    legacy shape and gets registered here when it is ported (T11).
     """
     registry = ScraperRegistry()
     registry.register(ScraperSuperMami)
     registry.register(ScraperHiperLibertad)
     registry.register(ScraperDisco)
+    registry.register(ScraperCarrefour)
     return registry
