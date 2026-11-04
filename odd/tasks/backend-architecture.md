@@ -316,13 +316,48 @@ Advisory findings (non-blocking, separate later work):
 | R3-003 | reliability | `tests/test_product_repository.py:43-56` | WARNING |
 | R4-001 | resilience | `api/repositories/products.py:90-95` | WARNING |
 
+### T3 `df6a442` — blocked in `correction_required`
+
+| Item | Value |
+| --- | --- |
+| Lineage | `review-418ab658ca70cc14` — `correction_required`, revision `sha256:9c014c29…`, authority **not burned** |
+| Candidate | base `d310d6c` → 31 paths, 1737 lines, tier high, correction budget 200 |
+| Captured | 4/4 lenses, then the provider refuter (1 run) |
+| Fix applied | `4a96379` in `/tmp/lalistita-rv-t3` — 22 diff lines, plan accepted |
+| Checks | `pytest -q` → 55 passed / 9 skipped; flake8 gate `0` |
+
+**R3-001 (CRITICAL, deterministic, `introduced`)** — the four legacy scrapers read
+the database through the attribute form (`client.lalistitadev`) while `app.py` had
+started resolving `settings.mongodb_db`. With `MONGODB_DB` set to anything else the
+dashboard read a different database than the scrapers populated. Corrected by
+`database = current_app.database` in `scrap_disco`, `scrap_carrefour`,
+`scrap_hiperlibertad` and `scrap_supermami` (plus the SuperMami log line). The fix
+stays in the pinned worktree only: at HEAD those modules no longer exist (deleted in
+`30b20cb`) and the ported scrapers already write through the repository.
+
+The candidate is **committed-only**: editing the pinned worktree without committing
+answers `corrected_candidate_unavailable`, so the correction has to be a commit in
+that worktree before the plan is submitted.
+
+**Blocker — facade defect, not a repository defect.** After the corrected commit,
+STATUS moves to `action: recover` with `disposition: scope_changed` and successor
+`review-9ba482f55091d855`, and the published command carries `--base-ref=d310d6c…
+--committed-only=true`. `runtime/native-review-cli.mjs:1598-1618` implements
+`recover` with six flags only and **never passes `--base-ref`**, while the
+predecessor recorded `selector.base_ref = bc814d4…` (the tree of `d310d6c`). Native
+therefore answers `Error: recovery base-ref does not match predecessor base` every
+time. Recover was attempted with and without `baseRef`/`committedOnly` in `input`:
+same error, and the store revision stayed `9c014c29…`, so nothing was mutated. T3 is
+left open on purpose; the correction is real and verified, only the authority handoff
+is blocked.
+
 ### Remaining work units
 
 Each needs its own pinned worktree, its own lineage and its own four lenses:
 
-T3 `df6a442`, T4 `052aeda`, T5 `7ff8ff2`, T6 `a4bbd18`, T7 `742e63e`, T8 `e9de3c7`,
-T9 `4665c1c`, T10 `5a3bc9c`, T11 `9d9248d`, T12 `da9f375`, T13 `c98b200`,
-T14a `30b20cb`, T14b `10fc059`.
+T4 `052aeda`, T5 `7ff8ff2`, T6 `a4bbd18`, T7 `742e63e`, T8 `e9de3c7`, T9 `4665c1c`,
+T10 `5a3bc9c`, T11 `9d9248d`, T12 `da9f375`, T13 `c98b200`, T14a `30b20cb`,
+T14b `10fc059`.
 
 Blocker encountered: the lens agents were pinned to `opencode-go/deepseek-v4-flash`,
 a model that does not exist. `~/.gentle-shell/agent/subagents.json` (`model_profiles`)
