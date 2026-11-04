@@ -141,10 +141,10 @@ tests/                      pytest suite (fakes in tests/fakes.py)
 - [x] T5 Scraper-control API `/api/scrapers…` + registry-generated legacy aliases + `api/container.py` + `SocketIOReporter`
 - [x] T6 Chrome factory (`CHROMEDRIVER_PATH`, `CHROME_HEADLESS`) + tests (K-7)
 - [x] T7 Port SuperMami (offline fake-HTTP behavior test)
-- [ ] T8 Port HiperLibertad
-- [ ] T9 Port Disco
-- [ ] T10 Port Carrefour
-- [ ] T11 Port ChangoMás
+- [x] T8 Port HiperLibertad
+- [x] T9 Port Disco
+- [x] T10 Port Carrefour
+- [x] T11 Port ChangoMás
 - [ ] T12 CLI runner `python -m api.cli`
 - [ ] T13 `/scrape` page generated from the registry; working per-supermarket start/stop; relative URLs
 - [ ] T14 Cleanup + docs: delete `api/routes.py` (K-11) and the `notifyStatus` shim, drop `requests-html` (K-18), reconcile AGENTS.md / repo-map / runbook / known-issues
@@ -203,3 +203,7 @@ ports, (4) T12–T14 CLI, UI, cleanup. Running authored-line count is recorded b
 | T5 | `7ff8ff2` | +832 total (14 paths) | RED (ImportError `SocketIOReporter`, TypeError `scraper_registry`; 22 failed) → GREEN `152 passed, 9 skipped`; API suites looped 15× green; route set identical except the 4 new `/api/scrapers` rules; flake8 gate `0`; native assess: medium, no separate verifier required |
 | T6 | `a4bbd18` | +317 total (8 paths) | writer reported RED (AttributeError/TypeError/ModuleNotFoundError) → GREEN; orchestrator re-verified after the owner's pause: `175 passed, 9 skipped`, flake8 gate `0`, F401/F811/F821 clean, diff read (lazy selenium import, Service(path) only when configured, headless opt-in); native assess: medium, no separate verifier required |
 | T7 | `742e63e` | +639/−26 (10 paths) | contract tests added for every port; `194 passed, 9 skipped`; 15× loops green; legacy-vs-port differential over canned HTML (documents equal after `_id`/`scraped_at`; empty-page request sequences pinned); orchestrator audit raised one suspected `countPages` fidelity gap — measured and **refuted** (the legacy `continue` was already preserved; a mutation run now kills it); flake8 gate `0`; native assess: medium |
+| T8 | `e9de3c7` | +807/−? (6 paths) | two deliberate fixes: the legacy status guard `status_code == 200 | status_code == 206` is a chained comparison that is False for every status (the differential proves the legacy path made 14 requests and stored 0 documents), and the dead Chrome driver is gone; `218 passed, 9 skipped`; suite runtime 13.2 s → 1.1 s after the 1 s rate-limit wait became a recorded request; container test now registry-driven; flake8 gate `0`; native assess: medium |
+| T9 | `4665c1c` | 5 paths | mechanical port; three documented decisions (page 1 stays uncollected, errors propagate, dead `arender` deleted); differential pins driver visits, page URLs and documents; K-4 closed with its route; `239 passed` |
+| T10 | `5a3bc9c` | 5 paths | both legacy collection paths kept (Path A json-LD over HTTP without `unidad`; Path B driver + `name_parse`); **legacy Path A never worked** (`"Scrapeando categoria: " + dict` → TypeError) and the port fixes the message; empty results no longer wipe the slice; two differentials; `262 passed` |
+| T11 | `9d9248d` | 5 paths | last port; async-with-no-await → sync; Selenium waits behind a lazy testable seam; **K-12 scraper half done** (`.changomas/*.json` → repository, `categoria=almacen`, `subcategoria=<section>`), API half open; all five registered, so every `/scraping-<slug>(-stop)` alias exists and Disco/HiperLibertad gained stop endpoints; `280 passed`, suite 1.4 s |
