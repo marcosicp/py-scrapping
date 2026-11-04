@@ -287,7 +287,7 @@ the interpreter in a `.python-version`.
 **Severity:** Medium (first-run blocker).
 
 `ng version` → `Angular CLI 14.x`, `Node 26.x (Unsupported)`. The workspace
-is Angular **19.2.19** with the `application` builder
+is Angular **21.2.x** with the `application` builder
 (`@angular-devkit/build-angular:application`), which CLI 14 does not have.
 
 **Impact:** `ng build` / `ng serve` from the global CLI fail with builder
@@ -296,7 +296,8 @@ they resolve `node_modules/.bin/ng`.
 
 **Fix direction:** document `npx ng` / `node_modules/.bin/ng` as the only
 supported invocation, and pin Node via `.nvmrc` / `engines` (`package.json` has
-neither). Node 26 is untested by Angular 19.
+neither). Node 26 is untested by Angular 21 — the CLI accepts it (`>=24`) but
+warns.
 
 ## <a id="k-16"></a>K-16 · Dead modules, duplicated build output, repeated imports
 

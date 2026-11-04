@@ -26,7 +26,7 @@ note at the end of this file.
 | Python target | 3.15.2 pinned in `.python-version`, `runtime.txt`, `Dockerfile`, `app.yaml`, CI | ✅ aligned |
 | `python3` on PATH | still resolves to an older framework build because PATH order wins over `/usr/local/bin` | ⚠️ call `python3.15` explicitly |
 | `adminpro/node_modules` | absent | ⛔ `npm install` required |
-| Global `ng` | Angular CLI 14.x, `Node ... (Unsupported)` | ⛔ too old for Angular 19 — use the local CLI |
+| Global `ng` | Angular CLI 14.x, `Node ... (Unsupported)` | ⛔ too old for Angular 21 — use the local CLI |
 | ChromeDriver | pinned to Chrome 141 | ⚠️ `/usr/local/bin/chromedriver-141` |
 | Chrome | 156.x | ⛔ mismatch with the pinned driver → every scraper fails |
 | `.env` | absent (gitignored) | ⛔ `MONGODB_URI` must be provided |
@@ -96,7 +96,7 @@ python app.py
 
 ## 4. Frontend
 
-The global CLI is 14.x and cannot build an Angular 19 workspace. Use the local
+The global CLI is 14.x and cannot build an Angular 21 workspace. Use the local
 one:
 
 ```bash

@@ -33,7 +33,7 @@ behind it.
                        │        │
                        │        └──► Mongo: lalistitadev.productos
                        ▼
-              static/index.html  (Angular 19 bundle, committed)
+              static/index.html  (Angular 21 bundle, committed)
 ```
 
 ## 2. Bootstrap — `app.py` (46 lines)
@@ -164,7 +164,7 @@ code against `pymongo` and is imported by nothing.
 
 ## 6. Frontend — `adminpro/`
 
-- Angular **19.2.19**, **NgModule-based** (`app.module.ts`,
+- Angular **21.2.x**, **NgModule-based** (`app.module.ts`,
   `app-routing.module.ts`) — the standalone-migration flags are `standalone:
   false`, deliberate, from the PR #18 migration.
 - Build system: `@angular-devkit/build-angular:application`;
@@ -196,7 +196,7 @@ code against `pymongo` and is imported by nothing.
 | `templates/scrape.html` | The only rendered template (`api/routes.py:26`). Loads SocketIO 4.0.1 from cdnjs and subscribes to `scraping-message-<supermarket>` channels. |
 | `templates/index.html`, `index3.html`, `index4.html`, `indexa.html` | Angular build output committed under `templates/` (`data-critters-container`). Dead. |
 | `templates/index2.html` | Older server-rendered page using `url_for('static', ...)`. No route renders it. |
-| `static/` | Committed Angular build: `index.html`, `main-*.js`, `polyfills-*.js`, `scripts-*.js`, `styles-*.css`, plus `assets/` and `media/`. Rebuilding adds new hashes and leaves the old ones behind. |
+| `static/` | Committed Angular build: `index.html`, `main-*.js`, `polyfills-*.js`, `scripts-*.js`, `styles-*.css`, plus `assets/` and `media/`. Rebuilding adds new hashes and leaves the old ones behind. `static/prerendered-routes.json` is emitted but **silently ignored** by the global `*.json` rule — harmless (empty route map) and not needed for a CSR app. |
 | `supermami.json` (repo root) | A 368 KB scrape artifact that is tracked despite `*.json` being ignored. Reference data, not runtime input — the routes that read `*.json` want other filenames. |
 
 ## 8. File index

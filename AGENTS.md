@@ -13,7 +13,7 @@ document is wrong and fixing it is part of your task, not an optional cleanup.
 
 **LaListita** — an Argentine supermarket price comparer. Selenium scrapers pull
 product data from five chains (Disco, Carrefour, ChangoMás, HiperLibertad,
-SuperMami), the data lands in MongoDB, a Flask API serves it, and Angular 19
+SuperMami), the data lands in MongoDB, a Flask API serves it, and Angular 21
 renders it in a dashboard.
 
 ```
@@ -23,7 +23,7 @@ Browser ──► Flask (app.py, port 3000)
               ├── Scrapers   api/scrapers/*.py   Selenium + JSON-LD / JSON API
               └── Mongo      lalistitadev.productos
                              ▲
-              Angular 19 (adminpro/src) ── build ──► static/ ── served by Flask
+              Angular 21 (adminpro/src) ── build ──► static/ ── served by Flask
 ```
 
 ## 2. Hard rules
@@ -59,7 +59,7 @@ Browser ──► Flask (app.py, port 3000)
 | Realtime | flask-socketio 5.3.6 | — |
 | DB driver | pymongo 4.6.0 (raw, no ODM) | — |
 | Scraping | selenium 4.15.2, requests-html 0.10.0, beautifulsoup4 4.12.2 | — |
-| Frontend | **Angular 19.2.19**, NgModule-based, Material 19, ag-grid 32.3.9, TS 5.8 | README says Angular 16 |
+| Frontend | **Angular 21.2.x**, NgModule-based, Material 21.x, ag-grid 32.3.9, TypeScript 5.9 | README says Angular 16 |
 | Server | gunicorn 21.2.0 | — |
 | Deploy | three contradicting stories (§7, D-6) | README says Docker + Cloud Run |
 
@@ -71,7 +71,7 @@ api/routes.py           ALL HTTP endpoints (blueprint `app_file2`)
 api/sockets.py          SocketIO singleton + notifyStatus(channel, message)
 api/helpers.py          remove_duplicates_by_key(), name_parse() → {name, unidad}
 api/scrapers/*.py       One class per supermarket, uniform start/stop contract
-adminpro/src/app/       Angular 19 source (dashboard, login, register, progress, grafica1)
+adminpro/src/app/       Angular 21 source (dashboard, login, register, progress, grafica1)
 templates/scrape.html   The ONLY template a route renders (SocketIO monitor)
 docs/agent-context/     Deep dives for agents — read when you need detail
 odd/tasks/              ODD feature documents
@@ -198,6 +198,12 @@ self-inflicted mistake in this repo.
 **T-10 · Duplicate imports and dead code** are normal here (e.g. `from threading
 import Thread` twice in `api/routes.py:1,6`). Do not assume an unused import
 means the surrounding block is live; read the route registration.
+
+**T-11 · `tsconfig` must keep bundler module resolution.** `@angular/common@21`
+no longer ships physical subpath directories, so `"moduleResolution": "node"`
+(Node10) cannot resolve `@angular/common/http` and the build dies with `TS2307`.
+Keep the pair `"moduleResolution": "bundler"` and `"module": "preserve"`.
+Don't revert it to `"node"` to "fix" an unrelated resolution error.
 
 ## 8. Testing reality
 
