@@ -244,3 +244,29 @@ Chrome, the real sites and a real MongoDB. The first supervised smoke run should
   `app.yaml`, `manifest.yml` are still dead files.
 - A queue-based runner (RQ/Celery) is the natural next step if the app ever needs more
   than one worker; the `ScraperManager` seam is where it plugs in.
+
+## Review (in progress)
+
+The accumulated branch is too large for a native review candidate: START fails the
+preflight with `lens_context_budget_exceeded` for the whole branch **and** for the
+T1-T3 slice. The only route that works is one work-unit at a time, in a worktree
+pinned to that commit (`git worktree add --detach <path> <sha>` + START with
+`workspaceRoot`), because the candidate is always `base → HEAD`.
+
+| Item | Value |
+| --- | --- |
+| Lineage | `review-3b82df954b840147` — `reviewing`, revision `sha256:b1d3dc4f…` |
+| Candidate | T1 `88736b2` (388 lines, tier high, correction budget 194) |
+| Worktree | `/tmp/lalistita-rv-t1` (detached at `88736b2`) — do not delete while the lineage lives |
+| Captured | `review-risk` (admitted, `completed`) |
+| Pending | `review-resilience`, `review-readability`, `review-reliability` |
+
+Nothing was burned: `mutation_performed: false`, no verdict yet, so the candidate is
+unreviewed rather than approved. Resume by calling `gentle_review status` with the
+lineage and the worktree root, then submit the three remaining slot bindings.
+
+Blocker encountered: the lens agents were pinned to `opencode-go/deepseek-v4-flash`,
+a model that does not exist. `~/.gentle-shell/agent/subagents.json` (`model_profiles`)
+is the authoritative source — the `agents/*.md` pins are regenerated from it — and it
+was corrected to `deepseek-v4.1-flash` on both sides. The running Pi process caches
+the agent registry, so a reload or restart is required for the relay to pick it up.
