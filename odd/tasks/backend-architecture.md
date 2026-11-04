@@ -134,9 +134,9 @@ tests/                      pytest suite (fakes in tests/fakes.py)
 
 ## Tasks
 
-- [ ] T1 Foundation: `Settings`, `create_app(settings=…)`, explicit packages, slim `api/sockets.py`, pytest harness, CI installs dev deps, AGENTS rule 5/§8 + runbook
-- [ ] T2 `ProductRepository` + Mongo impl (`find_all`, insert-then-prune `replace_products`) + in-memory fake + tests (Mongo integration opt-in)
-- [ ] T3 `ProductService` + `frontend`/`products` blueprints; `/`, `/scrape`, `/supermercados` leave `api/routes.py` (characterization test first)
+- [x] T1 Foundation: `Settings`, `create_app(settings=…)`, explicit packages, slim `api/sockets.py`, pytest harness, CI installs dev deps, AGENTS rule 5/§8 + runbook
+- [x] T2 `ProductRepository` + Mongo impl (`find_all`, insert-then-prune `replace_products`) + in-memory fake + tests (Mongo integration opt-in)
+- [x] T3 `ProductService` + `frontend`/`products` blueprints; `/`, `/scrape`, `/supermercados` leave `api/routes.py` (characterization test first)
 - [ ] T4 Scraper core: `BaseScraper`, `ScrapeContext`, `ScraperRegistry`, `ScraperManager`, `ProgressReporter`, HTTP session builder (TDD, fake scrapers)
 - [ ] T5 Scraper-control API `/api/scrapers…` + registry-generated legacy aliases + `api/container.py` + `SocketIOReporter`
 - [ ] T6 Chrome factory (`CHROMEDRIVER_PATH`, `CHROME_HEADLESS`) + tests (K-7)
@@ -170,8 +170,22 @@ PR. Each task is one work-unit commit and a candidate slice. Suggested chained-P
 slices: (1) T1–T3 foundation, (2) T4–T6 scraper core + API + Chrome, (3) T7–T11
 ports, (4) T12–T14 CLI, UI, cleanup. Running authored-line count is recorded below.
 
+## Notes (running)
+
+- Transitional (T3 → T7–T11): `/supermercados` reads through `settings.mongodb_db`
+  while the not-yet-ported scrapers still write to the hardcoded `lalistitadev`.
+  Identical with the default `MONGODB_DB`; resolved as each scraper is ported.
+- Doc citations of `api/routes.py:<line>` for routes that did not move are stale
+  (the file shrinks with every task); they are re-pointed once, in T14.
+- Process: commit first, then `gentle_review assess` with
+  `{"baseRef":"<previous unit>","committedOnly":true}` (the working-tree assess is
+  `unassessable` while untracked files exist). Plan so far: medium risk, writer
+  self-verification stands, no separate verifier required.
+
 ## Evidence
 
 | Task | Commit | Lines (+/−) | Checks observed |
 | --- | --- | --- | --- |
-| — | — | — | — |
+| T1 | `88736b2` | +304/−84 | RED (ImportError `api.config`) → GREEN `14 passed`; flake8 CI gate `0`; route count 15 = baseline; independent verification PASS-WITH-NOTES (2 minor notes fixed: env-sensitive test, stale `app.py:18` doc cite). Verifier fallback: `jd-judge-a` (gentle-ai-verify pin was fixed on disk but the running session still caches the old model until Pi reloads agents) |
+| T2 | `6790b1e` | +495 total (6 paths) | RED (ModuleNotFoundError) → GREEN `34 passed, 9 skipped`; opt-in real MongoDB run on a throwaway `lalistita_test_*` DB `29 passed`, no DB left behind; flake8 gate `0`; native assess on the committed range: risk medium, writer self-verification stands, no separate verifier required |
+| T3 | `df6a442` | +685 total (16 paths) | RED (ModuleNotFoundError / TypeError) → GREEN `55 passed, 9 skipped`; route set identical before/after; **old-vs-new differential on 600 randomized datasets: byte-identical responses (275 success, 325 fallback), 0 mismatches**; flake8 gate `0`; native assess: risk medium, no separate verifier required |
