@@ -1,0 +1,244 @@
+# AGENTS.md
+
+Canonical context for any AI agent working in this repository. Read this before
+reading code. It is deliberately short; the depth lives in
+[`docs/agent-context/`](docs/agent-context/).
+
+**Scope of truth:** verified against `main@06b37b7`. If a command here fails, the
+document is wrong and fixing it is part of your task, not an optional cleanup.
+
+---
+
+## 1. What this project is
+
+**LaListita** — an Argentine supermarket price comparer. Selenium scrapers pull
+product data from five chains (Disco, Carrefour, ChangoMás, HiperLibertad,
+SuperMami), the data lands in MongoDB, a Flask API serves it, and Angular 19
+renders it in a dashboard.
+
+```
+Browser ──► Flask (app.py, port 3000)
+              ├── Blueprint  api/routes.py      REST + scraper control
+              ├── SocketIO   api/sockets.py     live scraper progress → /scrape
+              ├── Scrapers   api/scrapers/*.py   Selenium + JSON-LD / JSON API
+              └── Mongo      lalistitadev.productos
+                             ▲
+              Angular 19 (adminpro/src) ── build ──► static/ ── served by Flask
+```
+
+## 2. Hard rules
+
+1. **`static/` is build output, committed to git.** Never hand-edit it. Its
+   hashed filenames (`main-KNNEIXUN.js`) come from `ng build`. Source of truth is
+   `adminpro/src/`.
+2. **Never add a `.json` file without checking `.gitignore` first.** It ignores
+   `*.json` globally (`.gitignore:56`), with exceptions only for
+   `package.json`, `package-lock.json`, `angular.json`, `tsconfig.json`. A new
+   config/fixture JSON will be silently untracked. Add an exception or use
+   `.jsonc`/`.py`.
+3. **Never commit `.env`, `supermami.json` variants containing fresh scrapes, or
+   anything under `.disco/ .carrefour/ .changomas/ .hiperlibertad/ .supermami/`.**
+4. **Do not "fix" the README to match the code by changing the code.** The README
+   is stale in specific ways listed in §7. Correct the README.
+5. **No test suite exists.** Do not claim "tests pass". See §8.
+6. **ChromeDriver is a hardcoded absolute path.** `/usr/local/bin/chromedriver-141`
+   appears in four of the five scrapers. Scrapers cannot run without a driver
+   matching the installed Chrome.
+7. **Do not start a scraper against production data casually.** Carrefour's
+   `save_to_mongodb` does `delete_many(...)` before `insert_many(...)`
+   (`api/scrapers/scrap_carrefour.py:43`). It replaces, it does not append.
+8. **`main` is the default branch.** Branch before writing code.
+
+## 3. Stack — reality vs. what documents claim
+
+| Layer | Real (verified) | Claimed elsewhere |
+| --- | --- | --- |
+| Python (deploy target) | **3.10** (`Dockerfile:4`, `app.yaml`, CI) | README says 3.11; `runtime.txt` says `3.8` |
+| Python (local venv) | 3.11.1, and **broken** (§7) | silently assumed to work |
+| Flask | 3.0.0 | — |
+| Realtime | flask-socketio 5.3.6 | — |
+| DB driver | pymongo 4.6.0 (raw, no ODM) | — |
+| Scraping | selenium 4.15.2, requests-html 0.10.0, beautifulsoup4 4.12.2 | — |
+| Frontend | **Angular 19.2.19**, NgModule-based, Material 19, ag-grid 32.3.9, TS 5.8 | README says Angular 16 |
+| Server | gunicorn 21.2.0 | — |
+| Deploy | three contradicting stories (§7, D-6) | README says Docker + Cloud Run |
+
+## 4. Layout — what is alive and what is dead
+
+```
+app.py                  Flask factory-ish entry point: CORS, SECRET_KEY, blueprint, Mongo
+api/routes.py           ALL HTTP endpoints (blueprint `app_file2`)
+api/sockets.py          SocketIO singleton + notifyStatus(channel, message)
+api/helpers.py          remove_duplicates_by_key(), name_parse() → {name, unidad}
+api/scrapers/*.py       One class per supermarket, uniform start/stop contract
+adminpro/src/app/       Angular 19 source (dashboard, login, register, progress, grafica1)
+templates/scrape.html   The ONLY template a route renders (SocketIO monitor)
+docs/agent-context/     Deep dives for agents — read when you need detail
+odd/tasks/              ODD feature documents
+static/                 Angular build output (committed, do not edit)
+```
+
+**Dead / do not extend without deciding first:**
+
+| Path | Why it is dead |
+| --- | --- |
+| `api/models/productos.py` | `from pymongo import pymongo` + `pymongo.Document`/`StringField` — those are mongoengine APIs. Imported by nothing. |
+| `templates/index.html`, `index3.html`, `index4.html`, `indexa.html` | Angular build output accidentally committed as Jinja templates. Unused. |
+| `templates/index2.html` | Legacy server-rendered page. No route renders it. |
+| `gunicorn_config.py` | Nothing references it; `Procfile` runs `python app.py` instead. |
+| `manifest.yml`, `app.yaml` | Cloud Foundry / App Engine leftovers. |
+| `/supermercado-carrefour`, `/supermercado-disco`, `/supermercado-hiper`, `/supermercado-supermami` | `api/routes.py:150-184` open absent gitignored JSON files, then ignore the data and return `static/index.html`. |
+| `feature/angular-19-migration` | Already squashed into `main` as PR #18. Do not resurrect. |
+
+## 5. Commands
+
+Full runbook with status per command:
+[`docs/agent-context/runbook.md`](docs/agent-context/runbook.md).
+
+```bash
+# Backend setup (the existing .venv is broken — recreate it, see §7)
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+# Run (needs .env with MONGODB_URI)
+python app.py                       # http://localhost:3000  (also /scrape)
+
+# Frontend
+cd adminpro && npm install
+npm start                           # ng serve, dev server on :4200
+npm run build                       # ng build → output: ../static (hashed files)
+```
+
+Note: `adminpro/angular.json:16` sets `outputPath` to `{ "base": "../static",
+"browser": "" }`, so `ng build` writes **straight into the committed `static/`**.
+Any build dirties the working tree. Do not bundle a build with an unrelated
+change.
+
+## 6. Scraper contract
+
+Every scraper follows the same shape; preserve it when adding a supermarket.
+
+```python
+class ScrapeX:
+    activeX = True                    # stop flag
+    def scrape_x_stop(self): ...      # sets flag False
+    def scrape_x(self, categoria):    # hardcoded subcategory list
+        notifyStatus("scraping-message-x", "...")   # progress → /scrape
+    def save_to_mongodb(self, jsonData, category_name): ...
+```
+
+- Subcategories are **hardcoded lists**, not discovered. `?category=` only
+  matches `"almacen"`. Adding a category means editing the list in the scraper.
+- Collected record shape: `supermercado`, `name`, `unidad` (split out by
+  `name_parse`), `brand`, `sku` (absent for SuperMami), `price`; then
+  `save_to_mongodb` adds `scraped_at` (UTC) and `categoria` (+ `subcategoria` for
+  HiperLibertad).
+- Disco/Carrefour/SuperMami parse embedded JSON-LD (`itemListElement`).
+  HiperLibertad hits the VTEX `api/catalog_system/pub/products/search` JSON API
+  using cookies harvested by a headless driver. ChangoMás is `async def` and the
+  route wraps it in its own event loop.
+- **SuperMami has no Selenium driver at all.** It imports selenium modules it
+  never uses and scrapes with `requests_html` only (`arender(sleep=4)`), and its
+  pagination loop is capped at 2 pages by a literal `range(1, 3)`
+  (`api/scrapers/scrap_supermami.py:54`) even though it computes `totalPages`.
+- **ChangoMás never writes to MongoDB** — it dumps `.changomas/almacen/*.json`
+  (`api/scrapers/scrap_changomas.py:147`). Its data never reaches the API, and
+  `/supermercados` has no changomas branch.
+
+## 7. Traps (each one costs a first-time agent 10+ minutes)
+
+**T-1 · `.venv` is broken.** `pyvenv.cfg` points at
+`/Library/Frameworks/Python.framework/Versions/3.11`, but `.venv/bin/python` fails
+with `bad interpreter: No such file or directory`. Delete and recreate. Do not
+debug it.
+
+**T-2 · `adminpro/node_modules` is absent.** `ng serve`/`ng build` fail until
+`npm install` runs inside `adminpro/`.
+
+**T-3 · MongoDB client is attached only inside `__main__`.** `app.py:32` and
+`app.py:42` set `app.mongodb_client` inside the `if __name__ == '__main__'` block.
+Every consumer reads `current_app.mongodb_client` (`api/routes.py:93`,
+`api/scrapers/scrap_disco.py:33`, and three siblings). Under gunicorn/WSGI the
+attribute does not exist → `AttributeError`. Requires a factory or a
+`before_request` hook before any hosted deploy works.
+
+**T-4 · Two database names.** `app.py:33` sets `app.database` to `"lalistita"`;
+every consumer actually uses `mongodb_client.lalistitadev`. `app.database` is
+dead. The live database is **`lalistitadev`**.
+
+**T-5 · Two scraper routes are not async and one is doubly wrong.**
+`/scraping-disco` does `Thread(target=scrape_disco(categoria),)` — the call
+executes inline, then `Thread(target=None)` raises on `.start()`. The request
+blocks for the whole scrape and then 500s. `/scraping-hiperlibertad` and
+`/scraping-supermami` call the scraper synchronously with no thread at all.
+
+**T-6 · Deploy stories contradict each other.** `Dockerfile` CMD runs
+`gunicorn ... main:app` but **`main.py` does not exist** — the image builds and
+then crashes. `Procfile` runs `python app.py` with `debug=True`.
+`gunicorn_config.py` is orphaned. `app.yaml` (App Engine) and `manifest.yml`
+(Cloud Foundry, 128 MB — too small for Chrome) are leftovers.
+
+**T-7 · CI fails on every push.** `.github/workflows/python-app.yml` runs
+`pytest` with zero test files; pytest exits 5 ("no tests collected"). The
+`flake8` step is `--exit-zero` for everything except syntax errors.
+
+**T-8 · Hardcoded secrets and hosts.** `app.py:18` sets
+`SECRET_KEY = 'secret!'`. `adminpro/src/app/service/app.service.ts:21` hardcodes
+`http://127.0.0.1:3000/supermercados` — there is no `environments/` directory, so
+the production API base URL cannot be configured per build.
+
+**T-9 · ChromeDriver 141 is an absolute path.** `Service('/usr/local/bin/chromedriver-141')`
+in four of the five scrapers. Mismatch with the installed Chrome silently breaks
+scraping. Separately, `requests-html`'s `arender()` (Disco, Carrefour,
+ChangoMás, SuperMami) downloads its own Chromium on first use — a second,
+independent browser dependency.
+
+**T-10 · `*.json` is globally gitignored** (rule 2 above). Highest-frequency
+self-inflicted mistake in this repo.
+
+**T-11 · Duplicate imports and dead code** are normal here (e.g. `from threading
+import Thread` twice in `api/routes.py:1,6`). Do not assume an unused import
+means the surrounding block is live; read the route registration.
+
+## 8. Testing reality
+
+- Python: **zero** test files, no `conftest.py`, no `pytest.ini`, `pytest` is not
+  even in `requirements.txt` (CI installs it ad hoc).
+- Angular: karma + jasmine are configured in `adminpro/package.json` and
+  `tsconfig.spec.json` exists, but there are **zero `*.spec.ts` files**.
+- `webdriver-manager` is a declared dependency but every scraper bypasses it.
+
+Consequence: verification in this repo is **manual and runtime**. When you change
+behavior, state exactly how you verified it (which endpoint, which log line,
+which UI path) and never assert a green test run.
+
+## 9. Conventions
+
+- Backend code, comments, commit messages, and these docs: **English**. Existing
+  Spanish strings in scrapers and the UI are legacy; do not translate them
+  opportunistically.
+- Comments use `# -- ...` and `# -- append item to json` style in scrapers; match
+  the file you are editing rather than imposing the style of another.
+- Commit messages follow Conventional Commits (`chore:`, `fix:`, `feat:`) — see
+  `git log` for the established set.
+- Never reformat a file you are not otherwise changing.
+
+## 10. Where to go deeper
+
+| Need | Read |
+| --- | --- |
+| Request flow, every endpoint, data schema, scraper internals | [`docs/agent-context/repo-map.md`](docs/agent-context/repo-map.md) |
+| How to actually install, run, build, deploy — with per-command status | [`docs/agent-context/runbook.md`](docs/agent-context/runbook.md) |
+| Every defect found, with severity and causality | [`docs/agent-context/known-issues.md`](docs/agent-context/known-issues.md) |
+| Work in progress for this doc set | [`odd/tasks/agent-context-bootstrap.md`](odd/tasks/agent-context-bootstrap.md) |
+
+## 11. Maintaining this file
+
+`AGENTS.md` is the single source of truth. `CLAUDE.md` and
+`.github/copilot-instructions.md` are pointers to it, on purpose, to make drift
+impossible.
+
+Update this file when you change: the stack, the run/build commands, the deploy
+path, the Mongo database or collection name, or the scraper contract. If you fix
+one of the traps in §7, delete it from §7 and note the fix in the commit message.
+Do not add prose that already exists in `docs/agent-context/` — link instead.
