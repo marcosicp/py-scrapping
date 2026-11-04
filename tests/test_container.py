@@ -166,7 +166,14 @@ def services_of(application):
     return application.extensions[EXTENSION_KEY]
 
 
-def test_default_registry_makes_the_scraper_api_empty(client):
+def test_default_app_lists_the_registered_supermami_scraper(client):
+    # The default registry is no longer empty: SuperMami is the first
+    # ported scraper (T7), so the app lists exactly one entry.
     response = client.get("/api/scrapers")
     assert response.status_code == 200
-    assert response.get_json() == {"scrapers": []}
+    entries = response.get_json()["scrapers"]
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry["slug"] == "supermami"
+    assert entry["state"] == "idle"
+    assert entry["categories"] == []

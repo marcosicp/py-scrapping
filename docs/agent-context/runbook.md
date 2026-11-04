@@ -183,14 +183,32 @@ Before any of this works:
 1. Chrome and ChromeDriver must match. Four of the five scrapers hardcode
    `/usr/local/bin/chromedriver-141` while Chrome is 156 → "session not created".
    Fix by installing the driver matching the installed Chrome and either
-   symlinking it to that path or editing the four scrapers (SuperMami has no
-   driver — it relies on `requests_html`'s own bundled Chromium).
+   symlinking it to that path or editing the four scrapers. (The ported
+   SuperMami needs no driver at all — it scrapes plain HTTP responses.)
 2. `?category=` only matches `"almacen"`; any other value is silently ignored.
 3. A visible browser window opens (only HiperLibertad is headless). Do not run
    scrapers on a headless CI box expecting success — Chrome is not installed in
    the workflow.
 4. **Carrefour deletes before inserting** (`scrap_carrefour.py:43`): running it
    against a real database removes that category's existing rows first.
+
+### Run one supermarket scraper (ported scrapers only)
+
+SuperMami (`api/scrapers/supermami.py`) is the first scraper ported to the
+new contract, so it also runs through the modern control API (no Chrome, no
+hardcoded driver):
+
+```bash
+curl -X POST http://localhost:3000/api/scrapers/supermami/start        # 202, run starts
+curl http://localhost:3000/api/scrapers/supermami                     # run status
+curl -X POST http://localhost:3000/api/scrapers/supermami/stop        # cooperative stop
+```
+
+A `start` returns **202** immediately while the run happens in a background
+thread, and progress arrives over Socket.IO (channel
+`scraping-message-supermami`); watch it at <http://localhost:3000/scrape>.
+SuperMami needs no browser and no `?category=` (its category list is empty,
+any value is ignored).
 
 ## 6. Deploy — three contradictory stories, all currently broken
 

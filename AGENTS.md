@@ -146,8 +146,10 @@ produces a diff; only source changes do.
 ## 6. Scraper contract
 
 New scrapers implement `BaseScraper` (`api/scrapers/base.py`) and receive a
-`ScrapeContext` in `run(ctx)`; the legacy shape below still describes the
-scrapers not yet ported (T7-T11 in `odd/tasks/backend-architecture.md`).
+`ScrapeContext` in `run(ctx)`. **SuperMami is already ported**:
+`api/scrapers/supermami.py` is the first port (T7) and the pattern the rest
+follow. The legacy shape below still describes the remaining unported
+scrapers (T8-T11 in `odd/tasks/backend-architecture.md`).
 
 Every legacy scraper follows the same shape; preserve it when adding a
 supermarket to it.
@@ -163,6 +165,10 @@ class ScrapeX:
 
 - Subcategories are **hardcoded lists**, not discovered. `?category=` only
   matches `"almacen"`. Adding a category means editing the list in the scraper.
+- SuperMami, being ported, is no longer in this shape: it persists through
+  `ProductRepository.replace_products` (insert first, then prune — never the
+  legacy `delete_many` + `insert_many`), reports over `ctx.report` and saves
+  with `ctx.save`.
 - Collected record shape: `supermercado`, `name`, `unidad` (split out by
   `name_parse`), `brand`, `sku` (absent for SuperMami), `price`; then
   `save_to_mongodb` adds `scraped_at` (UTC) and `categoria` (+ `subcategoria` for

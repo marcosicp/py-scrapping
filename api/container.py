@@ -34,8 +34,10 @@ def init_services(app: Flask, settings: Settings,
                   browser_factory=None) -> Services:
     """Build the service set and expose it in ``app.extensions``.
 
-    ``scraper_registry`` falls back to ``default_registry()`` (still empty
-    until T7-T11 port the scrapers); ``reporter`` is the run progress sink;
+    ``scraper_registry`` falls back to ``default_registry()``, which holds
+    the ported scrapers (``api/scrapers/registry.py::default_registry``;
+    currently SuperMami) and grows as T8-T11 port the rest;
+    ``reporter`` is the run progress sink;
     ``browser_factory`` builds the Chrome driver behind ``ctx.browser()``,
     defaulting to ``build_chrome(settings)`` (D8). Importing ``build_chrome``
     here is safe because it brings Selenium in lazily.

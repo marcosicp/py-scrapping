@@ -3,12 +3,10 @@ from flask import Blueprint, request, url_for, send_from_directory
 import os
 import json
 import asyncio
-from threading import Thread
 from api.scrapers.scrap_carrefour import ScrapeCarrefour
 from api.scrapers.scrap_changomas import ScrapeChangoMas
 from api.scrapers.scrap_disco import ScrapeDisco
 from api.scrapers.scrap_hiperlibertad import ScrapeHiperLibertad
-from api.scrapers.scrap_supermami import ScrapeSuperMami
 
 app_file2 = Blueprint('app_file2',__name__)
 # def configure_routes(app: Flask):
@@ -32,18 +30,6 @@ def scrapingHiperlibertad():
     scrape_service.scrape_hiperlibertad(categoria)
     
     return json.dumps({'success':True}), 200, {'ContentType':'application/json'} 
-    
-@app_file2.route("/scraping-supermami", methods=['POST'] )
-def scrapingSupermami():
-    categoria = request.args.get('category')
-    scrape_service = ScrapeSuperMami()
-    scrape_service.scrape_supermami(categoria)
-    return json.dumps({'success':True}), 200, {'ContentType':'application/json'} 
-    
-@app_file2.route("/scraping-supermami-stop")
-def scrapingSupermamiStop():
-    scrape_service = ScrapeSuperMami()
-    scrape_service.scrape_supermami_stop()
     
 @app_file2.route("/scraping-carrefour", methods=['POST'] )
 def scrapingCarrefour():

@@ -116,6 +116,84 @@ def test_invalid_category_is_400(scraper_app_factory):
         release.set()
 
 
+# -- generated aliases for the real slug (T7: SuperMami is ported) ------------
+
+
+def test_default_registry_contains_supermami():
+    """The alias routes below exist in the real app because default_registry()
+    registers a ``supermami`` scraper; the behavioral tests inject a fake
+    scraper with that slug so no real scrape is ever launched."""
+    from api.scrapers.registry import default_registry
+    registry = default_registry()
+    assert "supermami" in registry
+    assert registry.get("supermami").label == "SuperMami"
+
+
+def test_post_scraping_supermami_starts_the_run(scraper_app_factory):
+    entered = threading.Event()
+    release = threading.Event()
+
+    app = scraper_app_factory(make_scraper(
+        "supermami", "SuperMami", make_blocking_run(entered, release)))
+    client = app.test_client()
+    try:
+        # ``categories == ()``: any category value is accepted and ignored.
+        response = client.post("/scraping-supermami",
+                               query_string={"category": "cualquiera"})
+        assert response.status_code == 200
+        assert response.get_json() == {"success": True}
+        assert entered.wait(TIMEOUT)
+    finally:
+        release.set()
+
+
+def test_second_scraping_supermami_start_while_running_is_conflict(
+        scraper_app_factory):
+    entered = threading.Event()
+    release = threading.Event()
+
+    app = scraper_app_factory(make_scraper(
+        "supermami", "SuperMami", make_blocking_run(entered, release)))
+    client = app.test_client()
+    try:
+        assert client.post("/scraping-supermami").status_code == 200
+        assert entered.wait(TIMEOUT)
+
+        again = client.post("/scraping-supermami")
+        assert again.status_code == 409
+        assert again.get_json()["success"] is False
+        assert again.get_json()["code"] == "already_running"
+    finally:
+        release.set()
+
+
+def test_scraping_supermami_stop_accepts_get_and_post(scraper_app_factory):
+    entered = threading.Event()
+    release = threading.Event()
+
+    app = scraper_app_factory(make_scraper(
+        "supermami", "SuperMami", make_blocking_run(entered, release)))
+    manager = app.extensions[EXTENSION_KEY].scrapers
+    client = app.test_client()
+
+    assert client.post("/scraping-supermami").status_code == 200
+    assert entered.wait(TIMEOUT)
+    stopped = client.get("/scraping-supermami-stop")
+    assert stopped.status_code == 200
+    assert stopped.get_json() == {"success": True}
+    assert manager.wait("supermami", timeout=TIMEOUT).state is RunState.STOPPED
+
+
+def test_scraping_supermami_stop_when_not_running_is_conflict(
+        scraper_app_factory):
+    app = scraper_app_factory(make_scraper("supermami", "SuperMami",
+                                           lambda self, ctx: None))
+    response = app.test_client().get("/scraping-supermami-stop")
+    assert response.status_code == 409
+    assert response.get_json()["success"] is False
+    assert response.get_json()["code"] == "not_running"
+
+
 def test_no_legacy_rule_exists_for_an_unregistered_slug(scraper_app_factory):
     app = scraper_app_factory(make_scraper("fake", "Fake",
                                            lambda self, ctx: None))

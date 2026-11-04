@@ -12,6 +12,7 @@ from typing import Iterable
 
 from api.scrapers.base import BaseScraper
 from api.scrapers.errors import UnknownScraper
+from api.scrapers.supermami import ScraperSuperMami
 
 SLUG_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
@@ -71,9 +72,12 @@ class ScraperRegistry:
 
 
 def default_registry() -> ScraperRegistry:
-    """The registry used by the app: empty for now.
+    """The registry used by the app.
 
-    The five supermarket scrapers are registered here as they are ported
-    (SuperMami, HiperLibertad, Disco, Carrefour, ChangoMás).
+    ScraperSuperMami is the first port (T7); HiperLibertad, Disco,
+    Carrefour and ChangoMás are still on the legacy shape and get
+    registered here one by one as they are ported (T8-T11).
     """
-    return ScraperRegistry()
+    registry = ScraperRegistry()
+    registry.register(ScraperSuperMami)
+    return registry
