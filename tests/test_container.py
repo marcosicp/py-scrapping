@@ -183,7 +183,7 @@ def test_default_app_lists_the_registered_scrapers(client):
         assert isinstance(entry["categories"], list)
     # The ports landed so far are listed.
     assert "supermami" in slugs
-    assert "hiperlibertad" in slugs
+    assert "laanonima" in slugs
     entry = next(entry for entry in entries if entry["slug"] == "supermami")
     assert entry["state"] == "idle"
     assert entry["categories"] == []

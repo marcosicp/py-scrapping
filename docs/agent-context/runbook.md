@@ -172,7 +172,7 @@ the Flask backend running on :3000, and relies on the blanket `CORS(app)`.
 ## 5. Running a scraper
 
 Every supermarket is ported to the scraper contract and runs through the same
-control API and registry (slugs: `supermami`, `hiperlibertad`, `disco`,
+control API and registry (slugs: `supermami`, `laanonima`, `disco`,
 `carrefour`, `changomas`):
 
 ```bash
@@ -194,7 +194,7 @@ Before any of this works:
 
 1. A browser run needs Chrome; Selenium Manager resolves the matching driver
    (network required on first use), or set `CHROMEDRIVER_PATH`. SuperMami and
-   HiperLibertad never open a browser.
+   La Anónima never open a browser.
 2. A visible browser window opens by default (`CHROME_HEADLESS` opts out). Do
    not run browser scrapers on a headless CI box expecting success — Chrome is
    not installed in the workflow.
@@ -222,7 +222,7 @@ gunicorn or SocketIO (progress prints to stdout):
 ```
 
 ✅ VERIFIED: `python -m api.cli list` prints the five slugs in registration
-order (`supermami`, `hiperlibertad`, `disco`, `carrefour`, `changomas`) with
+order (`supermami`, `laanonima`, `disco`, `carrefour`, `changomas`) with
 their accepted categories.
 
 Exit codes: `0` succeeded, `1` failed, `2` stopped (including Ctrl+C — the

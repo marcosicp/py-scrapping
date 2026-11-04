@@ -9,7 +9,7 @@ Sistema de scraping y comparación de precios de productos de supermercados arge
 | Disco | Selenium |
 | Carrefour | Selenium |
 | ChangoMás | Selenium (async + paginación) |
-| HiperLibertad | API directa |
+| La Anónima | HTTP + JSON-LD |
 | SuperMami | Selenium |
 
 ## Arquitectura
@@ -111,7 +111,7 @@ docker run -p 3000:3000 --env-file .env preciosflask
 | `POST` | `/scraping-disco?category=X` | Iniciar scraper Disco |
 | `POST` | `/scraping-carrefour?category=X` | Iniciar scraper Carrefour |
 | `POST` | `/scraping-changomas?category=X` | Iniciar scraper ChangoMás |
-| `POST` | `/scraping-hiperlibertad?category=X` | Iniciar scraper HiperLibertad |
+| `POST` | `/scraping-laanonima?category=X` | Iniciar scraper La Anónima |
 | `POST` | `/scraping-supermami?category=X` | Iniciar scraper SuperMami |
 | `GET` | `/scraping-changomas-stop` | Detener scraper ChangoMás |
 | `GET` | `/scraping-supermami-stop` | Detener scraper SuperMami |

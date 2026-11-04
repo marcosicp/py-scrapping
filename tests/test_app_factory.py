@@ -16,7 +16,7 @@ REQUIRED_RULES = [
     "/scraping-disco",
     "/scraping-carrefour",
     "/scraping-changomas",
-    "/scraping-hiperlibertad",
+    "/scraping-laanonima",
     "/scraping-supermami",
 ]
 

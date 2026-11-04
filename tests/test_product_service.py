@@ -32,6 +32,20 @@ def test_catalog_happy_path_matches_legacy_payload():
     }
 
 
+def test_catalog_buckets_laanonima_into_the_hiper_payload_key():
+    """La Anónima replaced HiperLibertad: its documents must reach the bucket
+    the Angular dashboard already renders (``items!.hiper``), and legacy
+    HiperLibertad rows stored in an older database must keep landing there."""
+    repository = InMemoryProductRepository()
+    repository.documents = [
+        {"supermercado": "La Anónima", "name": "azucar"},
+        {"supermercado": "hiperlibertad", "name": "yerba"},
+    ]
+    payload = ProductService(repository).catalog()
+    assert payload["hiper"] == 2
+    assert [p["name"] for p in payload["todos"]] == ["azucar", "yerba"]
+
+
 def test_catalog_empty_repository():
     payload = ProductService(InMemoryProductRepository()).catalog()
     assert payload == {

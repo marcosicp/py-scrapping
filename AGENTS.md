@@ -13,7 +13,7 @@ document is wrong and fixing it is part of your task, not an optional cleanup.
 ## 1. What this project is
 
 **LaListita** — an Argentine supermarket price comparer. Selenium scrapers pull
-product data from five chains (Disco, Carrefour, ChangoMás, HiperLibertad,
+product data from five chains (Disco, Carrefour, ChangoMás, La Anónima,
 SuperMami), the data lands in MongoDB, a Flask API serves it, and Angular 21
 renders it in a dashboard.
 
@@ -90,7 +90,7 @@ api/scrapers/registry.py ScraperRegistry (explicit registration, slug validation
 api/scrapers/errors.py   ScraperError family: UnknownScraper, InvalidCategory, AlreadyRunning, NotRunning
 api/scrapers/browser.py Chrome factory: build_chrome(settings) driven by CHROMEDRIVER_PATH / CHROME_HEADLESS (D8); Selenium imported lazily
 api/scrapers/http.py    Shared HTTP session with the legacy browser User-Agent (no requests-html)
-api/scrapers/           One BaseScraper subclass per supermarket: supermami, hiperlibertad, disco, carrefour, changomas
+api/scrapers/           One BaseScraper subclass per supermarket: supermami, laanonima, disco, carrefour, changomas
 tests/                  pytest suite (291 passed / 9 skipped by default; no network, no DB, no Chrome)
 adminpro/src/app/       Angular 21 source (dashboard, login, register, progress, grafica1)
 templates/scrape.html   The ONLY template a route renders (SocketIO monitor, registry-generated)

@@ -15,7 +15,7 @@ from api.scrapers.carrefour import ScraperCarrefour
 from api.scrapers.changomas import ScraperChangoMas
 from api.scrapers.disco import ScraperDisco
 from api.scrapers.errors import UnknownScraper
-from api.scrapers.hiperlibertad import ScraperHiperLibertad
+from api.scrapers.laanonima import ScraperLaAnonima
 from api.scrapers.supermami import ScraperSuperMami
 
 SLUG_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -77,10 +77,14 @@ class ScraperRegistry:
 
 def default_registry() -> ScraperRegistry:
     """The registry used by the app: all five supermarket scrapers, ported
-    to the scraper contract (T7-T11)."""
+    to the scraper contract (T7-T11).
+
+    ``laanonima`` replaced ``hiperlibertad``: that domain now answers 301 to
+    laanonima.com.ar and the VTEX API the old module consumed answers 403.
+    """
     registry = ScraperRegistry()
     registry.register(ScraperSuperMami)
-    registry.register(ScraperHiperLibertad)
+    registry.register(ScraperLaAnonima)
     registry.register(ScraperDisco)
     registry.register(ScraperCarrefour)
     registry.register(ScraperChangoMas)

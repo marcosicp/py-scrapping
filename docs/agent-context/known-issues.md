@@ -472,6 +472,13 @@ Selenium driver behind `ctx.browser()` where rendering is needed (Disco,
 Carrefour, ChangoMás) or parse the plain HTTP response directly (HiperLibertad,
 SuperMami) — no second browser, no abandoned dependency.
 
+**Disposition (`scrape-admin-view` T1):** the HiperLibertad scraper no longer
+exists. `hiperlibertad.com.ar` now answers **301** to `laanonima.com.ar` and the
+VTEX search API it consumed answers **403**; it was replaced by
+`api/scrapers/laanonima.py`, which reads the site's JSON-LD `ItemList` and
+stores under `supermercado = "La Anónima"`. `/supermercados` keeps serving it
+through the `hiper` payload key the dashboard already renders.
+
 ---
 
 ## Minor observations (not filed)

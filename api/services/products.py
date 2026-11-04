@@ -37,7 +37,12 @@ class ProductService:
                 disco.append(product)
             elif "carrefour" in supermarket:
                 carrefour.append(product)
-            elif "hiperlibertad" in supermarket or "hiper" in supermarket:
+            # -- the ``hiper`` bucket keeps its payload key (the Angular
+            # dashboard reads ``items!.hiper``) and now carries La Anónima,
+            # the chain that replaced HiperLibertad: documents stored under
+            # either name land here.
+            elif ("hiperlibertad" in supermarket or "hiper" in supermarket
+                  or "anónima" in supermarket or "anonima" in supermarket):
                 hiperlibertad.append(product)
             elif "supermami" in supermarket or "mami" in supermarket:
                 supermami.append(product)

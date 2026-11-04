@@ -132,7 +132,7 @@ re-raised, so unexpected failures still surface
 
 ### `api/blueprints/legacy.py` — registry-generated aliases
 
-For each registered slug (`supermami`, `hiperlibertad`, `disco`, `carrefour`,
+For each registered slug (`supermami`, `laanonima`, `disco`, `carrefour`,
 `changomas`):
 
 | Method | Path | Behavior |
@@ -183,7 +183,7 @@ A scraper never imports Flask, Mongo or SocketIO.
 | Scraper | Technique | Persists to | Notes |
 | --- | --- | --- | --- |
 | `supermami.py` | plain HTTP + gtag `view_item_list` extraction | Mongo via `ctx.save` | no browser, no `sku`; capped at 2 pages (`MAX_PAGES = 2`, `:24`); no categories accepted |
-| `hiperlibertad.py` | plain HTTP against the VTEX JSON API (`api/catalog_system/pub/products/search`), 14 hardcoded subcategories, 50-item `_from`/`_to` paging | Mongo per subcategory | no browser at all (the legacy driver was unused); accepts `almacen` |
+| `laanonima.py` | plain HTTP: the category tree is read from the page's navigation menu (`a.menu-n1` → `a.menu-n2`), then one GET per n2 node whose JSON-LD `ItemList` carries every product | Mongo per subcategory (n2 slug) | no browser; replaces the dead HiperLibertad module (`hiperlibertad.com.ar` 301s here, its VTEX API 403s); accepts `almacen` |
 | `disco.py` | Chrome driver nav + VTEX `?page=` paging + JSON-LD `itemListElement` | Mongo per subcategory | **page 1 is never collected** (`:108` loop starts at `?page=2`); accepts `almacen` |
 | `carrefour.py` | two paths: requested category → plain HTTP + JSON-LD; all categories → Chrome driver + `render-provider` script | Mongo per category | Path A stores no `unidad` and skips `name_parse` (legacy omission kept); accepts `almacen`, `desayuno-y-merienda` |
 | `changomas.py` | Chrome driver over the discovery page, section discovery, JSON-LD | Mongo via `ctx.save` | page loop re-fetches the **discovery** page (`:152`); empty first result aborts the whole run; label `ChangoMas`; **not shown by `/supermercados`** (K-12) |
@@ -202,14 +202,17 @@ Common details:
   ends the whole run; SuperMami caps at 2 pages; Carrefour Path A skips
   `name_parse`. Fixing any of them changes collected data and must be validated
   against a real run first (see `docs/agent-context/known-issues.md`).
-- Duplicate suppression is substring-based and O(n²) per page:
+- Duplicate suppression in the mechanically ported scrapers is substring-based
+  and O(n²) per page:
   `if not any(element['name'] in jsonitea['name'] for element in jsondata)`.
+  `laanonima.py` dedupes by the `art_<id>` identity instead: after `name_parse`
+  strips the unit, a substring guard silently drops distinct variants.
 
 ### Record schema
 
 | Field | Source | Notes |
 | --- | --- | --- |
-| `supermercado` | scraper `label` | `Disco` / `Carrefour` / `HiperLibertad` / `SuperMami` / `ChangoMas` |
+| `supermercado` | scraper `label` | `Disco` / `Carrefour` / `La Anónima` / `SuperMami` / `ChangoMas` |
 | `name` | JSON-LD / gtag item, size suffix stripped by `name_parse` | Carrefour Path A skips `name_parse` |
 | `unidad` | `name_parse` output, e.g. `"500 ml"` | comma-joined when multiple matches; absent in Carrefour Path A |
 | `brand` | item brand | Hiper uses `.get("brand", "")` |
@@ -217,7 +220,7 @@ Common details:
 | `price` | `item.offers.lowPrice` | stored as a string |
 | `scraped_at` | UTC stamp added by `MongoProductRepository.replace_products` (`api/repositories/products.py:77`) | `datetime.now(timezone.utc)` |
 | `categoria` | the request/subcategory label | |
-| `subcategoria` | HiperLibertad only | |
+| `subcategoria` | La Anónima (n2 node slug) and ChangoMás only | HiperLibertad documents stored before the rename also carry one |
 
 `name_parse` (`api/helpers.py:14`) regex:
 `(\d+|X\d+)\s*(kg|kgs|g|gr|grs|ml|mls|m|cc|lt|lts)\b`, case-insensitive.
@@ -296,7 +299,7 @@ code against `pymongo` and is imported by nothing.
 | `api/scrapers/errors.py` | `ScraperError` family |
 | `api/scrapers/browser.py` | `build_chrome(settings)` — the only driver factory |
 | `api/scrapers/http.py` | shared HTTP session with the legacy User-Agent |
-| `api/scrapers/{supermami,hiperlibertad,disco,carrefour,changomas}.py` | the five ported scrapers |
+| `api/scrapers/{supermami,laanonima,disco,carrefour,changomas}.py` | the five ported scrapers |
 | `api/models/productos.py` | Dead (mongoengine APIs against pymongo) |
 | `adminpro/src/app/pages/dashboard/` | Main ag-grid view |
 | `adminpro/src/app/service/app.service.ts` | Single HTTP call to the API |
