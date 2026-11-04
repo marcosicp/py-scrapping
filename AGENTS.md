@@ -91,7 +91,7 @@ api/scrapers/errors.py   ScraperError family: UnknownScraper, InvalidCategory, A
 api/scrapers/browser.py Chrome factory: build_chrome(settings) driven by CHROMEDRIVER_PATH / CHROME_HEADLESS (D8); Selenium imported lazily
 api/scrapers/http.py    Shared HTTP session with the legacy browser User-Agent (no requests-html)
 api/scrapers/           One BaseScraper subclass per supermarket: supermami, hiperlibertad, disco, carrefour, changomas
-tests/                  pytest suite (281 passed / 9 skipped by default; no network, no DB, no Chrome)
+tests/                  pytest suite (291 passed / 9 skipped by default; no network, no DB, no Chrome)
 adminpro/src/app/       Angular 21 source (dashboard, login, register, progress, grafica1)
 templates/scrape.html   The ONLY template a route renders (SocketIO monitor, registry-generated)
 docs/agent-context/     Deep dives for agents — read when you need detail
@@ -233,7 +233,7 @@ picture — and note `gunicorn_config.py` is orphaned, so it changes nothing.
 - Angular: karma + jasmine are configured in `adminpro/package.json` and
   `tsconfig.spec.json` exists, but there are **zero `*.spec.ts` files**.
 
-Default run: **281 passed, 9 skipped** — the 9 skips are the opt-in MongoDB
+Default run: **291 passed, 9 skipped** — the 9 skips are the opt-in MongoDB
 integration tests.
 
 Consequence: watched behavior is covered by the pytest suite, but **live

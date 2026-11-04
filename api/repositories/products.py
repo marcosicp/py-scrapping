@@ -13,6 +13,10 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from typing import Any, Protocol
 
+from pymongo.errors import PyMongoError
+
+from api.repositories import RepositoryUnavailable
+
 COLLECTION_NAME = "productos"
 
 
@@ -36,8 +40,16 @@ class MongoProductRepository:
         self._collection = database[COLLECTION_NAME]
 
     def find_all(self) -> list[dict[str, Any]]:
-        """Every stored document with the ``_id`` field stripped."""
-        return list(self._collection.find({}, {"_id": 0}))
+        """Every stored document with the ``_id`` field stripped.
+
+        Driver-level read failures translate to :class:`RepositoryUnavailable`
+        (R3-002): the callers must be able to tell a database outage apart
+        from any other defect without importing pymongo.
+        """
+        try:
+            return list(self._collection.find({}, {"_id": 0}))
+        except PyMongoError as exc:
+            raise RepositoryUnavailable(str(exc)) from exc
 
     def replace_products(self, supermercado: str,
                          products: Sequence[Mapping[str, Any]], *,

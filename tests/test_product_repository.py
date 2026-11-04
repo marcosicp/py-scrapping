@@ -15,14 +15,42 @@ from __future__ import annotations
 import os
 import uuid
 from datetime import datetime, timezone
+from types import SimpleNamespace
+from typing import Any
 
 import bson
 import pytest
+from pymongo.errors import ConnectionFailure
 
+from api.repositories import RepositoryUnavailable
 from api.repositories.products import COLLECTION_NAME, MongoProductRepository
 from tests.fakes import FakeDatabase, InMemoryProductRepository
 
 _MONGO_TEST_PREFIX = "lalistita_test_"
+
+
+def _drop_throwaway(client, name):
+    """Drop a throwaway ``_MONGO_TEST_PREFIX*`` database, safely.
+
+    The guard reads the name back from the database object the client
+    resolves (``client[name].name``), not from the constant the fixture
+    derived the request from (R1-2): a resolved name without the throwaway
+    prefix fails loudly instead of dropping anything.
+    """
+    resolved = client[name].name
+    assert resolved.startswith(_MONGO_TEST_PREFIX), (
+        f"Refusing to drop database {resolved!r}: it does not start with "
+        f"the {_MONGO_TEST_PREFIX!r} throwaway prefix")
+    client.drop_database(resolved)
+
+
+def _teardown_throwaway(client, name):
+    """Tear down a throwaway client: guarded drop first, client closed last
+    — on every path, including a refused drop (N6)."""
+    try:
+        _drop_throwaway(client, name)
+    finally:
+        client.close()
 
 
 # ---------------------------------------------------------------------------
@@ -47,13 +75,14 @@ def real_mongo_db():
         pytest.skip(f"MongoDB server did not answer at MONGODB_TEST_URI: {exc}")
 
     name = f"{_MONGO_TEST_PREFIX}{uuid.uuid4().hex}"
-    assert name.startswith(_MONGO_TEST_PREFIX)
     try:
         yield client[name]
     finally:
-        assert name.startswith(_MONGO_TEST_PREFIX)  # guard before dropping
-        client.drop_database(name)
-        client.close()
+        # The guard derives from the database actually about to be dropped
+        # and fails instead of dropping when the name is not throwaway (R1-2);
+        # the client is closed on every teardown path (N6).
+        _teardown_throwaway(client, name)
+
 
 
 @pytest.fixture(params=["memory", "mongo_fake", "mongo_real"],
@@ -72,6 +101,67 @@ SAMPLE = [
     {"name": "Arroz Tres 1kg", "unidad": "1kg", "brand": "Tres",
      "price": 9.99},
 ]
+
+
+class _GuardStubClient:
+    """Stand-in for a ``MongoClient`` in teardown-guard tests.
+
+    Normally ``client[name].name`` equals ``name``; entries in
+    ``resolved_names`` inject divergence between the requested name and the
+    name of the database object about to be dropped, the accident the
+    teardown guard must refuse to drop for (R1-2).
+    """
+
+    def __init__(self) -> None:
+        self.resolved_names: dict[str, Any] = {}
+        self.dropped: list[str] = []
+        self.closed = False
+
+    def __getitem__(self, name: str) -> Any:
+        return self.resolved_names.setdefault(
+            name, SimpleNamespace(name=name))
+
+    def drop_database(self, name: str) -> None:
+        self.dropped.append(name)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_teardown_closes_the_client_even_when_the_guard_trips():
+    """N6: a refused drop still leaves the client closed — the guard failure
+    must not leak the Mongo connection."""
+    client = _GuardStubClient()
+    client["lalistita_test_abc"].name = "lalistitadev"
+    with pytest.raises(AssertionError, match="Refusing to drop"):
+        _teardown_throwaway(client, "lalistita_test_abc")
+    assert client.dropped == []
+    assert client.closed is True
+
+
+def test_teardown_closes_the_client_after_a_successful_drop():
+    client = _GuardStubClient()
+    database = client["lalistita_test_abc"]  # name == requested: normal case
+    _teardown_throwaway(client, "lalistita_test_abc")
+    assert client.dropped == [database.name]
+    assert client.closed is True
+
+
+def test_teardown_guard_refuses_a_database_without_the_throwaway_prefix():
+    client = _GuardStubClient()
+    # The resolved database object says its name is NOT throwaway: the guard
+    # must fail loudly instead of dropping anything.
+    client["lalistita_test_abc"].name = "lalistitadev"
+    with pytest.raises(AssertionError, match="Refusing to drop"):
+        _drop_throwaway(client, "lalistita_test_abc")
+    assert client.dropped == []
+
+
+def test_teardown_guard_drops_the_resolved_database_name():
+    client = _GuardStubClient()
+    database = client["lalistita_test_abc"]  # name == requested: normal case
+    _drop_throwaway(client, "lalistita_test_abc")
+    assert client.dropped == [database.name]
 
 
 # ---------------------------------------------------------------------------
@@ -208,6 +298,17 @@ def test_mongo_failed_insert_keeps_previous_documents():
     assert "delete_many" not in collection.events
     assert {doc["name"] for doc in repo.find_all()} == \
         {p["name"] for p in SAMPLE}
+
+
+def test_mongo_read_failure_translates_to_repository_unavailable():
+    # A driver failure raised while reading must surface as the port-level
+    # RepositoryUnavailable, never as a raw pymongo type (R3-002).
+    database = FakeDatabase()
+    collection = database[COLLECTION_NAME]
+    collection.fail_find = ConnectionFailure("server unreachable")
+    with pytest.raises(RepositoryUnavailable) as excinfo:
+        MongoProductRepository(database).find_all()
+    assert "server unreachable" in str(excinfo.value)
 
 
 # ---------------------------------------------------------------------------

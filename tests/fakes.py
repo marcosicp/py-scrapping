@@ -42,6 +42,7 @@ class FakeCollection:
         self.documents: list[dict[str, Any]] = []
         self.events: list[str] = []
         self.fail_insert: Exception | None = None
+        self.fail_find: Exception | None = None
 
     # -- helpers ---------------------------------------------------------
     @staticmethod
@@ -76,6 +77,8 @@ class FakeCollection:
     # -- pymongo surface -------------------------------------------------
     def find(self, filter=None, projection=None):
         self.events.append("find")
+        if self.fail_find is not None:
+            raise self.fail_find
         return [self._project(doc, projection)
                 for doc in self.documents if self._matches(doc, filter)]
 

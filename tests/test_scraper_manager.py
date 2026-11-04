@@ -5,6 +5,7 @@ with timeouts; ``time.sleep`` is never used for ordering.
 """
 
 import contextlib
+import logging
 import threading
 
 import pytest
@@ -552,6 +553,48 @@ def test_state_sequence_for_a_failing_run_is_exact():
         manager.wait("gated-fail", TIMEOUT)
 
 
+def test_wait_during_the_start_window_does_not_join_an_unstarted_thread():
+    """N1: between publishing the run and thread.start(), ``wait()`` must
+    behave sensibly instead of raising on an unstarted thread."""
+
+    class WaitDuringStart:
+        """Reporter wired after construction that calls ``wait()`` while
+        ``start()`` is still delivering the RUNNING notification, i.e. with
+        the thread created but not started."""
+
+        def __init__(self):
+            self.target = None
+            self.wait_result = None
+            self.join_error = None
+
+        def message(self, slug, text):
+            pass
+
+        def state(self, status):
+            if self.target is None:
+                return
+            try:
+                self.wait_result = self.target.wait(status.slug, TIMEOUT)
+            except RuntimeError as exc:
+                self.join_error = exc
+
+    reports = WaitDuringStart()
+    manager = build(ScraperRegistry([Happy]), reporter=reports)
+    reports.target = manager
+    try:
+        start_status = manager.start("happy")
+        assert start_status.state is RunState.RUNNING
+        # wait() inside the start window must not blow up on the unstarted
+        # thread and must answer the current (RUNNING) status.
+        assert reports.join_error is None
+        assert reports.wait_result is not None
+        assert reports.wait_result.state is RunState.RUNNING
+        final = manager.wait("happy", TIMEOUT)
+        assert final.state is RunState.SUCCEEDED
+    finally:
+        manager.wait("happy", TIMEOUT)
+
+
 def test_reentrant_reporter_does_not_deadlock():
     _Gated, _entered, release = make_gated("reentrant")
 
@@ -637,6 +680,29 @@ def test_thread_start_failure_leaves_no_ghost_running_record(monkeypatch):
     assert final.state is RunState.SUCCEEDED
 
 
+def test_thread_start_failure_corrects_the_delivered_notifications(monkeypatch):
+    """N3: when start() fails after RUNNING was already delivered, the
+    corrected pre-run state must reach the reporter too, not only status().
+    """
+    reports = RecordingReporter()
+    manager = build(ScraperRegistry([Happy]), reporter=reports)
+
+    def boom(self):
+        raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(threading.Thread, "start", boom)
+    with pytest.raises(RuntimeError, match="can't start new thread"):
+        manager.start("happy")
+    monkeypatch.undo()
+
+    # No ghost RUNNING record in status()...
+    assert manager.status("happy").state is RunState.IDLE
+    # ...AND the delivered notifications tell the reporter the same truth:
+    # RUNNING (delivered before start), then the restored IDLE correction.
+    states = [s.state.value for s in reports.states if s.slug == "happy"]
+    assert states == ["running", "idle"]
+
+
 def test_thread_start_failure_keeps_previous_finished_state(monkeypatch):
     repository = InMemoryProductRepository()
     manager = build(ScraperRegistry([Happy]), repository=repository)
@@ -656,3 +722,95 @@ def test_thread_start_failure_keeps_previous_finished_state(monkeypatch):
     again = manager.start("happy")
     assert again.state is RunState.RUNNING
     assert manager.wait("happy", TIMEOUT).state is RunState.SUCCEEDED
+
+
+# -- R3-004/R2-005: RUNNING never lost to a fast scrape ----------------------
+
+
+def make_outrunner():
+    """A scraper that finishes the instant it gets scheduled."""
+    class Outrunner(BaseScraper):
+        slug = "out-fast"
+        label = "OutFast"
+
+        def run(self, ctx):
+            pass
+
+    return Outrunner
+
+
+_TERMINAL_STATES = (RunState.SUCCEEDED, RunState.FAILED, RunState.STOPPED)
+
+
+def test_a_scraper_that_finishes_immediately_still_delivers_running_first():
+    reports = RecordingReporter()
+    terminal_delivered = threading.Event()
+
+    class LegacyRace(ScraperManager):
+        """Deterministic emulation of the legacy race (no sleeps, no retry
+        loops): the scheduler was allowed to let a fast worker deliver its
+        terminal state before the RUNNING snapshot reached the reporter.
+
+        Only a worker that is actually alive may overrun the RUNNING
+        notification, and the manager only delivers RUNNING while the worker
+        is alive in the buggy order; a manager that delivers RUNNING before
+        thread.start() can never enter that branch, so the wait cannot
+        deadlock there.
+        """
+
+        def _deliver_state(self, slug, version, snapshot):
+            if snapshot.state is RunState.RUNNING:
+                record = self._runs.get(slug)
+                thread = record.thread if record is not None else None
+                if thread is not None and thread.is_alive():
+                    # Let the fast worker cross the line first, exactly as
+                    # the legacy race let it do.
+                    assert terminal_delivered.wait(TIMEOUT)
+            super()._deliver_state(slug, version, snapshot)
+            if snapshot.state in _TERMINAL_STATES:
+                terminal_delivered.set()
+
+    manager = LegacyRace(ScraperRegistry([make_outrunner()]),
+                         InMemoryProductRepository(), reporter=reports)
+    try:
+        manager.start("out-fast")
+        manager.wait("out-fast", TIMEOUT)
+        states = [s.state.value for s in reports.states
+                  if s.slug == "out-fast"]
+        assert states == ["running", "succeeded"]
+    finally:
+        manager.wait("out-fast", TIMEOUT)
+
+
+class _OnceFlakyReporter:
+    """Reporter that raises on exactly one state delivery, then recovers."""
+
+    def __init__(self):
+        self.states = []
+        self.fail = True
+
+    def message(self, slug, text):
+        pass
+
+    def state(self, status):
+        if self.fail:
+            self.fail = False
+            raise RuntimeError("reporter hiccup")
+        self.states.append(status)
+
+
+def test_a_reporter_failure_does_not_burn_the_version(caplog):
+    reports = _OnceFlakyReporter()
+    manager = build(ScraperRegistry([Happy]), reporter=reports)
+    running = RunStatus(slug="happy", label="Happy", state=RunState.RUNNING)
+
+    with caplog.at_level(logging.WARNING):
+        manager._deliver_state("happy", 1, running)   # the reporter raises
+        assert reports.states == []
+        # The version was not recorded as delivered, so the same notification
+        # still reaches the reporter on a later attempt.
+        manager._deliver_state("happy", 1, running)
+
+    assert len(reports.states) == 1
+    assert reports.states[0].state is RunState.RUNNING
+    assert "Progress reporter failed for 'happy'" in caplog.text

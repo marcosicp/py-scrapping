@@ -30,7 +30,7 @@ file. The scrapers that open a browser need a working local Chrome.
 | Global `ng` | Angular CLI 14.x, `Node ... (Unsupported)` | ⛔ too old for Angular 21 — use the local CLI |
 | ChromeDriver | resolved by Selenium Manager (bundled with selenium); `CHROMEDRIVER_PATH` overrides | ✅ no pinned path |
 | `.env` | absent (gitignored) | ⛔ `MONGODB_URI` must be provided |
-| Tests | pytest suite in `tests/` (281 passed / 9 skipped by default) | ✅ |
+| Tests | pytest suite in `tests/` (291 passed / 9 skipped by default) | ✅ |
 
 ## 1. Backend: the virtualenv
 
@@ -75,7 +75,7 @@ MONGODB_TEST_URI=mongodb://localhost:27017/ .venv/bin/python -m pytest tests/tes
 ```
 
 ✅ VERIFIED: `pytest` collects the suite in `tests/` and exits 0 —
-**281 passed, 9 skipped** by default. The 9 skips are the opt-in MongoDB
+**291 passed, 9 skipped** by default. The 9 skips are the opt-in MongoDB
 integration tests below. No default test touches the network, Chrome or a real
 database — the Mongo fixtures point at an unroutable URI
 (`mongodb://127.0.0.1:1/…`), so an accidental connection fails fast instead of
@@ -132,8 +132,9 @@ SocketIO is initialized outside `python app.py` (K-1).
   command** — that is the designed behaviour, not a bug.
 - Scraper monitor: <http://localhost:3000/scrape>
 - API probe: <http://localhost:3000/supermercados> — returns the grouped payload,
-  or an empty payload with `"error": "Database connection error"` if Mongo is
-  unreachable (`api/blueprints/products.py`).
+  an empty payload with `"error": "Database connection error"` if Mongo is
+  unreachable, or one with `"error": "Internal server error"` for a
+  non-database defect (`api/blueprints/products.py`).
 - Scraper control: <http://localhost:3000/api/scrapers> — one status snapshot
   per registered scraper (see §5).
 
@@ -256,7 +257,7 @@ image build itself.
 2. `flake8 . --select=E9,F63,F7,F82` (real gate) then a `--exit-zero` style pass
 3. `pytest`
 
-✅ The suite is green: 281 passed, 9 skipped (the opt-in MongoDB integration
+✅ The suite is green: 291 passed, 9 skipped (the opt-in MongoDB integration
 tests) on this checkout. The first green run on GitHub Actions was not observed
 here (K-6).
 

@@ -5,6 +5,10 @@ consumes it, so the blueprint keeps answering exactly like the legacy view in
 ``api/routes.py``, now with ``ProductService`` behind the repository port.
 """
 
+import logging
+
+from api.repositories import RepositoryUnavailable
+
 
 EMPTY_FALLBACK = {
     "todos": [],
@@ -13,6 +17,9 @@ EMPTY_FALLBACK = {
     "mami": 0,
     "hiper": 0,
 }
+
+# Non-database failures must never be reported as a database outage.
+_DEFECT_ERROR = "Internal server error"
 
 
 def get_json(client):
@@ -102,25 +109,46 @@ def test_stable_tie_break_across_supermarkets(repository, client):
     assert tags == ["mami", "carrefour", "hiper", "disco"]
 
 
-def test_product_without_name_in_group_falls_back(repository, client):
+def test_repository_unavailable_answers_the_legacy_fallback_and_log(
+        repository, client, caplog):
+    # RepositoryUnavailable is the translated shape of a driver failure: the
+    # legacy 'Database connection error' fallback AND the legacy
+    # 'Error reading from MongoDB' signal must both stay intact.
+    repository.find_all_error = RepositoryUnavailable("mock outage")
+    with caplog.at_level(logging.ERROR):
+        response = client.get("/supermercados")
+    assert response.status_code == 200
+    assert response.get_json() == {
+        **EMPTY_FALLBACK, "error": "Database connection error"}
+    assert "Error reading from MongoDB" in caplog.text
+
+
+def test_product_without_name_is_not_labelled_a_database_error(
+        repository, client, caplog):
+    # A missing 'name' key is a data defect, not a database outage: it must
+    # not answer 'Database connection error' nor log a MongoDB failure.
     repository.documents = [
         {"supermercado": "disco", "price": 5},  # no "name"
     ]
-    response = client.get("/supermercados")
+    with caplog.at_level(logging.ERROR):
+        response = client.get("/supermercados")
     assert response.status_code == 200
     payload = response.get_json()
-    assert payload["error"] == "Database connection error"
     assert payload["todos"] == []
-    assert payload == {**EMPTY_FALLBACK, "error": "Database connection error"}
+    assert payload == {**EMPTY_FALLBACK, "error": _DEFECT_ERROR}
+    assert "Error reading from MongoDB" not in caplog.text
 
 
-def test_repository_failure_falls_back(repository, client):
+def test_unexpected_repository_failure_is_also_not_labelled_database_error(
+        repository, client, caplog):
     repository.find_all_error = RuntimeError("boom")
-    response = client.get("/supermercados")
+    with caplog.at_level(logging.ERROR):
+        response = client.get("/supermercados")
     assert response.status_code == 200
     payload = response.get_json()
-    assert payload["error"] == "Database connection error"
     assert payload["todos"] == []
+    assert payload == {**EMPTY_FALLBACK, "error": _DEFECT_ERROR}
+    assert "Error reading from MongoDB" not in caplog.text
 
 
 def test_successful_payload_has_exactly_the_legacy_keys(repository, client):

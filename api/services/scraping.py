@@ -134,8 +134,10 @@ class ScraperManager:
         # calls back into the manager cannot deadlock.
         self._notify_lock = threading.RLock()
         # Monotonically increasing state versions per slug; never reset
-        # between runs. The delivered version drops out-of-order or stale
-        # notifications so the UI never regresses to an older state.
+        # between runs. A notification is dropped as stale only relative to
+        # the last SUCCESSFULLY delivered version: a reporter failure leaves
+        # that version pending (never recorded as delivered), so the same
+        # notification can be retried later (R2-005).
         self._versions: dict[str, int] = {}
         self._delivered: dict[str, int] = {}
         self._runs: dict[str, _Run] = {}
@@ -158,19 +160,37 @@ class ScraperManager:
             return self._snapshot(slug)
 
     def wait(self, slug: str, timeout: float | None = None) -> RunStatus:
-        """Join the worker thread (if any) and return the status."""
+        """Join the worker thread (if any) and return the status.
+
+        ``start()`` publishes the run before it calls ``thread.start()``, so
+        the thread may not be started yet; joining an unstarted thread
+        raises, so only a live thread is joined (a finished thread no longer
+        needs joining anyway, the status is already final).
+        """
         with self._lock:
             self._registry.get(slug)
             record = self._runs.get(slug)
             thread = record.thread if record is not None else None
-        if thread is not None:
+        if thread is not None and thread.is_alive():
             thread.join(timeout)
         return self.status(slug)
 
     # -- lifecycle -----------------------------------------------------------------
 
     def start(self, slug: str, category: str | None = None) -> RunStatus:
-        """Start a run of ``slug`` unless one is already active."""
+        """Start a run of ``slug`` unless one is already active.
+
+        The RUNNING snapshot is delivered before the worker thread starts, so
+        a scrape that finishes immediately can never overtake it and lose the
+        notification as stale (R3-004); reporter calls stay outside
+        ``self._lock`` so a re-entrant reporter cannot deadlock.
+
+        If ``thread.start()`` raises, the ghost run is reverted exactly as
+        before, but the RUNNING notification that was already delivered is
+        corrected with a second delivery carrying the restored pre-run state
+        at a higher version: the UI may briefly see the run, then sees it
+        vanish, instead of keeping a run that never existed.
+        """
         # Validation happens before touching any run state.
         cls = self._registry.get(slug)
         category = cls.validate_category(category)
@@ -203,21 +223,36 @@ class ScraperManager:
             record.ctx = ctx
             previous = self._runs.get(slug)
             self._runs[slug] = record
+            version = self._bump(slug)
+            snapshot = self._snapshot(slug)
+
+        # Deliver RUNNING before the worker can exist, let alone advance the
+        # version (R3-004): outside the lock, a re-entrant reporter only
+        # re-enters the RLock of its own thread.
+        self._deliver_state(slug, version, snapshot)
+
+        failure: BaseException | None = None
+        failure_version: int | None = None
+        failure_snapshot: RunStatus | None = None
+        with self._lock:
             try:
                 thread.start()
-            except BaseException:
+            except BaseException as exc:
                 # Starting the thread failed (e.g. "can't start new thread"):
                 # do not leave a ghost RUNNING record behind.
                 if previous is None:
                     self._runs.pop(slug, None)
                 else:
                     self._runs[slug] = previous
-                raise
-            version = self._bump(slug)
-            snapshot = self._snapshot(slug)
+                failure = exc
+                failure_version = self._bump(slug)
+                failure_snapshot = self._snapshot(slug)
 
-        # Reporter calls happen outside the lock and never break a run.
-        self._deliver_state(slug, version, snapshot)
+        if failure is not None:
+            # Correct the already-delivered RUNNING notification so the UI
+            # never keeps showing a run that does not exist.
+            self._deliver_state(slug, failure_version, failure_snapshot)
+            raise failure
         return snapshot
 
     def stop(self, slug: str) -> RunStatus:
@@ -267,16 +302,22 @@ class ScraperManager:
         Serialized through ``self._notify_lock`` (never ``self._lock``, so a
         re-entrant reporter cannot deadlock); a notification older than the
         last delivered one is silently dropped and never reaches the UI.
+
+        A version is recorded as delivered only after ``reporter.state``
+        returned without raising: a reporter failure is logged and the
+        version stays deliverable (R2-005), so a later attempt still reaches
+        the reporter.
         """
         with self._notify_lock:
             if version <= self._delivered.get(slug, 0):
                 return
-            self._delivered[slug] = version
             try:
                 self._reporter.state(snapshot)
             except Exception:
                 logger.warning("Progress reporter failed for '%s'", slug,
                                exc_info=True)
+            else:
+                self._delivered[slug] = version
 
     def _worker(self, slug: str, cls: type[BaseScraper], ctx: ScrapeContext,
                 stop_event: threading.Event) -> None:

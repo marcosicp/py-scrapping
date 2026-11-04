@@ -48,7 +48,10 @@ class ProductService:
         hiperlibertad = remove_duplicates_by_key(hiperlibertad, 'name')
         supermami = remove_duplicates_by_key(supermami, 'name')
 
-        # Combine all products and sort by name
+        # -- concatenation order is the tie-break contract for same-name
+        # products across supermarkets (supermami, carrefour, hiperlibertad,
+        # disco) and is pinned by
+        # tests/test_products_api.py::test_stable_tie_break_across_supermarkets
         data = supermami + carrefour + hiperlibertad + disco
         data.sort(key=lambda x: x.get("name", ""))
 
