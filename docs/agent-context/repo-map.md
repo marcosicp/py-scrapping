@@ -13,25 +13,26 @@ behind it.
   browser ─────────►│  Flask  app.py :3000        │
                     │  CORS(app) ─ everything     │
                     └───────┬─────────────────────┘
-                            │  blueprint `app_file2`
+                            │  blueprints `app_file2`, frontend, products
                     ┌───────▼─────────────────────┐
+                    │  api/blueprints/*.py        ├─► api/container.py (Services)
                     │  api/routes.py              │
-                    └──┬────────┬────────┬────────┘
-                       │        │        │
-         send_from_dir │        │        │ Thread(...)
-         (static/)     │        │        └──────────────► api/scrapers/*.py
-                       │        │                             │  Selenium
-                       │        │                             ▼
-                       │        │                        notifyStatus(...)
-                       │        │                             │
-                       │        │        ┌────────────────────┘
-                       │        │        ▼
-                       │        │   api/sockets.py  SocketIO.emit
-                       │        │        │
-                       │        │        ▼
-                       │        │   templates/scrape.html  (live monitor)
-                       │        │
-                       │        └──► Mongo: lalistitadev.productos
+                    └──┬──────┬────────┬──────────┘
+                       │      │        │
+         send_from_dir │      │        └──► ProductService → api/repositories/products.py
+         (static/)     │      │             → Mongo: lalistitadev.productos
+                       │      │ Thread(...)
+                       │      └────────────────► api/scrapers/*.py
+                                                     │  Selenium
+                                                     ▼
+                                                notifyStatus(...)
+                                                     │
+                                     ┌───────────────┘
+                                     ▼
+                            api/sockets.py  SocketIO.emit
+                                     │
+                                     ▼
+                            templates/scrape.html  (live monitor)
                        ▼
               static/index.html  (Angular 21 bundle — gitignored, built locally)
 ```
@@ -51,7 +52,8 @@ behind it.
 | `Flask(__name__, static_url_path='')` | `create_app` | `static/` is served at the URL root |
 | `CORS(app)` | `create_app` | every origin allowed, including scraper-control POSTs (K-13) |
 | `SECRET_KEY` | `create_app` | `os.getenv('SECRET_KEY', 'secret!')` — configurable, same default (K-13) |
-| `register_blueprint` | `create_app` | all routes come from `api/routes.py` |
+| `register_blueprint` | `create_app` | scraper routes from `api/routes.py`, the rest from `api/blueprints/` |
+| `init_services` | `create_app` | `Services` in `app.extensions['lalistita']`; tests inject a repository |
 | `configure_sockets` | `create_app` | SocketIO initialized for **every** entry point (K-1) |
 | `_init_mongo` | `create_app` | `MongoClient` + `app.database` (K-2, K-3) |
 
@@ -68,28 +70,37 @@ Three properties worth knowing:
   realtime works over long-polling, not over a WebSocket upgrade.
 
 `configure_routes(app)` exists only as a commented-out alternative
-(`api/routes.py:15`); the blueprint path is the live one.
+(`api/routes.py:10`); the blueprint path is the live one.
 
-## 3. Endpoints — `api/routes.py`
+## 3. Endpoints
 
-Blueprint name: `app_file2`.
+Three blueprints share the URL map: `app_file2` (scraper control + dead alias
+routes, `api/routes.py`), `frontend` and `products` (`api/blueprints/`),
+all HTTP shells over services.
+
+### `api/routes.py` — scraper control and dead aliases (blueprint `app_file2`)
 
 | Method | Path | Handler | Real behavior |
 | --- | --- | --- | --- |
-| GET | `/` | `root` (`:23`) | `send_from_directory(static, index.html)`; **503 with the build command** when the bundle is absent |
-| GET | `/scrape` | `scrape` (`:26`) | renders `templates/scrape.html` (the only live template) |
-| POST | `/scraping-disco` | `scrapingDisco` (`:30`) | **broken**: `Thread(target=scrape_disco(categoria),)` runs inline, then `Thread(target=None).start()` raises |
-| POST | `/scraping-hiperlibertad` | `scrapingHiperlibertad` (`:38`) | **blocking**: no thread, request waits for the full scrape |
-| POST | `/scraping-supermami` | `scrapingSupermami` (`:46`) | **blocking**: no thread |
-| GET | `/scraping-supermami-stop` | `scrapingSupermamiStop` (`:53`) | returns `None` → Flask 500 |
-| POST | `/scraping-carrefour` | `scrapingCarrefour` (`:58`) | correct: `Thread(target=..., args=(categoria,))` |
-| POST | `/scraping-changomas` | `scrapingChangomas` (`:65`) | thread + private asyncio loop for the `async def` scraper |
-| GET | `/scraping-changomas-stop` | `scrapingChangomasStop` (`:84`) | returns `None` → Flask 500 |
-| GET | `/supermercados` | `ReturnJSON` (`:89`) | reads `lalistitadev.productos`, groups, dedupes, sorts |
-| GET | `/supermercado-carrefour` | `:150` | opens `carrefour.json` (absent, gitignored) → 500; ignores the data anyway |
-| GET | `/supermercado-disco` | `:159` | same, `disco.json` |
-| GET | `/supermercado-hiper` | `:168` | same, `hiperlibertad.json` |
-| GET | `/supermercado-supermami` | `:177` | same, `supermami.json` |
+| POST | `/scraping-disco` | `scrapingDisco` (`:16`) | **broken**: `Thread(target=scrape_disco(categoria),)` runs inline, then `Thread(target=None).start()` raises |
+| POST | `/scraping-hiperlibertad` | `scrapingHiperlibertad` (`:25`) | **blocking**: no thread, request waits for the full scrape |
+| POST | `/scraping-supermami` | `scrapingSupermami` (`:33`) | **blocking**: no thread |
+| GET | `/scraping-supermami-stop` | `scrapingSupermamiStop` (`:41`) | returns `None` → Flask 500 |
+| POST | `/scraping-carrefour` | `scrapingCarrefour` (`:45`) | correct: `Thread(target=..., args=(categoria,))` |
+| POST | `/scraping-changomas` | `scrapingChangomas` (`:52`) | thread + private asyncio loop for the `async def` scraper |
+| GET | `/scraping-changomas-stop` | `scrapingChangomasStop` (`:76`) | returns `None` → Flask 500 |
+| GET | `/supermercado-carrefour` | `:80` | opens `carrefour.json` (absent, gitignored) → 500; ignores the data anyway |
+| GET | `/supermercado-disco` | `:89` | same, `disco.json` |
+| GET | `/supermercado-hiper` | `:98` | same, `hiperlibertad.json` |
+| GET | `/supermercado-supermami` | `:107` | same, `supermami.json` |
+
+### `api/blueprints/` — frontend and products
+
+| Method | Path | Handler | Real behavior |
+| --- | --- | --- | --- |
+| GET | `/` | `frontend.root` | `send_from_directory(static, index.html)`; **503 with the build command** when the bundle is absent |
+| GET | `/scrape` | `frontend.scrape` | renders `templates/scrape.html` (the only live template) |
+| GET | `/supermercados` | `products.supermercados` | `ProductService.catalog()` through the `ProductRepository` (Mongo `lalistitadev.productos`); any exception → empty payload + `error` key, HTTP 200 |
 
 There is **no** Disco stop route, no auth, no pagination, no filtering, and no
 write API other than "start a scraper".
@@ -109,11 +120,11 @@ write API other than "start a scraper".
 ```
 
 Grouping is substring matching on the lowercase `supermercado` field
-(`api/routes.py:106-115`): `disco`, `carrefour`, `hiper*`, `mami*`. **ChangoMás
-has no branch**, so its products never appear. Dedupe is
+(`api/services/products.py`, first match wins): `disco`, `carrefour`, `hiper*`,
+`mami*`. **ChangoMás has no branch**, so its products never appear. Dedupe is
 `remove_duplicates_by_key(list, 'name')` — first occurrence wins
-(`api/helpers.py:3`). On any exception the route returns an empty payload plus
-an `error` key rather than failing loudly (`api/routes.py:137-147`).
+(`api/helpers.py:3`). On any exception the blueprint returns an empty payload
+plus an `error` key rather than failing loudly (`api/blueprints/products.py`).
 
 ## 4. Scrapers — `api/scrapers/`
 
@@ -172,7 +183,7 @@ code against `pymongo` and is imported by nothing.
 | Concern | Value |
 | --- | --- |
 | Client injection | `app.mongodb_client`, only set inside `__main__` (`app.py:32,42`) |
-| Database actually used | `lalistitadev` (`api/routes.py:94`, all scrapers) |
+| Database actually used | `lalistitadev` (`app.database`, all scrapers) |
 | Database set but unused | `lalistita` (`app.py:33,43`) |
 | Collection | `productos` |
 | Access pattern | raw `pymongo` — `find`, `insert_many`, `delete_many`; no ODM, no indexes, no migrations |
@@ -210,7 +221,7 @@ code against `pymongo` and is imported by nothing.
 
 | Path | Reality |
 | --- | --- |
-| `templates/scrape.html` | The only rendered template (`api/routes.py:26`). Loads SocketIO 4.0.1 from cdnjs and subscribes to `scraping-message-<supermarket>` channels. |
+| `templates/scrape.html` | The only rendered template (`api/blueprints/frontend.py`, `scrape`). Loads SocketIO 4.0.1 from cdnjs and subscribes to `scraping-message-<supermarket>` channels. |
 | `templates/index.html`, `index3.html`, `index4.html`, `indexa.html` | Angular build output committed under `templates/` (`data-critters-container`). Dead. |
 | `templates/index2.html` | Older server-rendered page using `url_for('static', ...)`. No route renders it. |
 | `static/` | **Gitignored Angular build output.** Contains `index.html`, `main-*.js`, `polyfills-*.js`, `scripts-*.js`, `styles-*.css`, `assets/` (copied from `adminpro/src/assets`), `media/` (assets the builder hashes because CSS references them) and `3rdpartylicenses.txt`. Fully reproducible from tracked sources — verified file by file before it was untracked. A clean clone has none of it. |
@@ -221,7 +232,11 @@ code against `pymongo` and is imported by nothing.
 | File | Purpose |
 | --- | --- |
 | `app.py` | Flask app, CORS, blueprint, Mongo, dev server |
-| `api/routes.py` | All HTTP endpoints |
+| `api/routes.py` | Scraper-control routes and the dead `/supermercado-*` aliases |
+| `api/blueprints/frontend.py` | `/` SPA root + `/scrape` monitor page |
+| `api/blueprints/products.py` | `/supermercados` HTTP shell + fallback |
+| `api/services/products.py` | `ProductService.catalog()` — grouping/dedupe/sort/counts |
+| `api/container.py` | `Services` composition root (`app.extensions['lalistita']`) |
 | `api/sockets.py` | `socketio` singleton, `notifyStatus()`, `configure_sockets()` |
 | `api/helpers.py` | `remove_duplicates_by_key()`, `name_parse()` |
 | `api/models/productos.py` | Dead (mongoengine APIs against pymongo) |

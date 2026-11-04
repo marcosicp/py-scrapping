@@ -72,7 +72,10 @@ Browser ──► Flask (app.py, port 3000)
 app.py                  create_app() factory: CORS, SECRET_KEY, blueprint, SocketIO, Mongo
 main.py                 WSGI entry point — `gunicorn main:app` uses this
 api/config.py           Settings (frozen dataclass) resolved from SECRET_KEY/MONGODB_*
-api/routes.py           ALL HTTP endpoints (blueprint `app_file2`)
+api/container.py        Services composition root: init_services/get_services (app.extensions['lalistita'])
+api/blueprints/         frontend.py (`/`, `/scrape`) + products.py (`/supermercados`); HTTP layer only
+api/services/           products.py — ProductService.catalog(): grouping/dedupe/count logic
+api/routes.py           Scraper-control routes and the dead `/supermercado-*` routes only (being replaced) (blueprint `app_file2`)
 api/sockets.py          SocketIO singleton + notifyStatus(channel, message)
 api/helpers.py          remove_duplicates_by_key(), name_parse() → {name, unidad}
 api/scrapers/*.py       One class per supermarket, uniform start/stop contract

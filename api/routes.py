@@ -1,10 +1,9 @@
 from threading import Thread
-from flask import Blueprint, render_template, request, jsonify, url_for, Flask, current_app, send_from_directory
+from flask import Blueprint, request, url_for, send_from_directory
 import os
 import json
 import asyncio
 from threading import Thread
-from api.helpers import remove_duplicates_by_key
 from api.scrapers.scrap_carrefour import ScrapeCarrefour
 from api.scrapers.scrap_changomas import ScrapeChangoMas
 from api.scrapers.scrap_disco import ScrapeDisco
@@ -12,31 +11,11 @@ from api.scrapers.scrap_hiperlibertad import ScrapeHiperLibertad
 from api.scrapers.scrap_supermami import ScrapeSuperMami
 
 app_file2 = Blueprint('app_file2',__name__)
-STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static')
 # def configure_routes(app: Flask):
 def redirect_url():
     return request.args.get('next') or \
         request.referrer or \
         url_for('index')
-
-@app_file2.route('/')
-def root():
-    # static/ is not versioned; it is Angular build output. Without this guard a
-    # fresh clone answers a bare 404 and the cause is invisible.
-    if not os.path.exists(os.path.join(STATIC_DIR, 'index.html')):
-        return (
-            'Frontend bundle missing: static/ is not versioned.\n'
-            'Build it with:\n'
-            '  cd adminpro && npm ci && npm run build\n',
-            503,
-            {'Content-Type': 'text/plain; charset=utf-8'},
-        )
-    return send_from_directory(STATIC_DIR, 'index.html')
-# return redirect("/supermercados")
-
-@app_file2.route("/scrape")
-def scrape():
-    return render_template('scrape.html', todos=[])
 
 @app_file2.route("/scraping-disco", methods=['POST'] )
 def scrapingDisco():
@@ -96,67 +75,6 @@ def scrapingChangomas():
 def scrapingChangomasStop():
     scrape_service = ScrapeChangoMas()
     scrape_service.scrape_changomas_stop()
-
-@app_file2.route("/supermercados")
-def ReturnJSON():
-    try:
-        # Access MongoDB database and collection
-        mongodb_client = current_app.mongodb_client
-        database = mongodb_client.lalistitadev
-        collection = database.productos
-        
-        # Get all products from the database
-        all_products = list(collection.find({}, {"_id": 0}))  # Exclude MongoDB _id field
-        
-        # Organize products by supermarket
-        disco = []
-        carrefour = []
-        hiperlibertad = []
-        supermami = []
-        
-        for product in all_products:
-            supermarket = product.get("supermercado", "").lower()
-            if "disco" in supermarket:
-                disco.append(product)
-            elif "carrefour" in supermarket:
-                carrefour.append(product)
-            elif "hiperlibertad" in supermarket or "hiper" in supermarket:
-                hiperlibertad.append(product)
-            elif "supermami" in supermarket or "mami" in supermarket:
-                supermami.append(product)
-        
-        # Remove duplicates by name for each supermarket
-        disco = remove_duplicates_by_key(disco, 'name')
-        carrefour = remove_duplicates_by_key(carrefour, 'name')
-        hiperlibertad = remove_duplicates_by_key(hiperlibertad, 'name')
-        supermami = remove_duplicates_by_key(supermami, 'name')
-        
-        # Combine all products and sort by name
-        data = supermami + carrefour + hiperlibertad + disco
-        data.sort(key=lambda x: x.get("name", ""))
-
-        ret = {
-            'todos': data, 
-            'carre': len(carrefour), 
-            'disco': len(disco),
-            'mami': len(supermami), 
-            'hiper': len(hiperlibertad)
-        }
-        
-        return jsonify(ret)
-        
-    except Exception as e:
-        print(f"Error reading from MongoDB: {e}")
-        # Fallback to empty data if database fails
-        return jsonify({
-            'todos': [], 
-            'carre': 0, 
-            'disco': 0,
-            'mami': 0, 
-            'hiper': 0,
-            'error': 'Database connection error'
-        })
-
 
 @app_file2.route("/supermercado-carrefour")
 def supermercadosCarrefour():

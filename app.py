@@ -17,7 +17,10 @@ from flask import Flask
 from flask_cors import CORS
 from pymongo import MongoClient
 
+from api.blueprints import register_blueprints
 from api.config import Settings
+from api.container import init_services
+from api.repositories.products import MongoProductRepository, ProductRepository
 from api.routes import app_file2
 from api.sockets import configure_sockets
 
@@ -48,12 +51,16 @@ def _init_mongo(app: Flask, settings: Settings) -> Flask:
     return app
 
 
-def create_app(settings: Settings | None = None) -> Flask:
+def create_app(settings: Settings | None = None,
+               *, repository: ProductRepository | None = None) -> Flask:
     """Build the Flask application.
 
     Called by `python app.py`, by `main:app` for WSGI servers, and by tests.
     With no explicit settings the configuration is read from the environment
     (`SECRET_KEY`, `MONGODB_URI`, `MONGODB_DB` — see `api.config.Settings`).
+
+    `repository` lets tests inject an in-memory stand-in instead of the
+    default MongoDB adapter.
     """
     if settings is None:
         settings = Settings.from_env()
@@ -63,10 +70,16 @@ def create_app(settings: Settings | None = None) -> Flask:
     # Configurable, same default as before. A real rotation is K-13.
     app.config['SECRET_KEY'] = settings.secret_key
 
-    app.register_blueprint(app_file2)
+    app.register_blueprint(app_file2)  # scraper control + dead alias routes
+    register_blueprints(app)  # frontend and products blueprints
 
     configure_sockets(app)  # Initialize sockets for every entry point (K-1)
     _init_mongo(app, settings)  # Attach the database handles (K-2)
+    # Services find their collaborators here; tests can inject a fake
+    # repository through the keyword argument (D2).
+    init_services(app, settings,
+                  repository if repository is not None
+                  else MongoProductRepository(app.database))
 
     return app
 

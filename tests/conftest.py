@@ -4,6 +4,7 @@ import pytest
 
 from api.config import Settings
 from app import create_app
+from tests.fakes import InMemoryProductRepository
 
 
 @pytest.fixture
@@ -19,8 +20,13 @@ def settings():
 
 
 @pytest.fixture
-def app(settings):
-    application = create_app(settings)
+def repository():
+    return InMemoryProductRepository()
+
+
+@pytest.fixture
+def app(settings, repository):
+    application = create_app(settings, repository=repository)
     application.config["TESTING"] = True
     return application
 

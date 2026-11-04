@@ -76,14 +76,15 @@ Original symptom, retained for searchability:
 The client was attached at `app.py:32` and `app.py:42`, both inside the
 `__main__` block, while consumers read `current_app.mongodb_client`:
 
-- `api/routes.py:93`
-- `api/scrapers/scrap_disco.py:33`
+- `api/blueprints/products.py` (the legacy `/supermercados` view moved here; it
+  reads through the `ProductRepository` instead of `current_app.mongodb_client`)
 - `api/scrapers/scrap_carrefour.py:38`
 - `api/scrapers/scrap_hiperlibertad.py:32`
 - `api/scrapers/scrap_supermami.py:101`
 
 **Impact:** under gunicorn these raised `AttributeError`. `/supermercados` caught
-it in its `except` (`api/routes.py:137`) and returned an empty payload, so the
+it in its `except` (`api/blueprints/products.py`) and returned an empty payload,
+so the
 breakage looked like "no data" rather than "misconfigured app".
 
 ## <a id="k-3"></a>K-3 · Two database names; the one that is set is dead
@@ -95,7 +96,8 @@ default **`lalistitadev`**, the database every consumer already used. The dead
 Original symptom, retained for searchability:
 
 `app.py:33` and `app.py:43` set `app.database = client["lalistita"]` while every
-consumer used `client.lalistitadev` (`api/routes.py:94` and the four scrapers).
+consumer used `client.lalistitadev` (`api/repositories/products.py` and the four
+scrapers).
 `app.database` was never read, so the value was pure misinformation.
 
 ## <a id="k-4"></a>K-4 · `/scraping-disco` calls the scraper inline and then crashes
@@ -255,7 +257,7 @@ serve them from Mongo through `/supermercados?supermercado=…`.
 
 `api/scrapers/scrap_changomas.py:147` dumps to `.changomas/almacen/<file>.json`
 and never calls a `save_to_mongodb`. `/supermercados` also has no `changomas`
-branch (`api/routes.py:106-115`).
+branch (`api/services/products.py`).
 
 **Impact:** ChangoMás appears in the README, the UI and the route table but its
 data is never queryable. `.changomas/` is gitignored, so the data is also
@@ -353,9 +355,10 @@ missing.
 
 **Severity:** Low now, scales badly.
 
-`api/routes.py:98` → `list(collection.find({}, {"_id": 0}))`, then Python-side
-grouping, O(n²)-ish dedupe (`api/helpers.py:3` loop with `not in`), and a sort.
-No indexes are created anywhere.
+`api/repositories/products.py` `find_all` → `list(collection.find({}, {"_id": 0}))`
+(legacy: `api/routes.py:98`), then Python-side grouping in
+`api/services/products.py`, O(n²)-ish dedupe (`api/helpers.py:3` loop with
+`not in`), and a sort. No indexes are created anywhere.
 
 **Impact:** `/supermercados` loads every product of every supermarket into memory
 per request and runs dedupe in Python. Fine for a few thousand rows, not for a
