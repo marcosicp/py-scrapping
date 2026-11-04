@@ -126,6 +126,27 @@ findings, both introduced by this change:
 Correction declared at 95 diff lines (budget maximum 200) and verified with
 **321 passed / 9 skipped** and a clean flake8 gate.
 
+## Review state (blocked, needs an owner decision)
+
+- Lineage `review-b7fc109d455348b7`, candidate `b544b60` scoped with
+  `baseRef=4f11e73`, 8 files / 1439 lines, medium, one lens.
+- Reviewer admitted; the provider refuter corroborated two deterministic
+  CRITICAL findings -> `correction_required` with a bounded correction.
+- Correction committed as `5c0c8d6` (declared plan 95 diff lines, actual 147,
+  maximum 200).
+- **The correction cannot be closed**: the provider's next transition is
+  `recover` with `disposition=scope_changed`, because the fix touched
+  `api/helpers.py`, a shared file outside the frozen candidate scope. Both
+  `review.recover` invocations (with and without `lineageId`) fail with
+  `recovery base-ref does not match predecessor base`, even though the rendered
+  invocation carries `--base-ref`. This is the same facade/binary defect the
+  previous session hit (the installed `gentle-ai` is the unpinned 4.3.1 dev
+  override, not the pinned 4.0.0), not a defect in this candidate.
+- Consequence: the lineage stays in `correction_required` with the correction
+  committed and verified but unacknowledged. Options are an owner decision:
+  leave it open, abandon it explicitly, or start a fresh review of the corrected
+  candidate.
+
 ## Follow-ups
 
 - `desayuno-y-merienda` was not run live (6768 products, ~140 more requests).
