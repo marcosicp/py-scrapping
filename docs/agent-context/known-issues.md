@@ -2,10 +2,14 @@
 
 Defect register for LaListita. Every entry was found by reading the code during
 the agent-context bootstrap on `main@06b37b7` and is cited with `path:line`.
+Statuses were reconciled with the backend after T1-T14a of
+`odd/tasks/backend-architecture.md` (branch `feat/backend-architecture@30b20cb`).
 
-**Nothing here has been fixed.** Each entry is written to be liftable into its
-own ODD task / work-unit commit. When you fix one, change its status to `fixed`,
-add the commit sha, and leave the entry in place — the history is the point.
+Each entry is written to be liftable into its own ODD task / work-unit commit.
+When you fix one, change its status to `fixed`, add the commit sha, and leave
+the entry in place — the history is the point. Citations that point at code
+deleted since the bootstrap are marked *(code gone)*; citations to live code
+were re-verified line by line.
 
 Entry point for agents: [`AGENTS.md`](../../AGENTS.md).
 
@@ -18,21 +22,21 @@ Entry point for agents: [`AGENTS.md`](../../AGENTS.md).
 | [K-1](#k-1) | Critical | Runtime | **fixed** — SocketIO initialized by the factory |
 | [K-2](#k-2) | Critical | Runtime | **fixed** — Mongo handles attached by the factory |
 | [K-3](#k-3) | High | Data | **fixed** — database name centralized on `lalistitadev` |
-| [K-4](#k-4) | High | API | open — `/scraping-disco` thread misuse |
+| [K-4](#k-4) | High | API | **fixed** — route deleted with the legacy layer (`4665c1c`) |
 | [K-5](#k-5) | High | Deploy | **fixed** — `main.py` exists, verified under gunicorn |
 | [K-6](#k-6) | High | Deploy | **fixed** — pytest suite in `tests/`, CI installs dev deps (sha pending) |
-| [K-7](#k-7) | High | Scrapers | open — ChromeDriver 141 vs Chrome 156 |
-| [K-8](#k-8) | High | Data | open — Carrefour deletes before inserting |
-| [K-9](#k-9) | Medium | API | open — blocking scraper routes |
-| [K-10](#k-10) | Medium | API | open — stop routes return `None` → 500 |
-| [K-11](#k-11) | Medium | API | open — dead `/supermercado-*` routes |
-| [K-12](#k-12) | Medium | Data | open — ChangoMás never reaches MongoDB or the API |
+| [K-7](#k-7) | High | Scrapers | **fixed** — one Chrome factory, Selenium Manager default (`a4bbd18` + ports) |
+| [K-8](#k-8) | High | Data | **fixed** — repository inserts before pruning (`6790b1e`) |
+| [K-9](#k-9) | Medium | API | **fixed** — all runs go through `ScraperManager` threads (`7ff8ff2` + ports) |
+| [K-10](#k-10) | Medium | API | **fixed** — stop returns 202 with a status snapshot (`7ff8ff2`) |
+| [K-11](#k-11) | Medium | API | **fixed** — dead `/supermercado-*` routes deleted (`30b20cb`) |
+| [K-12](#k-12) | Medium | Data | **partially fixed** — ChangoMás persists (`9d9248d`); `/supermercados` + dashboard still ignore the group |
 | [K-13](#k-13) | Medium | Security | open — unauthenticated scraper control + wide-open CORS |
 | [K-14](#k-14) | Medium | Tooling | **fixed** — venv provisioned on Python 3.15.x |
 | [K-15](#k-15) | Medium | Tooling | open — global Angular CLI too old |
-| [K-16](#k-16) | Low | Hygiene | open — dead modules and duplicated build output |
+| [K-16](#k-16) | Low | Hygiene | **partially fixed** — legacy layer deleted (`30b20cb`); dead templates and `api/models/productos.py` remain |
 | [K-17](#k-17) | Low | Perf | open — full-collection scan on every API call |
-| [K-18](#k-18) | High | Scrapers | open — `arender()` cannot work on Python ≥3.10 |
+| [K-18](#k-18) | High | Scrapers | **fixed** — `arender()` never ran (missing `await`); dependency removed with the ports |
 
 ---
 
@@ -53,9 +57,9 @@ Original symptom, retained for searchability:
 Heroku, App Engine) imports `app` as a module, so `__main__` never runs and
 `socketio.init_app(app)` never happens.
 
-**Impact:** every `notifyStatus()` call (`api/sockets.py:48`) emitted on an
-uninitialized SocketIO object; `/scrape` showed nothing. Failure was silent — no
-exception surfaced to the user.
+**Impact:** every `notifyStatus()` call emitted on an uninitialized SocketIO
+object (today the emit lives in `SocketIOReporter`, `api/sockets.py:28,31`);
+`/scrape` showed nothing. Failure was silent — no exception surfaced to the user.
 
 Related: `async_mode` is `threading` because neither `eventlet` nor `gevent` is
 installed, so realtime works over long-polling but not the WebSocket transport.
@@ -74,18 +78,17 @@ Verified: inside `app.app_context()`, `current_app.mongodb_client` resolves to a
 Original symptom, retained for searchability:
 
 The client was attached at `app.py:32` and `app.py:42`, both inside the
-`__main__` block, while consumers read `current_app.mongodb_client`:
-
-- `api/blueprints/products.py` (the legacy `/supermercados` view moved here; it
-  reads through the `ProductRepository` instead of `current_app.mongodb_client`)
-- `api/scrapers/scrap_carrefour.py:38`
-- `api/scrapers/scrap_hiperlibertad.py:32`
-- `api/scrapers/scrap_supermami.py:101`
+`__main__` block, while consumers read `current_app.mongodb_client`: the
+`/supermercados` handler and three of the legacy scrapers
+(`scrap_carrefour.py:38`, `scrap_hiperlibertad.py:32`, `scrap_supermami.py:101`
+— code gone).
 
 **Impact:** under gunicorn these raised `AttributeError`. `/supermercados` caught
 it in its `except` (`api/blueprints/products.py`) and returned an empty payload,
-so the
-breakage looked like "no data" rather than "misconfigured app".
+so the breakage looked like "no data" rather than "misconfigured app".
+Today no consumer reads `current_app.mongodb_client` directly: persistence goes
+through the `ProductRepository` (`api/repositories/products.py`), which the
+composition root builds from the client.
 
 ## <a id="k-3"></a>K-3 · Two database names; the one that is set is dead
 
@@ -95,14 +98,20 @@ default **`lalistitadev`**, the database every consumer already used. The dead
 
 Original symptom, retained for searchability:
 
-`app.py:33` and `app.py:43` set `app.database = client["lalistita"]` while every
-consumer used `client.lalistitadev` (`api/repositories/products.py` and the four
-scrapers).
+The `__main__`-only wiring set `app.database = client["lalistita"]` (code gone)
+while every consumer used `client.lalistitadev` (the repository and, then, the
+legacy scrapers).
 `app.database` was never read, so the value was pure misinformation.
 
 ## <a id="k-4"></a>K-4 · `/scraping-disco` calls the scraper inline and then crashes
 
-**Severity:** High.
+**Status: fixed** (`4665c1c`). The Disco route was deleted with the legacy
+scraper layer (`api/routes.py` no longer exists — code gone). Disco is now
+`ScraperDisco` (`api/scrapers/disco.py`), started through
+`POST /api/scrapers/disco/start` (202) or the registry-generated alias
+`POST /scraping-disco`, both backed by the `ScraperManager` worker thread.
+
+Original symptom, retained for searchability:
 
 ```python
 Thread(target = scrape_service.scrape_disco(categoria),).start()   # api/routes.py:34
@@ -114,11 +123,11 @@ synchronously inside the HTTP request, returns `None`, and then
 routes down (`api/routes.py:62`).
 
 **Impact:** the request blocks for the entire Disco scrape (many minutes, five
-paginated subcategories, `arender(sleep=8)` each) and then returns 500. Disco has
-no working start route at all.
+paginated subcategories) and then returns 500. Disco had no working start route
+at all.
 
-**Fix direction:** `Thread(target=scrape_service.scrape_disco, args=(categoria,)).start()`
-— and give Disco the same start/stop pair the other scrapers have.
+**Fix (shipped):** the whole legacy route layer was replaced by the scraper
+contract; see K-9.
 
 ## <a id="k-5"></a>K-5 · Docker image builds, then crashes on start
 
@@ -171,29 +180,35 @@ flake8 invocation is `--exit-zero`.
 
 ## <a id="k-7"></a>K-7 · ChromeDriver pinned to 141, Chrome is 156
 
-**Severity:** High (all scraping is dead on this machine).
+**Status: fixed** (`a4bbd18`, completed by the T7-T11 ports). Driver
+construction is centralized in `api/scrapers/browser.py`: with
+`CHROMEDRIVER_PATH` set, that binary is passed to `Service`
+(`api/scrapers/browser.py:52-53`); unset (the default), `Service()` lets
+Selenium Manager resolve a driver matching the installed Chrome
+(`api/scrapers/browser.py:54-55`). No scraper hardcodes a driver path any more.
 
-`Service('/usr/local/bin/chromedriver-141')` appears in four of the five
+Original symptom, retained for searchability:
+
+`Service('/usr/local/bin/chromedriver-141')` appeared in four of the five
 scrapers (`scrap_disco.py:65`, `scrap_carrefour.py:75`, `scrap_changomas.py:35`,
-`scrap_hiperlibertad.py:64`). **SuperMami has no driver** — it uses
+`scrap_hiperlibertad.py:64` — code gone). **SuperMami had no driver** — it used
 `requests_html` only, despite importing selenium modules it never calls.
 
-Measured: `/usr/local/bin/chromedriver-141` exists; Chrome **156.x** is
-installed.
-
-**Impact:** every scraper fails with `session not created: This version of
-ChromeDriver only supports Chrome version 141`.
-
-**Fix direction:** stop hardcoding an absolute path. Read a `CHROMEDRIVER_PATH`
-env var with a sane fallback, centralize driver construction in one helper
-instead of five copies, and document the version-match requirement. Note that
-`webdriver-manager` is already a declared dependency but bypassed everywhere.
+**Impact (then):** every scraper failed with `session not created: This version
+of ChromeDriver only supports Chrome version 141`.
 
 ## <a id="k-8"></a>K-8 · Carrefour replaces a whole category before scraping
 
-**Severity:** High (irreversible data loss on a bad run).
+**Status: fixed** (`6790b1e`). Persistence goes through
+`ProductRepository.replace_products` (`api/repositories/products.py:42`):
+an empty scrape is a no-op returning 0 (`api/repositories/products.py:65-66`),
+the new documents are inserted **before** the old ids are pruned
+(`api/repositories/products.py:90-98`), so a failed insert leaves the previous
+data intact.
 
-`api/scrapers/scrap_carrefour.py:43`:
+Original symptom, retained for searchability:
+
+`api/scrapers/scrap_carrefour.py:43` (code gone):
 
 ```python
 collection.delete_many({"supermercado": "Carrefour", "categoria": category_name})
@@ -201,78 +216,100 @@ collection.delete_many({"supermercado": "Carrefour", "categoria": category_name}
 
 then `insert_many` at `:52`.
 
-**Impact:** if the scrape fails after the delete — driver version mismatch (K-7),
-a site change, a network blip — the category is left empty in production. No
-transaction, no staging collection, no backup.
+**Impact:** if the scrape failed after the delete — a site change, a network
+blip — the category was left empty in production. No transaction, no staging
+collection, no backup.
 
-**Fix direction:** write to a staging collection or accumulate first and swap
-after a non-empty verified result. At minimum, never delete before you have the
-replacement data in memory.
+**Residual risk:** if the insert fails after some batches were already written
+(a chunked driver write), the slice can temporarily hold old + partial new
+documents; the next successful replace converges it
+(`api/repositories/products.py:55-59`).
 
 ## <a id="k-9"></a>K-9 · Two scraper routes block the worker
 
-**Severity:** Medium.
+**Status: fixed** (`7ff8ff2`, completed by the ports). Every start goes through
+`ScraperManager.start` (`api/services/scraping.py`), which runs the scraper in
+a daemon worker thread and returns a `RunStatus` snapshot immediately; the HTTP
+layer answers 202 (`api/blueprints/scrapers.py`). All five scrapers are ported,
+so no request ever runs a scrape inline.
+
+Original symptom, retained for searchability:
 
 `/scraping-hiperlibertad` (`api/routes.py:38`) and `/scraping-supermami`
-(`api/routes.py:46`) call the scraper inline. Only `/scraping-carrefour` and
-`/scraping-changomas` spawn a thread.
+(`api/routes.py:46`) called the scraper inline; only `/scraping-carrefour` and
+`/scraping-changomas` spawned a thread (code gone).
 
-**Impact:** with gunicorn's default of 1–2 workers, two concurrent scrape requests
-exhaust the pool and the whole app stops answering until the scrapes finish.
-
-**Fix direction:** one helper `start_scraper_async(scraper, *args)` used by all
-five routes, plus the asyncio wrapper only for ChangoMás.
+**Impact:** with gunicorn's default of 1–2 workers, two concurrent scrape
+requests exhausted the pool and the whole app stopped answering until the
+scrapes finished.
 
 ## <a id="k-10"></a>K-10 · Stop routes return `None`
 
-**Severity:** Medium.
+**Status: fixed** (`7ff8ff2`). The stop endpoint is
+`POST /api/scrapers/<slug>/stop` (`api/blueprints/scrapers.py`) and returns 202
+with a `RunStatus` snapshot; a stop of an inactive scraper is a clean 409
+`not_running`, and the registry-generated `/scraping-<slug>-stop` aliases
+return `{"success": true}` (`api/blueprints/legacy.py`). No view falls off the
+end without a response.
+
+Original symptom, retained for searchability:
 
 `/scraping-supermami-stop` (`api/routes.py:53`) and `/scraping-changomas-stop`
-(`api/routes.py:84`) end after the `scrape_*_stop()` call with no `return`.
+(`api/routes.py:84`) ended after the `scrape_*_stop()` call with no `return`
+(code gone).
 
-**Impact:** Flask raises `TypeError: The view function did not return a valid
+**Impact:** Flask raised `TypeError: The view function did not return a valid
 response` → HTTP 500, even though the stop flag was set successfully. Callers
-see failure and may retry.
-
-**Fix direction:** return the same `json.dumps({'success': True}), 200, {...}`
-envelope the POST routes use.
+saw failure and could retry.
 
 ## <a id="k-11"></a>K-11 · Dead `/supermercado-*` routes read files that cannot exist
 
-**Severity:** Medium (confusing, not harmful).
+**Status: fixed** (`30b20cb`). `api/routes.py` was deleted with the legacy
+layer; the four routes no longer exist (code gone).
 
-`api/routes.py:150-184` defines four routes that `open('carrefour.json')`,
-`'disco.json'`, `'hiperlibertad.json'`, `'supermami.json'` — none of which exist
-in the repo (`*.json` is gitignored at `.gitignore:56`), and afterwards ignore the
-parsed data entirely by returning `static/index.html`.
+Original symptom, retained for searchability:
 
-**Impact:** any hit is a 500; readers assume per-supermarket pages exist.
+`api/routes.py:150-184` defined four routes that `open('carrefour.json')`,
+`'disco.json'`, `'hiperlibertad.json'`, `'supermami.json'` — none of which
+existed in the repo (`*.json` is gitignored at `.gitignore:56`), and afterwards
+ignored the parsed data entirely by returning `static/index.html`.
 
-**Fix direction:** delete the four routes. If per-supermarket views are wanted,
-serve them from Mongo through `/supermercados?supermercado=…`.
+**Impact:** any hit was a 500; readers assumed per-supermarket pages exist.
 
 ## <a id="k-12"></a>K-12 · ChangoMás writes only to local JSON files
 
-**Severity:** Medium (silent data black hole).
+**Status: partially fixed** (`9d9248d`). The scraper is ported
+(`api/scrapers/changomas.py`) and persists through `ctx.save` →
+`ProductRepository.replace_products` instead of dumping
+`.changomas/almacen/<file>.json` (code gone).
 
-`api/scrapers/scrap_changomas.py:147` dumps to `.changomas/almacen/<file>.json`
-and never calls a `save_to_mongodb`. `/supermercados` also has no `changomas`
-branch (`api/services/products.py`).
+**Still open (API half):** `/supermercados` has no `changomas` branch — the
+grouping in `api/services/products.py:36-43` matches only `disco`, `carrefour`,
+`hiper*` and `mami*`, so ChangoMás products never appear in the payload or in
+the dashboard counts.
 
-**Impact:** ChangoMás appears in the README, the UI and the route table but its
-data is never queryable. `.changomas/` is gitignored, so the data is also
-ephemeral — gone on redeploy and invisible on Cloud Run.
+Original symptom, retained for searchability:
 
-**Fix direction:** add `save_to_mongodb` following the other scrapers, and a
-`changomas` group + count in `/supermercados`. Then update the README table.
+`api/scrapers/scrap_changomas.py:147` dumped to `.changomas/almacen/<file>.json`
+and never called a `save_to_mongodb`; `/supermercados` had no `changomas`
+branch.
+
+**Impact:** ChangoMás appeared in the README, the UI and the route table but its
+data was never queryable. `.changomas/` is gitignored, so the data was also
+ephemeral.
+
+**Remaining fix direction:** add a `changomas` group + count in
+`api/services/products.py` and the dashboard, then update the README table.
 
 ## <a id="k-13"></a>K-13 · Anyone can start a scrape; CORS is wide open
 
 **Severity:** Medium.
 
-`app.py:15` → `CORS(app)` with no origins restriction. All `/scraping-*` routes
-are unauthenticated and `POST`/`GET` from any origin. `SECRET_KEY = 'secret!'`
-(`app.py:18`).
+`app.py:74` → `CORS(app)` with no origins restriction. The scraper-control API
+and its `/scraping-<slug>` aliases (`api/blueprints/scrapers.py`,
+`api/blueprints/legacy.py`) are unauthenticated and `POST`/`GET` from any
+origin. `SECRET_KEY = 'secret!'` is the fallback (`api/config.py`, consumed at
+`app.py:76`).
 
 **Impact:** a third-party page can trigger scrapes against the operator's IP and
 mutate MongoDB (K-8 makes one of them destructive). Also an open relay for
@@ -327,7 +364,11 @@ warns.
 
 ## <a id="k-16"></a>K-16 · Dead modules, duplicated build output, repeated imports
 
-**Severity:** Low (noise that misleads readers).
+**Status: partially fixed** (`30b20cb`). The legacy scraper layer — including
+the duplicated `from threading import Thread` imports and the never-used
+`redirect_url()` of `api/routes.py` — is deleted (code gone).
+
+**Still present:**
 
 - `api/models/productos.py` — `from pymongo import pymongo` then
   `pymongo.Document` / `pymongo.StringField`. Those are mongoengine APIs; the
@@ -338,10 +379,8 @@ warns.
 - `templates/index2.html` — legacy server-rendered page, never rendered.
 - `gunicorn_config.py`, `app.yaml`, `manifest.yml` — orphaned deploy configs (see
   K-5).
-- `api/routes.py:1` and `:6` both `from threading import Thread`; `redirect_url()`
-  (`:16`) is defined and never used.
 
-**Fix direction:** delete.
+**Remaining fix direction:** delete.
 
 Separately decided and shipped: `static/` is no longer versioned. It was 662
 files / 17 MB, and a single Angular rebuild produced a 3.8 MB diff of minified
@@ -355,10 +394,11 @@ missing.
 
 **Severity:** Low now, scales badly.
 
-`api/repositories/products.py` `find_all` → `list(collection.find({}, {"_id": 0}))`
-(legacy: `api/routes.py:98`), then Python-side grouping in
-`api/services/products.py`, O(n²)-ish dedupe (`api/helpers.py:3` loop with
-`not in`), and a sort. No indexes are created anywhere.
+`api/repositories/products.py:38-40` `find_all` →
+`list(collection.find({}, {"_id": 0}))` (legacy: `api/routes.py:98`, code
+gone), then Python-side grouping in `api/services/products.py`, O(n²)-ish dedupe
+(`api/helpers.py:3-8` loop with `not in`), and a sort. No indexes are created
+anywhere.
 
 **Impact:** `/supermercados` loads every product of every supermarket into memory
 per request and runs dedupe in Python. Fine for a few thousand rows, not for a
@@ -367,9 +407,24 @@ full catalog.
 **Fix direction:** aggregate in Mongo (`$group` / `$match` on `supermercado`), add
 a compound index on `(supermercado, name)`, and paginate.
 
-## <a id="k-18"></a>K-18 · `arender()` is structurally broken on Python ≥3.10
+## <a id="k-18"></a>K-18 · `arender()` never executed: a coroutine nobody awaited
 
-**Severity:** High — four of the five scrapers cannot render a page.
+**Status: fixed.** `requests-html`, `lxml_html_clean` and `webdriver-manager`
+are gone from `requirements.txt`, and every scraper port (T7-T11, dependency
+removal completed in `30b20cb`) deleted the `arender()` calls.
+
+**Corrected diagnosis.** The bootstrap analysis below identified a real
+breakage but blamed the wrong trigger. `requests_html`'s `arender()` is an
+`async def` coroutine: calling it only creates the coroutine object. Every call
+site — Disco, Carrefour, ChangoMás, SuperMami — wrote `session.arender(sleep=N)`
+with **no `await`** and never ran the event loop, so **the render never
+executed at all**, on any Python version. The scrapers worked (when they
+worked) on the plain HTML response alone; the pyppeteer/Chromium path below was
+never reached. The pyppeteer breakage was real but latent — it is what *would*
+have happened had a call site ever awaited.
+
+Original analysis, retained for searchability (wrong on the key point: the
+calls never ran):
 
 `requests-html 0.10.0` (last release 2019) declares `pyppeteer>=0.0.14` with no
 upper bound, and the resolver settles on `pyppeteer 0.0.25`. That version calls:
@@ -400,38 +455,38 @@ accepting `loop` in Python 3.10**. Measured behaviour on this machine:
 | 12.0 (the repo's old pin) | forwarded to asyncio | fails on Python ≥3.10 |
 | 17.4 (current) | `websockets.client` gone | `AttributeError` before the call |
 
-**Impact:** `HTMLSession.arender()` raises `TypeError` at the first call, so
-Disco, Carrefour, ChangoMás and SuperMami fail on page 1. HiperLibertad is
-unaffected (pure VTEX JSON API). This is **pre-existing**: the old pins
-(`websockets==12.0`, Python 3.11) were already broken for the same reason.
+**Impact (then):** had any call site awaited, `arender()` would have raised
+before fetching a page, breaking Disco, Carrefour, ChangoMás and SuperMami.
+HiperLibertad was unaffected (pure VTEX JSON API). This was **pre-existing**:
+the old pins (`websockets==12.0`, Python 3.11) were already broken for the same
+reason.
 
-**Why a pin fix does not work:** keeping `arender()` alive requires
+**Why a pin fix would not have worked:** keeping `arender()` alive requires
 `pyppeteer==2.0.0` (which pins `websockets==10.4`), and that in turn pins
 `urllib3==1.26.20` — measured at **12 advisories** (`PYSEC-2026-141`,
 `-1994`…`-1999`, `-4175`, `-4177`). Trading 12 CVEs for a broken helper is not a
 fix.
 
-**Fix direction:** stop using `arender()`. Selenium is already a first-class
-dependency and already navigates these same sites — use `driver.page_source` for
-the three scrapers that have a driver, and give SuperMami the driver it lacks (or
-move the whole rendering layer to Playwright). This is its own work unit: it
-changes scraper behaviour, so it needs a real run against each site.
+**Fix (shipped):** stop using `arender()`. The ports render through the
+Selenium driver behind `ctx.browser()` where rendering is needed (Disco,
+Carrefour, ChangoMás) or parse the plain HTTP response directly (HiperLibertad,
+SuperMami) — no second browser, no abandoned dependency.
 
 ---
 
 ## Minor observations (not filed)
 
-- `datetime.utcnow()` in `save_to_mongodb` is deprecated from Python 3.12; prefer
-  `datetime.now(timezone.utc)`.
 - `name_parse`'s regex includes bare `m` as a unit (`api/helpers.py:17`), so a
   name containing "100 m" can be mis-parsed. It also strips only the first match.
-- Duplicate suppression is substring-based
-  (`if not any(element['name'] in new['name'] …)`), which drops legitimately
-  distinct products whose names contain another product's name.
-- Only ChangoMás closes its driver in a `finally`; the other four leak the browser
-  process on exception.
-- `requirements.txt` lists `bs4` next to `beautifulsoup4` — the meta-package is
-  redundant.
+- Duplicate suppression is substring-based, still live in the ported scrapers
+  (e.g. `api/scrapers/disco.py:149-152`, `api/scrapers/carrefour.py:178`), which
+  drops legitimately distinct products whose names contain another product's name.
+- Driver cleanup is now uniform: `ctx.browser()` quits the driver in a `finally`
+  (`api/scrapers/base.py`), so the old "only ChangoMás closes its driver" leak is
+  gone.
+- `scraped_at` is stamped with `datetime.now(timezone.utc)` at save time
+  (`api/repositories/products.py:77`) — the deprecated `datetime.utcnow()` is
+  gone.
 
 ## Adding an entry
 

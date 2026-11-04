@@ -1,43 +1,68 @@
 # Repository map
 
-Deep reference for the LaListita codebase. Verified against `main@06b37b7`.
-Entry point for agents is [`AGENTS.md`](../../AGENTS.md); this file is the detail
-behind it.
+Deep reference for the LaListita codebase. Verified against
+`feat/backend-architecture@30b20cb` (T1-T14a committed). Entry point for agents
+is [`AGENTS.md`](../../AGENTS.md); this file is the detail behind it.
 
 ---
 
-## 1. Request flow
+## 1. Layers
 
 ```
-                    ┌─────────────────────────────┐
-  browser ─────────►│  Flask  app.py :3000        │
-                    │  CORS(app) ─ everything     │
-                    └───────┬─────────────────────┘
-                            │  blueprints `app_file2`, frontend, products
-                    ┌───────▼─────────────────────┐
-                    │  api/blueprints/*.py        ├─► api/container.py (Services)
-                    │  api/routes.py              │
-                    └──┬──────┬────────┬──────────┘
-                       │      │        │
-         send_from_dir │      │        └──► ProductService → api/repositories/products.py
-         (static/)     │      │             → Mongo: lalistitadev.productos
-                       │      │ Thread(...)
-                       │      └────────────────► api/scrapers/*.py
-                                                     │  Selenium
-                                                     ▼
-                                                notifyStatus(...)
-                                                     │
-                                     ┌───────────────┘
-                                     ▼
-                            api/sockets.py  SocketIO.emit
-                                     │
-                                     ▼
-                            templates/scrape.html  (live monitor)
-                       ▼
-              static/index.html  (Angular 21 bundle — gitignored, built locally)
+HTTP layer      api/blueprints/{frontend,products,scrapers,legacy}.py
+                thin views; errors → JSON; read services from app.extensions
+   │
+Services        api/services/{products,scraping}.py
+                ProductService.catalog() / ScraperManager (runs, stops, status)
+   │
+Ports           api/repositories/products.py (ProductRepository)
+                api/scrapers/{base,registry,errors}.py (scraper contract)
+   │
+Infrastructure  api/repositories Mongo adapter · api/scrapers/{http,browser}.py
+                api/sockets.py (SocketIO) · api/config.py (Settings)
 ```
 
-## 2. Bootstrap — application factory
+The composition root is `api/container.py` (`init_services`), called once by
+`create_app()`; `get_services()` reads `app.extensions['lalistita']`. No layer
+below the blueprints imports Flask. Tests inject fakes through `create_app`
+keyword arguments (repository, registry, reporter).
+
+The run manager is **in-process**: one active run per slug, one daemon worker
+thread each, cooperative stop via a per-run `threading.Event`
+(`api/services/scraping.py`). With more than one gunicorn worker each process
+would own a private run table — status and single-flight guarantees would be
+per-worker only. The deployment therefore assumes a single worker
+(the Dockerfile CMD runs `--workers 1`).
+
+## 2. Request flow
+
+```
+                    ┌──────────────────────────────────────┐
+  browser ─────────►│  Flask  app.py :3000                 │
+                    │  CORS(app) — everything              │
+                    └───────┬──────────────────────────────┘
+                            │  blueprints frontend, products, scrapers, legacy
+                    ┌───────▼──────────────────────────────┐
+                    │  api/blueprints/*.py                 ├──► api/container.py (Services)
+                    └──┬──────┬──────────────┬─────────────┘
+                       │      │              │
+         send_from_dir │      │ GET /super…  └──► ScraperManager ─► worker thread
+         (static/)     │      │                    │  ctx.report                        │
+                       │      │                    ▼                                   ▼
+                       │      │        api/scrapers/*.py (BaseScraper) ──► api/sockets.py
+                       │      │        ctx.http / ctx.browser()               SocketIO.emit
+                       │      │        ctx.save ──► ProductRepository               │
+                       │      │                    │                                ▼
+                       │      ▼                    ▼                     templates/scrape.html
+                       │  ProductService → api/repositories/products.py    (live monitor)
+                       │                    │
+                       ▼                    ▼
+              static/index.html     Mongo: lalistitadev.productos
+         (Angular 21 bundle —
+          gitignored, built locally)
+```
+
+## 3. Bootstrap — application factory
 
 `app.py` exposes `create_app()`. Two entry points share it:
 
@@ -50,61 +75,48 @@ behind it.
 | --- | --- | --- |
 | `load_dotenv()` | module scope | `.env` optional; defaults apply without it |
 | `Flask(__name__, static_url_path='')` | `create_app` | `static/` is served at the URL root |
-| `CORS(app)` | `create_app` | every origin allowed, including scraper-control POSTs (K-13) |
-| `SECRET_KEY` | `create_app` | `os.getenv('SECRET_KEY', 'secret!')` — configurable, same default (K-13) |
-| `register_blueprint` | `create_app` | scraper routes from `api/routes.py`, the rest from `api/blueprints/` |
-| `init_services` | `create_app` | `Services` in `app.extensions['lalistita']`; tests inject a repository |
+| `CORS(app)` | `create_app` (`app.py:74`) | every origin allowed, including scraper-control POSTs (K-13) |
+| `SECRET_KEY` | `create_app` (`app.py:76`) | from `Settings.from_env`; default `'secret!'` (K-13) |
 | `configure_sockets` | `create_app` | SocketIO initialized for **every** entry point (K-1) |
-| `_init_mongo` | `create_app` | `MongoClient` + `app.database` (K-2, K-3) |
+| `_init_mongo` | `create_app` | `MongoClient(connect=False)` + `app.database` (K-2, K-3) |
+| `init_services` | `create_app` | `Services` in `app.extensions['lalistita']`; tests inject repository/registry/reporter |
+| `register_blueprints` | `create_app` | `frontend`, `products`, `scrapers`, plus the registry-generated legacy aliases |
 
 Three properties worth knowing:
 
 - **Nothing is wired at import time in `app.py`.** `main.py` builds the
-  module-level `app` WSGI servers expect. `gunicorn app:app` no longer works;
+  module-level `app` WSGI servers expect. `gunicorn app:app` does not exist;
   use `main:app`.
-- **`MongoClient` is lazy**, so importing the app opens no socket and cannot
-  hang a worker boot.
-- **Mongo config:** `MONGODB_URI` (default `mongodb://localhost:27017/`) and
-  `MONGODB_DB` (default `lalistitadev`).
+- **`MongoClient` is lazy** (`connect=False`), so importing the app opens no
+  socket and cannot hang a worker boot.
 - **`async_mode` is `threading`** — no `eventlet`/`gevent` in the tree — so
   realtime works over long-polling, not over a WebSocket upgrade.
 
-`configure_routes(app)` exists only as a commented-out alternative
-(`api/routes.py:10`); the blueprint path is the live one.
+## 4. Endpoints
 
-## 3. Endpoints
+Four blueprints share the URL map (18 rules): `frontend`, `products`,
+`scrapers` (`/api/scrapers`) and the registry-generated `legacy_scraping`
+aliases, all thin HTTP shells over services.
 
-Three blueprints share the URL map: `app_file2` (scraper control + dead alias
-routes, `api/routes.py`), `frontend` and `products` (`api/blueprints/`),
-all HTTP shells over services.
-
-### `api/routes.py` — scraper control and dead aliases (blueprint `app_file2`)
-
-| Method | Path | Handler | Real behavior |
-| --- | --- | --- | --- |
-| POST | `/scraping-disco` | `scrapingDisco` (`:16`) | **broken**: `Thread(target=scrape_disco(categoria),)` runs inline, then `Thread(target=None).start()` raises |
-| POST | `/scraping-hiperlibertad` | `scrapingHiperlibertad` (`:25`) | **blocking**: no thread, request waits for the full scrape |
-| POST | `/scraping-supermami` | `scrapingSupermami` (`:33`) | **blocking**: no thread |
-| GET | `/scraping-supermami-stop` | `scrapingSupermamiStop` (`:41`) | returns `None` → Flask 500 |
-| POST | `/scraping-carrefour` | `scrapingCarrefour` (`:45`) | correct: `Thread(target=..., args=(categoria,))` |
-| POST | `/scraping-changomas` | `scrapingChangomas` (`:52`) | thread + private asyncio loop for the `async def` scraper |
-| GET | `/scraping-changomas-stop` | `scrapingChangomasStop` (`:76`) | returns `None` → Flask 500 |
-| GET | `/supermercado-carrefour` | `:80` | opens `carrefour.json` (absent, gitignored) → 500; ignores the data anyway |
-| GET | `/supermercado-disco` | `:89` | same, `disco.json` |
-| GET | `/supermercado-hiper` | `:98` | same, `hiperlibertad.json` |
-| GET | `/supermercado-supermami` | `:107` | same, `supermami.json` |
-
-### `api/blueprints/` — frontend and products
+### `api/blueprints/frontend.py`
 
 | Method | Path | Handler | Real behavior |
 | --- | --- | --- | --- |
 | GET | `/` | `frontend.root` | `send_from_directory(static, index.html)`; **503 with the build command** when the bundle is absent |
-| GET | `/scrape` | `frontend.scrape` | renders `templates/scrape.html` (the only live template) |
+| GET | `/scrape` | `frontend.scrape` | renders `templates/scrape.html` from the registry (one card per registered scraper) |
+| GET | `/<path:filename>` | Flask static | serves the Angular bundle from `static/` |
+
+### `api/blueprints/products.py`
+
+| Method | Path | Handler | Real behavior |
+| --- | --- | --- | --- |
 | GET | `/supermercados` | `products.supermercados` | `ProductService.catalog()` through the `ProductRepository` (Mongo `lalistitadev.productos`); any exception → empty payload + `error` key, HTTP 200 |
 
-### `api/blueprints/` — scraper control (`/api/scrapers`)
+### `api/blueprints/scrapers.py` — scraper control (`/api/scrapers`)
 
-Body shape of every status entry: `{**status.to_dict(), "categories": [...]}` (snapshot of `ScraperManager`).
+Body shape of every status entry: `{**status.to_dict(), "categories": [...]}`
+(a `RunStatus` snapshot of `ScraperManager` plus the scraper's accepted
+categories).
 
 | Method | Path | Success | Error codes |
 | --- | --- | --- | --- |
@@ -113,10 +125,27 @@ Body shape of every status entry: `{**status.to_dict(), "categories": [...]}` (s
 | POST | `/api/scrapers/<slug>/start` | 202 status + categories | `unknown_scraper` (404), `invalid_category` (400, with `allowed`), `already_running` (409) |
 | POST | `/api/scrapers/<slug>/stop` | 202 status + categories | `unknown_scraper` (404), `not_running` (409) |
 
-Error bodies are `{"error": ..., "code": ...}`. `/scraping-<slug>` and `/scraping-<slug>-stop` are thin deprecated POST/GET+POST aliases of these endpoints, generated from the registry (registered slugs only): they return `{"success": true}` on 200 and the same status codes with `{"success": false, ...}` otherwise — unlike the old `/scraping-*` routes in `api/routes.py` (below, still served for the not-yet-ported scrapers) they never block the request and never run a second copy of the same scraper.
+Error bodies are `{"error": ..., "code": ...}`; the category may come from the
+query string or a JSON body. Unrecognized `ScraperError` subclasses are
+re-raised, so unexpected failures still surface
+(`api/blueprints/scrapers.py::error_payload`).
 
-There is **no** Disco stop route, no auth, no pagination, no filtering, and no
-write API other than "start a scraper".
+### `api/blueprints/legacy.py` — registry-generated aliases
+
+For each registered slug (`supermami`, `hiperlibertad`, `disco`, `carrefour`,
+`changomas`):
+
+| Method | Path | Behavior |
+| --- | --- | --- |
+| POST | `/scraping-<slug>` | alias of `/api/scrapers/<slug>/start` — 202, or the same error codes with `{"success": false, ...}` |
+| GET/POST | `/scraping-<slug>-stop` | alias of `/api/scrapers/<slug>/stop` — `{"success": true}` on 200 |
+
+DEPRECATED: they exist for the legacy `/scrape` page and scripts. Unlike the
+deleted `api/routes.py` routes they never block the request and never run a
+second copy of the same scraper (a second start is a clean 409).
+
+There is no auth, no pagination, no filtering, and no write API other than
+"start a scraper" (K-13).
 
 ### `/supermercados` contract
 
@@ -133,55 +162,60 @@ write API other than "start a scraper".
 ```
 
 Grouping is substring matching on the lowercase `supermercado` field
-(`api/services/products.py`, first match wins): `disco`, `carrefour`, `hiper*`,
-`mami*`. **ChangoMás has no branch**, so its products never appear. Dedupe is
-`remove_duplicates_by_key(list, 'name')` — first occurrence wins
-(`api/helpers.py:3`). On any exception the blueprint returns an empty payload
-plus an `error` key rather than failing loudly (`api/blueprints/products.py`).
+(`api/services/products.py:36-43`, first match wins): `disco`, `carrefour`,
+`hiper*`, `mami*`. **ChangoMás has no branch** (K-12, API half open), so its
+products never appear. Dedupe is `remove_duplicates_by_key(list, 'name')` —
+first occurrence wins (`api/helpers.py:3-8`). On any exception the blueprint
+returns an empty payload plus an `error` key rather than failing loudly
+(`api/blueprints/products.py`).
 
-## 4. Scrapers — `api/scrapers/`
+## 5. Scrapers — `api/scrapers/`
 
-Uniform shape: a class, an `active<Name>` stop flag, a `*_stop()` setter, a
-`scrape_*()` entry point, `notifyStatus()` progress, and
-`save_to_mongodb(jsonData, categoria[, subcategoria])`.
+All five supermarkets implement the same contract: a `BaseScraper` subclass
+(`slug`/`label`/`categories`/`run(ctx)`) registered in `default_registry()`
+(`api/scrapers/registry.py`), driven by `ScrapeContext`
+(`api/scrapers/base.py`): `ctx.report(text)` for progress, `ctx.http` for the
+shared requests session, `ctx.browser()` for a Chrome driver (built once by
+`api/scrapers/browser.py`, quit in a `finally`), `ctx.save(...)` to persist
+through the repository, `ctx.should_stop()`/`ctx.sleep()` for cooperative stop.
+A scraper never imports Flask, Mongo or SocketIO.
 
-| Scraper | Technique | Pages | Persists to | Notes |
-| --- | --- | --- | --- | --- |
-| `scrap_disco.py` | Selenium nav + `requests_html` `arender(sleep=8)` + JSON-LD `itemListElement` | 14 hardcoded subcats | Mongo per subcat | `save_to_mongodb` at `:29` |
-| `scrap_carrefour.py` | Selenium + JSON-LD, two parse paths | 2 categories / 18 subcats | Mongo per category | **deletes then inserts** per category (`:43`) — destructive replace |
-| `scrap_changomas.py` | `async def`, Selenium over `masonline.com.ar` | paginated | **JSON files only** `.changomas/almacen/*.json` (`:147`) | never reaches the API |
-| `scrap_hiperlibertad.py` | headless Selenium for cookies, then VTEX JSON API | paginated API | Mongo per subcat | `_scrape_subcategory` at `:124` |
-| `scrap_supermami.py` | `requests_html` `arender` + JSON-LD — **no Selenium driver** | 2 pages (hardcoded `range(1, 3)`) | Mongo | no `sku` field; unused selenium imports |
+| Scraper | Technique | Persists to | Notes |
+| --- | --- | --- | --- |
+| `supermami.py` | plain HTTP + gtag `view_item_list` extraction | Mongo via `ctx.save` | no browser, no `sku`; capped at 2 pages (`MAX_PAGES = 2`, `:24`); no categories accepted |
+| `hiperlibertad.py` | plain HTTP against the VTEX JSON API (`api/catalog_system/pub/products/search`), 14 hardcoded subcategories, 50-item `_from`/`_to` paging | Mongo per subcategory | no browser at all (the legacy driver was unused); accepts `almacen` |
+| `disco.py` | Chrome driver nav + VTEX `?page=` paging + JSON-LD `itemListElement` | Mongo per subcategory | **page 1 is never collected** (`:108` loop starts at `?page=2`); accepts `almacen` |
+| `carrefour.py` | two paths: requested category → plain HTTP + JSON-LD; all categories → Chrome driver + `render-provider` script | Mongo per category | Path A stores no `unidad` and skips `name_parse` (legacy omission kept); accepts `almacen`, `desayuno-y-merienda` |
+| `changomas.py` | Chrome driver over the discovery page, section discovery, JSON-LD | Mongo via `ctx.save` | page loop re-fetches the **discovery** page (`:152`); empty first result aborts the whole run; label `ChangoMas`; **not shown by `/supermercados`** (K-12) |
 
 Common details:
 
-- Driver: four of the five scrapers create `webdriver.Chrome(service=Service('/usr/local/bin/chromedriver-141'), options=...)`
-  with `--no-sandbox` and `--disable-dev-shm-usage`; only HiperLibertad is
-  headless. SuperMami creates no driver — it is pure `requests_html`.
-- `requests_html`'s `arender()` (Disco, Carrefour, ChangoMás, SuperMami) drives
-  its own bundled Chromium via pyppeteer, downloaded on first use. Disco,
-  Carrefour and ChangoMás therefore depend on **two** different browsers.
-- Categories: a hardcoded `[{"categoria": "almacen", "subcategorias": [...]}]`
-  literal inside each scraper (`scrap_disco.py:87`, `scrap_hiperlibertad.py:71`,
-  `scrap_carrefour.py:69` — Carrefour has a second `desayuno-y-merienda` entry).
-  The `?category=` query parameter only matches `"almacen"` for Disco and
-  HiperLibertad; any other value silently does nothing.
+- **Driver:** the only construction site is `build_chrome(settings)`
+  (`api/scrapers/browser.py`): `--no-sandbox`, `--disable-dev-shm-usage`,
+  `--headless=new` when `CHROME_HEADLESS` is on, and `CHROMEDRIVER_PATH` for
+  the binary — unset means Selenium Manager (needs network on first use).
+- **Categories:** hardcoded tuples inside each scraper; `start` validates them
+  and raises `invalid_category` with the allowed list
+  (`BaseScraper.validate_category`, `api/scrapers/base.py`).
+- **Quirks kept verbatim** by the mechanical ports: Disco skips page 1;
+  ChangoMás re-fetches the discovery page; ChangoMás's empty-first-result abort
+  ends the whole run; SuperMami caps at 2 pages; Carrefour Path A skips
+  `name_parse`. Fixing any of them changes collected data and must be validated
+  against a real run first (see `docs/agent-context/known-issues.md`).
 - Duplicate suppression is substring-based and O(n²) per page:
   `if not any(element['name'] in jsonitea['name'] for element in jsondata)`.
-- Cleanup is inconsistent: `driver.close()` in `finally` for ChangoMás; other
-  scrapers leak the driver on exceptions.
 
 ### Record schema
 
 | Field | Source | Notes |
 | --- | --- | --- |
-| `supermercado` | literal | `Disco` / `Carrefour` / `HiperLibertad` / `SuperMami` |
-| `name` | JSON-LD `item.name`, size suffix stripped by `name_parse` | |
-| `unidad` | `name_parse` output, e.g. `"500 ml"` | comma-joined when multiple matches |
-| `brand` | `item.brand.name` | Hiper uses `.get("brand", "")` |
-| `sku` | `item.sku` | absent for SuperMami |
+| `supermercado` | scraper `label` | `Disco` / `Carrefour` / `HiperLibertad` / `SuperMami` / `ChangoMas` |
+| `name` | JSON-LD / gtag item, size suffix stripped by `name_parse` | Carrefour Path A skips `name_parse` |
+| `unidad` | `name_parse` output, e.g. `"500 ml"` | comma-joined when multiple matches; absent in Carrefour Path A |
+| `brand` | item brand | Hiper uses `.get("brand", "")` |
+| `sku` | item sku | absent for SuperMami |
 | `price` | `item.offers.lowPrice` | stored as a string |
-| `scraped_at` | `datetime.utcnow()` added in `save_to_mongodb` | deprecated in Python 3.12+ |
+| `scraped_at` | UTC stamp added by `MongoProductRepository.replace_products` (`api/repositories/products.py:77`) | `datetime.now(timezone.utc)` |
 | `categoria` | the request/subcategory label | |
 | `subcategoria` | HiperLibertad only | |
 
@@ -191,18 +225,17 @@ Common details:
 `api/models/productos.py` is **not** part of the schema — it is mongoengine-style
 code against `pymongo` and is imported by nothing.
 
-## 5. Mongo usage
+## 6. Mongo usage
 
 | Concern | Value |
 | --- | --- |
-| Client injection | `app.mongodb_client`, only set inside `__main__` (`app.py:32,42`) |
-| Database actually used | `lalistitadev` (`app.database`, all scrapers) |
-| Database set but unused | `lalistita` (`app.py:33,43`) |
-| Collection | `productos` |
-| Access pattern | raw `pymongo` — `find`, `insert_many`, `delete_many`; no ODM, no indexes, no migrations |
-| Env var | `MONGODB_URI`; local fallback `mongodb://localhost:27017/` |
+| Client injection | `app.mongodb_client`, created by `_init_mongo` in `create_app` (K-2) |
+| Database | `MONGODB_DB`, default `lalistitadev` (`api/config.py`) |
+| Collection | `productos` (`api/repositories/products.py::COLLECTION_NAME`) |
+| Access pattern | raw `pymongo` through the `ProductRepository` port — `find_all` reads, `replace_products` writes (insert first, then prune; empty scrape is a no-op, K-8); no ODM, no indexes, no migrations |
+| Env var | `MONGODB_URI`, default `mongodb://localhost:27017/` |
 
-## 6. Frontend — `adminpro/`
+## 7. Frontend — `adminpro/`
 
 - Angular **21.2.x**, **NgModule-based** (`app.module.ts`,
   `app-routing.module.ts`) — the standalone-migration flags are `standalone:
@@ -230,34 +263,41 @@ code against `pymongo` and is imported by nothing.
 - Real-time: the Angular app does **not** use SocketIO. Only
   `templates/scrape.html` does.
 
-## 7. Templates and static
+## 8. Templates and static
 
 | Path | Reality |
 | --- | --- |
-| `templates/scrape.html` | The only rendered template (`api/blueprints/frontend.py`, `scrape`). Loads SocketIO 4.0.1 from cdnjs and subscribes to `scraping-message-<supermarket>` channels. |
+| `templates/scrape.html` | The only rendered template (`api/blueprints/frontend.py`, `scrape`). Registry-generated: one card per registered scraper. Loads SocketIO 4.0.1 from cdnjs and subscribes to `scraping-message-<slug>` channels plus the aggregated `scraper-status` snapshots. |
 | `templates/index.html`, `index3.html`, `index4.html`, `indexa.html` | Angular build output committed under `templates/` (`data-critters-container`). Dead. |
 | `templates/index2.html` | Older server-rendered page using `url_for('static', ...)`. No route renders it. |
 | `static/` | **Gitignored Angular build output.** Contains `index.html`, `main-*.js`, `polyfills-*.js`, `scripts-*.js`, `styles-*.css`, `assets/` (copied from `adminpro/src/assets`), `media/` (assets the builder hashes because CSS references them) and `3rdpartylicenses.txt`. Fully reproducible from tracked sources — verified file by file before it was untracked. A clean clone has none of it. |
-| `supermami.json` (repo root) | A 368 KB scrape artifact that is tracked despite `*.json` being ignored. Reference data, not runtime input — the routes that read `*.json` want other filenames. |
+| `supermami.json` (repo root) | A 368 KB scrape artifact that is tracked despite `*.json` being ignored. Reference data, not runtime input — no code reads it (the legacy routes that wanted sibling filenames were deleted, K-11). |
 
-## 8. File index
+## 9. File index
 
 | File | Purpose |
 | --- | --- |
-| `app.py` | Flask app, CORS, blueprint, Mongo, dev server |
-| `api/routes.py` | Scraper-control routes and the dead `/supermercado-*` aliases |
-| `api/blueprints/frontend.py` | `/` SPA root + `/scrape` monitor page |
-| `api/blueprints/products.py` | `/supermercados` HTTP shell + fallback |
-| `api/services/products.py` | `ProductService.catalog()` — grouping/dedupe/sort/counts |
+| `app.py` | `create_app()` factory: CORS, sockets, Mongo, services, blueprints |
+| `main.py` | WSGI entry point (`gunicorn main:app`) |
+| `api/config.py` | `Settings` (frozen dataclass) from the environment |
 | `api/container.py` | `Services` composition root (`app.extensions['lalistita']`) |
-| `api/sockets.py` | `socketio` singleton, `notifyStatus()`, `configure_sockets()` |
+| `api/blueprints/frontend.py` | `/` SPA root + `/scrape` registry-generated monitor page |
+| `api/blueprints/products.py` | `/supermercados` HTTP shell + fallback |
+| `api/blueprints/scrapers.py` | `/api/scrapers` control API |
+| `api/blueprints/legacy.py` | registry-generated `/scraping-<slug>` aliases |
+| `api/cli.py` | `python -m api.cli list\|run` — scraper runner without Flask |
+| `api/services/products.py` | `ProductService.catalog()` — grouping/dedupe/sort/counts |
+| `api/services/scraping.py` | `ScraperManager` — runs, stop, status snapshots |
+| `api/sockets.py` | `socketio` singleton, `configure_sockets()`, `SocketIOReporter` |
 | `api/helpers.py` | `remove_duplicates_by_key()`, `name_parse()` |
+| `api/repositories/products.py` | `ProductRepository` port + Mongo adapter |
+| `api/scrapers/base.py` | `BaseScraper` + `ScrapeContext` contract |
+| `api/scrapers/registry.py` | `ScraperRegistry` + `default_registry()` (all five) |
+| `api/scrapers/errors.py` | `ScraperError` family |
+| `api/scrapers/browser.py` | `build_chrome(settings)` — the only driver factory |
+| `api/scrapers/http.py` | shared HTTP session with the legacy User-Agent |
+| `api/scrapers/{supermami,hiperlibertad,disco,carrefour,changomas}.py` | the five ported scrapers |
 | `api/models/productos.py` | Dead (mongoengine APIs against pymongo) |
-| `api/scrapers/scrap_disco.py` | Disco |
-| `api/scrapers/scrap_carrefour.py` | Carrefour |
-| `api/scrapers/scrap_changomas.py` | ChangoMás (JSON files, not Mongo) |
-| `api/scrapers/scrap_hiperlibertad.py` | HiperLibertad (VTEX API) |
-| `api/scrapers/scrap_supermami.py` | SuperMami |
 | `adminpro/src/app/pages/dashboard/` | Main ag-grid view |
 | `adminpro/src/app/service/app.service.ts` | Single HTTP call to the API |
 | `docs/agent-context/runbook.md` | How to run everything |

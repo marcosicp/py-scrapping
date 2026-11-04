@@ -12,9 +12,9 @@ annotated with what was actually verified. Entry point for agents is
 | 📖 INFERRED | Read from a file, not executed (needs network, Mongo, or a browser) |
 | ⛔ BLOCKED | Cannot work in the current checkout without a prerequisite fix |
 
-Environment measured on macOS, Python 3.15.x, Node 26.x, npm 11.x,
-Chrome 156.x. Exact patch versions are deliberately omitted — see the security
-note at the end of this file.
+Environment measured on macOS, Python 3.15.x, Node 26.x, npm 11.x. Exact patch
+versions are deliberately omitted — see the security note at the end of this
+file. The scrapers that open a browser need a working local Chrome.
 
 ---
 
@@ -22,16 +22,15 @@ note at the end of this file.
 
 | Item | Measured | Verdict |
 | --- | --- | --- |
-| `.venv` | Python 3.15.x, provisioned, 53 packages | ✅ working |
+| `.venv` | Python 3.15.x, provisioned | ✅ working |
 | Python target | 3.15.2 pinned in `.python-version`, `runtime.txt`, `Dockerfile`, `app.yaml`, CI | ✅ aligned |
 | `static/` bundle | **absent in a fresh clone** — gitignored build output | ⛔ `npm ci && npm run build` |
 | `python3` on PATH | still resolves to an older framework build because PATH order wins over `/usr/local/bin` | ⚠️ call `python3.15` explicitly |
-| `adminpro/node_modules` | absent | ⛔ `npm install` required |
+| `adminpro/node_modules` | absent in a fresh clone | ⛔ `npm install` required |
 | Global `ng` | Angular CLI 14.x, `Node ... (Unsupported)` | ⛔ too old for Angular 21 — use the local CLI |
-| ChromeDriver | pinned to Chrome 141 | ⚠️ `/usr/local/bin/chromedriver-141` |
-| Chrome | 156.x | ⛔ mismatch with the pinned driver → every scraper fails |
+| ChromeDriver | resolved by Selenium Manager (bundled with selenium); `CHROMEDRIVER_PATH` overrides | ✅ no pinned path |
 | `.env` | absent (gitignored) | ⛔ `MONGODB_URI` must be provided |
-| Tests | none (`pytest` not even installed) | — |
+| Tests | pytest suite in `tests/` (281 passed / 9 skipped by default) | ✅ |
 
 ## 1. Backend: the virtualenv
 
@@ -45,8 +44,8 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-✅ VERIFIED on Python 3.15.2 — installs with no source builds, 53 packages,
-and `uvx pip-audit --path .venv/lib/python3.15/site-packages` reports
+✅ VERIFIED on Python 3.15.x — installs with no source builds, and
+`uvx pip-audit --path .venv/lib/python3.15/site-packages` reports
 **no known vulnerabilities**.
 
 Notes that will save you time:
@@ -54,13 +53,13 @@ Notes that will save you time:
 - **`requirements.txt` pins direct dependencies only.** Transitive packages float
   on purpose so security patches arrive without a manual bump. The file used to
   be a full `pip freeze` and accumulated 91 advisories doing exactly that.
-- **`lxml_html_clean` is mandatory.** `lxml` 5.2 moved `lxml.html.clean` into its
-  own project and `requests-html` imports it unconditionally. Without it,
-  `import requests_html` fails and therefore the whole app fails to import.
+- **No driver-manager package is needed.** `requests-html`,
+  `lxml_html_clean` and `webdriver-manager` were removed (K-18): selenium's
+  bundled Selenium Manager resolves a driver matching the installed Chrome
+  (`api/scrapers/browser.py`); `CHROMEDRIVER_PATH` overrides it. Selenium is
+  imported lazily, so the app imports without it being exercised.
 - **Do not add a bare `bson` requirement** — the standalone PyPI package shadows
   pymongo's bundled `bson` and breaks the driver.
-- `requests-html` is abandoned (2019) and its rendering path is broken; see
-  known-issues K-18 before assuming any scraper works.
 
 ### Run the tests
 
@@ -75,14 +74,16 @@ pytest
 MONGODB_TEST_URI=mongodb://localhost:27017/ .venv/bin/python -m pytest tests/test_product_repository.py -q
 ```
 
-✅ VERIFIED: `pytest` collects the suite in `tests/` and exits 0. No test touches
-the network, Chrome or a real database — the Mongo fixtures point at an
-unroutable URI (`mongodb://127.0.0.1:1/…`), so an accidental connection fails
-fast instead of reaching any server. The `flake8` gate used by CI is
+✅ VERIFIED: `pytest` collects the suite in `tests/` and exits 0 —
+**281 passed, 9 skipped** by default. The 9 skips are the opt-in MongoDB
+integration tests below. No default test touches the network, Chrome or a real
+database — the Mongo fixtures point at an unroutable URI
+(`mongodb://127.0.0.1:1/…`), so an accidental connection fails fast instead of
+reaching any server. The `flake8` gate used by CI is
 `flake8 . --exclude .venv,adminpro,static,node_modules --select=E9,F63,F7,F82 --count`.
-Settings (`SECRET_KEY`, `MONGODB_URI`, `MONGODB_DB`) are resolved in
-`api/config.py` (`Settings.from_env`); `app.py` consumes them via
-`create_app(settings)`.
+Settings (`SECRET_KEY`, `MONGODB_URI`, `MONGODB_DB`, `CHROMEDRIVER_PATH`,
+`CHROME_HEADLESS`) are resolved in `api/config.py` (`Settings.from_env`);
+`app.py` consumes them via `create_app(settings)`.
 
 ## 2. Environment variables
 
@@ -101,8 +102,8 @@ PORT=3000
 | `MONGODB_DB` | `lalistitadev` | previously hardcoded and, worse, hardcoded to the wrong name (K-3) |
 | `SECRET_KEY` | `secret!` | legacy default kept; rotating it for real is K-13 |
 | `PORT` | `3000` | `python app.py` reads it in `__main__`; WSGI hosts inject it |
-| `CHROMEDRIVER_PATH` | unset → Selenium Manager picks a matching driver (needs network on first use) | read by `Settings.from_env`; honored by scrapers that run through `ctx.browser()` (the ported ones) — the not-yet-ported legacy scrapers still use their hardcoded driver path (K-7) |
-| `CHROME_HEADLESS` | off | opt-in headless: `1`, `true`, `yes`, `on` (case-insensitive, surrounding whitespace ignored) add `--headless=new`; same ported/legacy caveat as `CHROMEDRIVER_PATH` |
+| `CHROMEDRIVER_PATH` | unset → Selenium Manager picks a matching driver (needs network on first use) | read by `Settings.from_env`; honored by the single Chrome factory `api/scrapers/browser.py`, which every browser-using scraper reaches through `ctx.browser()` |
+| `CHROME_HEADLESS` | off | opt-in headless: `1`, `true`, `yes`, `on` (case-insensitive, surrounding whitespace ignored) add `--headless=new`; default off preserves the visible browser window |
 
 The URI's own database segment is still ignored — `MONGODB_DB` wins. Collection:
 `productos`.
@@ -132,9 +133,9 @@ SocketIO is initialized outside `python app.py` (K-1).
 - Scraper monitor: <http://localhost:3000/scrape>
 - API probe: <http://localhost:3000/supermercados> — returns the grouped payload,
   or an empty payload with `"error": "Database connection error"` if Mongo is
-  unreachable (`api/routes.py:137`).
-- `/supermercado-<chain>` routes answer **500** by design-of-bug: they read JSON
-  files that do not exist (K-11).
+  unreachable (`api/blueprints/products.py`).
+- Scraper control: <http://localhost:3000/api/scrapers> — one status snapshot
+  per registered scraper (see §5).
 
 ## 4. Frontend
 
@@ -169,46 +170,44 @@ the Flask backend running on :3000, and relies on the blanket `CORS(app)`.
 
 ## 5. Running a scraper
 
+Every supermarket is ported to the scraper contract and runs through the same
+control API and registry (slugs: `supermami`, `hiperlibertad`, `disco`,
+`carrefour`, `changomas`):
+
 ```bash
-curl -X POST "http://localhost:3000/scraping-carrefour?category=almacen"
-curl -X POST "http://localhost:3000/scraping-disco?category=almacen"      # ⛔ broken route, see known-issues K-5
-curl    "http://localhost:3000/scraping-changomas-stop"                   # ⛔ returns 500
+curl -X POST http://localhost:3000/api/scrapers/disco/start?category=almacen   # 202, run starts in a worker thread
+curl http://localhost:3000/api/scrapers/disco                                  # run status
+curl -X POST http://localhost:3000/api/scrapers/disco/stop                     # cooperative stop
 ```
 
-Watch progress at <http://localhost:3000/scrape> (SocketIO channels
-`scraping-message-<supermarket>`).
+A second `start` while a run is active is a clean **409 `already_running`**; an
+unknown slug is **404**, an unsupported category **400 `invalid_category`** with
+the allowed list (SuperMami and ChangoMas accept no category — any value is
+ignored). The deprecated `POST /scraping-<slug>` / `GET|POST
+/scraping-<slug>-stop` aliases do the same and return `{"success": true}`.
+
+Watch progress at <http://localhost:3000/scrape> (Socket.IO channels
+`scraping-message-<slug>` plus aggregated `scraper-status` snapshots).
 
 Before any of this works:
 
-1. Chrome and ChromeDriver must match. Four of the five scrapers hardcode
-   `/usr/local/bin/chromedriver-141` while Chrome is 156 → "session not created".
-   Fix by installing the driver matching the installed Chrome and either
-   symlinking it to that path or editing the four scrapers. (The ported
-   SuperMami needs no driver at all — it scrapes plain HTTP responses.)
-2. `?category=` only matches `"almacen"`; any other value is silently ignored.
-3. A visible browser window opens (only HiperLibertad is headless). Do not run
-   scrapers on a headless CI box expecting success — Chrome is not installed in
-   the workflow.
-4. **Carrefour deletes before inserting** (`scrap_carrefour.py:43`): running it
-   against a real database removes that category's existing rows first.
-
-### Run one supermarket scraper (ported scrapers only)
-
-SuperMami (`api/scrapers/supermami.py`) is the first scraper ported to the
-new contract, so it also runs through the modern control API (no Chrome, no
-hardcoded driver):
-
-```bash
-curl -X POST http://localhost:3000/api/scrapers/supermami/start        # 202, run starts
-curl http://localhost:3000/api/scrapers/supermami                     # run status
-curl -X POST http://localhost:3000/api/scrapers/supermami/stop        # cooperative stop
-```
-
-A `start` returns **202** immediately while the run happens in a background
-thread, and progress arrives over Socket.IO (channel
-`scraping-message-supermami`); watch it at <http://localhost:3000/scrape>.
-SuperMami needs no browser and no `?category=` (its category list is empty,
-any value is ignored).
+1. A browser run needs Chrome; Selenium Manager resolves the matching driver
+   (network required on first use), or set `CHROMEDRIVER_PATH`. SuperMami and
+   HiperLibertad never open a browser.
+2. A visible browser window opens by default (`CHROME_HEADLESS` opts out). Do
+   not run browser scrapers on a headless CI box expecting success — Chrome is
+   not installed in the workflow.
+3. **Every save REPLACES the scraper's slice** through
+   `ProductRepository.replace_products` (insert first, then prune; an empty
+   scrape is a no-op) — it does not append. Do not point a run at production
+   data casually.
+4. Known per-scraper quirks kept verbatim by the ports: Disco never collects
+   page 1; SuperMami caps at 2 pages even though it computes `totalPages`;
+   ChangoMás re-fetches the discovery page in its page loop, aborts the whole
+   run on an empty first result, and is persisted but **not shown by
+   `/supermercados`** (K-12). See
+   [`known-issues.md`](known-issues.md) before treating any of them as a bug to
+   fix silently.
 
 ### Run a scraper from the shell — `python -m api.cli`
 
@@ -221,51 +220,57 @@ gunicorn or SocketIO (progress prints to stdout):
 .venv/bin/python -m api.cli run carrefour --category almacen
 ```
 
+✅ VERIFIED: `python -m api.cli list` prints the five slugs in registration
+order (`supermami`, `hiperlibertad`, `disco`, `carrefour`, `changomas`) with
+their accepted categories.
+
 Exit codes: `0` succeeded, `1` failed, `2` stopped (including Ctrl+C — the
 CLI requests a cooperative stop before exiting), `3` scraper-control error
 (unknown slug, invalid category or already running; printed as a clean
 `error: …` line, no traceback).
 
-The `/scrape` monitor page is now generated from the same registry: one card
+The `/scrape` monitor page is generated from the same registry: one card
 per registered scraper, no hand-written HTML per supermarket.
 
-## 6. Deploy — three contradictory stories, all currently broken
+## 6. Deploy — four contradictory stories, none chosen
 
 | Path | Files | Status |
 | --- | --- | --- |
 | Docker | `Dockerfile` | ⚠️ **entry point now exists**: `main.py` provides `main:app` and was verified under gunicorn. Still unverified end to end — the image itself has never been built here (daemon not running). The frontend bundle is produced by a `node:24-alpine` stage. |
 | Heroku-style | `Procfile` → `web: python app.py` | ⚠️ runs the Werkzeug dev server with `debug=True`; uses whatever `PORT` the platform injects |
 | Gunicorn (orphan) | `gunicorn_config.py` (`0.0.0.0:3000`, 2 workers) | ⛔ referenced by nothing |
-| App Engine | `app.yaml` (`runtime: python310`) | ⛔ no entrypoint declared |
+| App Engine | `app.yaml` (`runtime: python315`) | ⛔ no entrypoint declared |
 | Cloud Foundry | `manifest.yml` (128 MB, service `crud`) | ⛔ memory far below what Chrome needs; leftover |
 
-Before any hosted deploy can work, the WSGI blockers in
-[`known-issues.md`](known-issues.md) K-1 and K-2 must be fixed: under gunicorn,
-SocketIO is never initialized and `current_app.mongodb_client` does not exist.
+Before any hosted deploy can work, pick one of the four stories and retire the
+rest: the WSGI blockers K-1/K-2 are fixed (`create_app` wires sockets and Mongo
+for every entry point, verified under gunicorn), and `main.py` gives the
+Dockerfile the entry point it always pointed at. What remains unverified is the
+image build itself.
 
 ## 7. CI
 
 `.github/workflows/python-app.yml` runs on push/PR to `main`:
 
-1. `pip install flake8 pytest` + `requirements.txt`
+1. `pip install -r requirements-dev.txt`
 2. `flake8 . --select=E9,F63,F7,F82` (real gate) then a `--exit-zero` style pass
 3. `pytest`
 
-⛔ **Step 3 fails on every run**: the repository has zero test files, and pytest
-exits 5 ("no tests collected"), which the job treats as failure. Verified by
-`git ls-files | grep -cE '(_test|test_).*\.py'` → `0`.
+✅ The suite is green: 281 passed, 9 skipped (the opt-in MongoDB integration
+tests) on this checkout. The first green run on GitHub Actions was not observed
+here (K-6).
 
 ## 8. Verification checklist
 
-After any change, confirm with runtime evidence — there is no test suite to lean
-on.
+After any change, confirm with runtime evidence — the pytest suite covers
+watched behavior, but live scraping and the SPA are verified manually.
 
 | Goal | How to confirm |
 | --- | --- |
-| Backend boots | `python app.py` logs `Connected to the MongoDB database!` (`app.py:34`) |
+| Backend boots | `python app.py` serves :3000; or `python -c "from main import app; print(len(list(app.url_map.iter_rules())))"` → `18` |
 | API alive | `curl -s localhost:3000/supermercados \| head -c 200` returns JSON with `todos` |
 | Data present | `mongo`/Atlas: `use lalistitadev; db.productos.countDocuments()` |
-| Scraper progressed | log lines + `/scrape` receives `scraping-message-<x>` events |
+| Scraper progressed | `/scrape` receives `scraping-message-<slug>` events; `GET /api/scrapers/<slug>` reports the state |
 | Frontend renders | `npx ng build` first, then `GET /` → 200; without a build it must answer **503** with the build command |
 | Bundle is not versioned | `git ls-files static/` → empty, and `git status` stays clean after a build |
 
