@@ -11,16 +11,16 @@
   },
   "private": true,
   "dependencies": {
-    "@angular/animations": "^19.2.19",
-    "@angular/cdk": "~19.2.19",
-    "@angular/common": "^19.2.19",
-    "@angular/compiler": "^19.2.19",
-    "@angular/core": "^19.2.19",
-    "@angular/forms": "^19.2.19",
-    "@angular/material": "~19.2.19",
-    "@angular/platform-browser": "^19.2.19",
-    "@angular/platform-browser-dynamic": "^19.2.19",
-    "@angular/router": "^19.2.19",
+    "@angular/animations": "^21.2.26",
+    "@angular/cdk": "~21.2.14",
+    "@angular/common": "^21.2.26",
+    "@angular/compiler": "^21.2.26",
+    "@angular/core": "^21.2.26",
+    "@angular/forms": "^21.2.26",
+    "@angular/material": "~21.2.14",
+    "@angular/platform-browser": "^21.2.26",
+    "@angular/platform-browser-dynamic": "^21.2.26",
+    "@angular/router": "^21.2.26",
     "ag-grid-angular": "^32.3.9",
     "ag-grid-community": "^32.3.9",
     "bootstrap": "^4.6.2",
@@ -31,9 +31,9 @@
     "zone.js": "~0.15.1"
   },
   "devDependencies": {
-    "@angular-devkit/build-angular": "^19.2.22",
-    "@angular/cli": "~19.2.22",
-    "@angular/compiler-cli": "^19.2.19",
+    "@angular-devkit/build-angular": "^21.2.29",
+    "@angular/cli": "~21.2.29",
+    "@angular/compiler-cli": "^21.2.26",
     "@types/jasmine": "~4.3.0",
     "jasmine-core": "~4.6.0",
     "karma": "~6.4.0",
@@ -41,6 +41,6 @@
     "karma-coverage": "~2.2.0",
     "karma-jasmine": "~5.1.0",
     "karma-jasmine-html-reporter": "~2.1.0",
-    "typescript": "~5.8.3"
+    "typescript": "~5.9.3"
   }
 }
