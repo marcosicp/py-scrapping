@@ -6,7 +6,6 @@ import asyncio
 from api.scrapers.scrap_carrefour import ScrapeCarrefour
 from api.scrapers.scrap_changomas import ScrapeChangoMas
 from api.scrapers.scrap_disco import ScrapeDisco
-from api.scrapers.scrap_hiperlibertad import ScrapeHiperLibertad
 
 app_file2 = Blueprint('app_file2',__name__)
 # def configure_routes(app: Flask):
@@ -20,14 +19,6 @@ def scrapingDisco():
     categoria = request.args.get('category')
     scrape_service = ScrapeDisco()
     Thread(target = scrape_service.scrape_disco(categoria),).start()
-    
-    return json.dumps({'success':True}), 200, {'ContentType':'application/json'} 
-    
-@app_file2.route("/scraping-hiperlibertad", methods=['POST'] )
-def scrapingHiperlibertad():
-    categoria = request.args.get('category')
-    scrape_service = ScrapeHiperLibertad()
-    scrape_service.scrape_hiperlibertad(categoria)
     
     return json.dumps({'success':True}), 200, {'ContentType':'application/json'} 
     

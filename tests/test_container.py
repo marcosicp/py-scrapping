@@ -166,14 +166,24 @@ def services_of(application):
     return application.extensions[EXTENSION_KEY]
 
 
-def test_default_app_lists_the_registered_supermami_scraper(client):
-    # The default registry is no longer empty: SuperMami is the first
-    # ported scraper (T7), so the app lists exactly one entry.
+def test_default_app_lists_the_registered_scrapers(client):
+    # The default registry grows one entry per port (T7, T8, ... T11), so
+    # this test is registry-driven instead of pinning a count or a name.
+    from api.scrapers.registry import default_registry
+    slugs = default_registry().slugs()
+
     response = client.get("/api/scrapers")
     assert response.status_code == 200
     entries = response.get_json()["scrapers"]
-    assert len(entries) == 1
-    entry = entries[0]
-    assert entry["slug"] == "supermami"
+    # Exactly one entry per registered slug, in registration order.
+    assert [entry["slug"] for entry in entries] == slugs
+    for entry in entries:
+        assert entry["state"] == "idle"
+        assert entry["label"]
+        assert isinstance(entry["categories"], list)
+    # The ports landed so far are listed.
+    assert "supermami" in slugs
+    assert "hiperlibertad" in slugs
+    entry = next(entry for entry in entries if entry["slug"] == "supermami")
     assert entry["state"] == "idle"
     assert entry["categories"] == []
