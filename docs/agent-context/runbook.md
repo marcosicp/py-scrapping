@@ -12,8 +12,9 @@ annotated with what was actually verified. Entry point for agents is
 | 📖 INFERRED | Read from a file, not executed (needs network, Mongo, or a browser) |
 | ⛔ BLOCKED | Cannot work in the current checkout without a prerequisite fix |
 
-Environment measured on macOS, Python 3.11.1, Node 26.7.0, npm 11.19.0,
-Chrome 156.0.8078.80.
+Environment measured on macOS, Python 3.15.x, Node 26.x, npm 11.x,
+Chrome 156.x. Exact patch versions are deliberately omitted — see the security
+note at the end of this file.
 
 ---
 
@@ -21,43 +22,44 @@ Chrome 156.0.8078.80.
 
 | Item | Measured | Verdict |
 | --- | --- | --- |
-| `.venv` | exists, `pyvenv.cfg` → `/Library/Frameworks/Python.framework/Versions/3.11`, but `.venv/bin/pip` fails with `bad interpreter: No such file or directory` | ⛔ broken, recreate |
-| Global `python3` | 3.11.1; has flask 3.1.2, flask-socketio, pymongo, selenium, requests_html, bs4, dotenv, lxml — **missing `flask_cors`** | ⛔ `python3 app.py` dies at `app.py:5` |
+| `.venv` | Python 3.15.x, provisioned, 53 packages | ✅ working |
+| Python target | 3.15.2 pinned in `.python-version`, `runtime.txt`, `Dockerfile`, `app.yaml`, CI | ✅ aligned |
+| `python3` on PATH | still resolves to an older framework build because PATH order wins over `/usr/local/bin` | ⚠️ call `python3.15` explicitly |
 | `adminpro/node_modules` | absent | ⛔ `npm install` required |
-| Global `ng` | **Angular CLI 14.2.10**, `Node: 26.7.0 (Unsupported)` | ⛔ too old for Angular 19 — use the local CLI |
-| ChromeDriver | `/usr/local/bin/chromedriver-141` exists | ⚠️ pinned to Chrome 141 |
-| Chrome | **156.0.8078.80** | ⛔ mismatch with the pinned driver → every scraper fails |
+| Global `ng` | Angular CLI 14.x, `Node ... (Unsupported)` | ⛔ too old for Angular 19 — use the local CLI |
+| ChromeDriver | pinned to Chrome 141 | ⚠️ `/usr/local/bin/chromedriver-141` |
+| Chrome | 156.x | ⛔ mismatch with the pinned driver → every scraper fails |
 | `.env` | absent (gitignored) | ⛔ `MONGODB_URI` must be provided |
 | Tests | none (`pytest` not even installed) | — |
 
-## 1. Backend: recreate the virtualenv
+## 1. Backend: the virtualenv
+
+Already provisioned. Recreate it only if it is missing or broken:
 
 ```bash
-python3 -m venv .venv                 # overwrites the broken one; safe
+rm -rf .venv
+python3.15 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-📖 INFERRED — not executed during bootstrap (network install).
+✅ VERIFIED on Python 3.15.2 — installs with no source builds, 53 packages,
+and `uvx pip-audit --path .venv/lib/python3.15/site-packages` reports
+**no known vulnerabilities**.
 
-Known friction in `requirements.txt`:
+Notes that will save you time:
 
-- `requests-html==0.10.0` pulls `pyppeteer`, which downloads its own Chromium on
-  first `arender()` call (Disco and Carrefour use it). A second browser
-  dependency, separate from ChromeDriver.
-- `bs4==0.0.1` is a meta-package whose only job is to require
-  `beautifulsoup4` — already pinned here. Redundant but harmless.
-- Pins are hard (`==`), so on Python 3.11 expect at least one dependency to need
-  a bump. If install fails, the target interpreter is **3.10** per
-  `Dockerfile:4` and the CI workflow.
-
-To fall back to the global interpreter instead of a venv, the only missing
-module is `flask_cors`:
-
-```bash
-pip install flask-cors==4.0.0     # 📖 INFERRED, does not pin the rest
-```
+- **`requirements.txt` pins direct dependencies only.** Transitive packages float
+  on purpose so security patches arrive without a manual bump. The file used to
+  be a full `pip freeze` and accumulated 91 advisories doing exactly that.
+- **`lxml_html_clean` is mandatory.** `lxml` 5.2 moved `lxml.html.clean` into its
+  own project and `requests-html` imports it unconditionally. Without it,
+  `import requests_html` fails and therefore the whole app fails to import.
+- **Do not add a bare `bson` requirement** — the standalone PyPI package shadows
+  pymongo's bundled `bson` and breaks the driver.
+- `requests-html` is abandoned (2019) and its rendering path is broken; see
+  known-issues K-18 before assuming any scraper works.
 
 ## 2. Environment variables
 
@@ -186,3 +188,25 @@ on.
 | Scraper progressed | log lines + `/scrape` receives `scraping-message-<x>` events |
 | Frontend renders | `npx ng serve`, open :4200, grid shows rows (or empty grid when the API is down) |
 | Build matches source | `git status static/` shows the expected new hashes only |
+
+---
+
+## Security note — why this file avoids exact version numbers
+
+This repository is **public**. Earlier revisions of this file recorded the exact
+patch versions of the local toolchain (browser build, interpreter, Node, npm,
+CLI) and an absolute framework path. That is a machine fingerprint: a specific
+browser build tells an attacker which patches are missing, and an absolute path
+discloses the install layout.
+
+Rules for future edits:
+
+- Write `3.15.x`, `156.x`, `Node 26.x` — never the full build string.
+- Never commit `/Users/<name>/...` or an absolute framework path.
+- Never commit a personal email address. `git config user.email` is global on
+  this machine; check it before committing.
+- Credentials scan before any commit that touches config:
+  `git grep -nIE "mongodb\+srv://[^\"' ]*:[^\"' @]+@"`
+
+Exact versions belong in the commit message of the change that depends on them,
+or in the private task document — not in a published file.

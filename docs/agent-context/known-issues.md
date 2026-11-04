@@ -28,10 +28,11 @@ Entry point for agents: [`AGENTS.md`](../../AGENTS.md).
 | [K-11](#k-11) | Medium | API | open — dead `/supermercado-*` routes |
 | [K-12](#k-12) | Medium | Data | open — ChangoMás never reaches MongoDB or the API |
 | [K-13](#k-13) | Medium | Security | open — unauthenticated scraper control + wide-open CORS |
-| [K-14](#k-14) | Medium | Tooling | open — broken `.venv` |
+| [K-14](#k-14) | Medium | Tooling | **fixed** — venv provisioned on Python 3.15.x |
 | [K-15](#k-15) | Medium | Tooling | open — global Angular CLI too old |
 | [K-16](#k-16) | Low | Hygiene | open — dead modules and duplicated build output |
 | [K-17](#k-17) | Low | Perf | open — full-collection scan on every API call |
+| [K-18](#k-18) | High | Scrapers | open — `arender()` cannot work on Python ≥3.10 |
 
 ---
 
@@ -151,8 +152,8 @@ scrapers (`scrap_disco.py:65`, `scrap_carrefour.py:75`, `scrap_changomas.py:35`,
 `scrap_hiperlibertad.py:64`). **SuperMami has no driver** — it uses
 `requests_html` only, despite importing selenium modules it never calls.
 
-Measured: `/usr/local/bin/chromedriver-141` exists; `Google Chrome
-156.0.8078.80` is installed.
+Measured: `/usr/local/bin/chromedriver-141` exists; Chrome **156.x** is
+installed.
 
 **Impact:** every scraper fails with `session not created: This version of
 ChromeDriver only supports Chrome version 141`.
@@ -257,10 +258,20 @@ from the environment.
 
 ## <a id="k-14"></a>K-14 · `.venv` is broken and blocks every Python command
 
+**Status: fixed.** The venv was rebuilt from the Python 3.15.2 interpreter. The
+entry is kept because the failure mode is worth knowing: the old venv's
+`pyvenv.cfg` pointed at a framework interpreter that no longer existed, so every
+`pip` and `python` call inside it died with `bad interpreter`.
+
+**Lesson:** a venv is not portable across interpreter reinstalls. If Python is
+upgraded or removed, `rm -rf .venv` and recreate — do not debug the symlink.
+
+Original symptom, retained for searchability:
+
 **Severity:** Medium (first-run blocker).
 
-`pyvenv.cfg` records `home = /Library/Frameworks/Python.framework/Versions/3.11`,
-but the interpreter inside the venv fails:
+`pyvenv.cfg` recorded a `home` pointing at a Python 3.11 framework install that
+no longer existed on disk, so the interpreter inside the venv failed:
 `.venv/bin/pip: … bad interpreter: No such file or directory`.
 
 **Impact:** `source .venv/bin/activate && pip …` and `python app.py` both fail.
@@ -275,7 +286,7 @@ the interpreter in a `.python-version`.
 
 **Severity:** Medium (first-run blocker).
 
-`ng version` → `Angular CLI: 14.2.10`, `Node: 26.7.0 (Unsupported)`. The workspace
+`ng version` → `Angular CLI 14.x`, `Node 26.x (Unsupported)`. The workspace
 is Angular **19.2.19** with the `application` builder
 (`@angular-devkit/build-angular:application`), which CLI 14 does not have.
 
@@ -321,6 +332,56 @@ full catalog.
 
 **Fix direction:** aggregate in Mongo (`$group` / `$match` on `supermercado`), add
 a compound index on `(supermercado, name)`, and paginate.
+
+## <a id="k-18"></a>K-18 · `arender()` is structurally broken on Python ≥3.10
+
+**Severity:** High — four of the five scrapers cannot render a page.
+
+`requests-html 0.10.0` (last release 2019) declares `pyppeteer>=0.0.14` with no
+upper bound, and the resolver settles on `pyppeteer 0.0.25`. That version calls:
+
+```python
+# pyppeteer/connection.py:43-44
+self._ws = websockets.client.connect(
+    self._url, max_size=None, loop=self._loop)
+```
+
+Verified on the rebuilt Python 3.15.x venv, `pyppeteer 0.0.25` fails three
+independent ways before any page is fetched:
+
+1. `websockets.client` **no longer exists** — the submodule was removed. In the
+   installed `websockets 17.4`, `hasattr(websockets, "client")` is `False`, so
+   line 43 raises `AttributeError` outright.
+2. `websockets.ConnectionClosed` (used at lines 62 and 74) was also relocated.
+3. Even if both existed, `loop=` is forwarded to `create_connection`, which
+   stopped accepting it in Python 3.10.
+
+`websockets` deprecated `loop` in 10.0 and later versions forward unknown keyword
+arguments down to `asyncio.BaseEventLoop.create_connection`, which **stopped
+accepting `loop` in Python 3.10**. Measured behaviour on this machine:
+
+| `websockets` | `connect(loop=...)` | Result |
+| --- | --- | --- |
+| 10.4 | consumed by websockets | works |
+| 12.0 (the repo's old pin) | forwarded to asyncio | fails on Python ≥3.10 |
+| 17.4 (current) | `websockets.client` gone | `AttributeError` before the call |
+
+**Impact:** `HTMLSession.arender()` raises `TypeError` at the first call, so
+Disco, Carrefour, ChangoMás and SuperMami fail on page 1. HiperLibertad is
+unaffected (pure VTEX JSON API). This is **pre-existing**: the old pins
+(`websockets==12.0`, Python 3.11) were already broken for the same reason.
+
+**Why a pin fix does not work:** keeping `arender()` alive requires
+`pyppeteer==2.0.0` (which pins `websockets==10.4`), and that in turn pins
+`urllib3==1.26.20` — measured at **12 advisories** (`PYSEC-2026-141`,
+`-1994`…`-1999`, `-4175`, `-4177`). Trading 12 CVEs for a broken helper is not a
+fix.
+
+**Fix direction:** stop using `arender()`. Selenium is already a first-class
+dependency and already navigates these same sites — use `driver.page_source` for
+the three scrapers that have a driver, and give SuperMami the driver it lacks (or
+move the whole rendering layer to Playwright). This is its own work unit: it
+changes scraper behaviour, so it needs a real run against each site.
 
 ---
 

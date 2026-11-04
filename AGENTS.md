@@ -53,8 +53,8 @@ Browser ──► Flask (app.py, port 3000)
 
 | Layer | Real (verified) | Claimed elsewhere |
 | --- | --- | --- |
-| Python (deploy target) | **3.10** (`Dockerfile:4`, `app.yaml`, CI) | README says 3.11; `runtime.txt` says `3.8` |
-| Python (local venv) | 3.11.1, and **broken** (§7) | silently assumed to work |
+| Python (all targets) | **3.15.2** — `.python-version`, `runtime.txt`, `Dockerfile:4`, `app.yaml`, CI | README says 3.11 (stale) |
+| Python (local venv) | 3.15.2, created from the python.org installer | — |
 | Flask | 3.0.0 | — |
 | Realtime | flask-socketio 5.3.6 | — |
 | DB driver | pymongo 4.6.0 (raw, no ODM) | — |
@@ -96,8 +96,9 @@ Full runbook with status per command:
 [`docs/agent-context/runbook.md`](docs/agent-context/runbook.md).
 
 ```bash
-# Backend setup (the existing .venv is broken — recreate it, see §7)
-python3 -m venv .venv && source .venv/bin/activate
+# Backend setup — Python 3.15 (.python-version). The venv is already provisioned;
+# recreate it only if it is missing or broken.
+python3.15 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 # Run (needs .env with MONGODB_URI)
@@ -137,6 +138,9 @@ class ScrapeX:
   HiperLibertad hits the VTEX `api/catalog_system/pub/products/search` JSON API
   using cookies harvested by a headless driver. ChangoMás is `async def` and the
   route wraps it in its own event loop.
+- `requests-html`'s `arender()` is **non-functional** on Python ≥3.10 — four of the
+  five scrapers depend on it. See known-issues K-18. Any scraping task must
+  confront this first; do not assume the scrapers work.
 - **SuperMami has no Selenium driver at all.** It imports selenium modules it
   never uses and scrapes with `requests_html` only (`arender(sleep=4)`), and its
   pagination loop is capped at 2 pages by a literal `range(1, 3)`
@@ -147,56 +151,51 @@ class ScrapeX:
 
 ## 7. Traps (each one costs a first-time agent 10+ minutes)
 
-**T-1 · `.venv` is broken.** `pyvenv.cfg` points at
-`/Library/Frameworks/Python.framework/Versions/3.11`, but `.venv/bin/python` fails
-with `bad interpreter: No such file or directory`. Delete and recreate. Do not
-debug it.
-
-**T-2 · `adminpro/node_modules` is absent.** `ng serve`/`ng build` fail until
+**T-1 · `adminpro/node_modules` is absent.** `ng serve`/`ng build` fail until
 `npm install` runs inside `adminpro/`.
 
-**T-3 · MongoDB client is attached only inside `__main__`.** `app.py:32` and
+**T-2 · MongoDB client is attached only inside `__main__`.** `app.py:32` and
 `app.py:42` set `app.mongodb_client` inside the `if __name__ == '__main__'` block.
 Every consumer reads `current_app.mongodb_client` (`api/routes.py:93`,
 `api/scrapers/scrap_disco.py:33`, and three siblings). Under gunicorn/WSGI the
 attribute does not exist → `AttributeError`. Requires a factory or a
 `before_request` hook before any hosted deploy works.
 
-**T-4 · Two database names.** `app.py:33` sets `app.database` to `"lalistita"`;
+**T-3 · Two database names.** `app.py:33` sets `app.database` to `"lalistita"`;
 every consumer actually uses `mongodb_client.lalistitadev`. `app.database` is
 dead. The live database is **`lalistitadev`**.
 
-**T-5 · Two scraper routes are not async and one is doubly wrong.**
+**T-4 · Two scraper routes are not async and one is doubly wrong.**
 `/scraping-disco` does `Thread(target=scrape_disco(categoria),)` — the call
 executes inline, then `Thread(target=None)` raises on `.start()`. The request
 blocks for the whole scrape and then 500s. `/scraping-hiperlibertad` and
 `/scraping-supermami` call the scraper synchronously with no thread at all.
 
-**T-6 · Deploy stories contradict each other.** `Dockerfile` CMD runs
+**T-5 · Deploy stories contradict each other.** `Dockerfile` CMD runs
 `gunicorn ... main:app` but **`main.py` does not exist** — the image builds and
 then crashes. `Procfile` runs `python app.py` with `debug=True`.
 `gunicorn_config.py` is orphaned. `app.yaml` (App Engine) and `manifest.yml`
 (Cloud Foundry, 128 MB — too small for Chrome) are leftovers.
 
-**T-7 · CI fails on every push.** `.github/workflows/python-app.yml` runs
+**T-6 · CI fails on every push.** `.github/workflows/python-app.yml` runs
 `pytest` with zero test files; pytest exits 5 ("no tests collected"). The
 `flake8` step is `--exit-zero` for everything except syntax errors.
 
-**T-8 · Hardcoded secrets and hosts.** `app.py:18` sets
+**T-7 · Hardcoded secrets and hosts.** `app.py:18` sets
 `SECRET_KEY = 'secret!'`. `adminpro/src/app/service/app.service.ts:21` hardcodes
 `http://127.0.0.1:3000/supermercados` — there is no `environments/` directory, so
 the production API base URL cannot be configured per build.
 
-**T-9 · ChromeDriver 141 is an absolute path.** `Service('/usr/local/bin/chromedriver-141')`
+**T-8 · ChromeDriver 141 is an absolute path.** `Service('/usr/local/bin/chromedriver-141')`
 in four of the five scrapers. Mismatch with the installed Chrome silently breaks
 scraping. Separately, `requests-html`'s `arender()` (Disco, Carrefour,
 ChangoMás, SuperMami) downloads its own Chromium on first use — a second,
 independent browser dependency.
 
-**T-10 · `*.json` is globally gitignored** (rule 2 above). Highest-frequency
+**T-9 · `*.json` is globally gitignored** (rule 2 above). Highest-frequency
 self-inflicted mistake in this repo.
 
-**T-11 · Duplicate imports and dead code** are normal here (e.g. `from threading
+**T-10 · Duplicate imports and dead code** are normal here (e.g. `from threading
 import Thread` twice in `api/routes.py:1,6`). Do not assume an unused import
 means the surrounding block is live; read the route registration.
 
