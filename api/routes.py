@@ -12,6 +12,7 @@ from api.scrapers.scrap_hiperlibertad import ScrapeHiperLibertad
 from api.scrapers.scrap_supermami import ScrapeSuperMami
 
 app_file2 = Blueprint('app_file2',__name__)
+STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static')
 # def configure_routes(app: Flask):
 def redirect_url():
     return request.args.get('next') or \
@@ -20,7 +21,17 @@ def redirect_url():
 
 @app_file2.route('/')
 def root():
-    return send_from_directory(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static'), 'index.html')
+    # static/ is not versioned; it is Angular build output. Without this guard a
+    # fresh clone answers a bare 404 and the cause is invisible.
+    if not os.path.exists(os.path.join(STATIC_DIR, 'index.html')):
+        return (
+            'Frontend bundle missing: static/ is not versioned.\n'
+            'Build it with:\n'
+            '  cd adminpro && npm ci && npm run build\n',
+            503,
+            {'Content-Type': 'text/plain; charset=utf-8'},
+        )
+    return send_from_directory(STATIC_DIR, 'index.html')
 # return redirect("/supermercados")
 
 @app_file2.route("/scrape")
