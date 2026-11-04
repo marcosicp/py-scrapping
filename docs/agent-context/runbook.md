@@ -68,6 +68,11 @@ Notes that will save you time:
 source .venv/bin/activate
 pip install -r requirements-dev.txt   # runtime deps + pytest + flake8
 pytest
+
+# Opt-in MongoDB integration tests (throwaway lalistita_test_<random> database,
+# created and dropped around the run; the guard in the fixture refuses to drop
+# any database not named lalistita_test_*):
+MONGODB_TEST_URI=mongodb://localhost:27017/ .venv/bin/python -m pytest tests/test_product_repository.py -q
 ```
 
 ✅ VERIFIED: `pytest` collects the suite in `tests/` and exits 0. No test touches

@@ -76,6 +76,7 @@ api/routes.py           ALL HTTP endpoints (blueprint `app_file2`)
 api/sockets.py          SocketIO singleton + notifyStatus(channel, message)
 api/helpers.py          remove_duplicates_by_key(), name_parse() → {name, unidad}
 api/scrapers/*.py       One class per supermarket, uniform start/stop contract
+api/repositories/       ProductRepository port + Mongo adapter (replace inserts before deleting)
 tests/                  pytest suite (settings + app factory; no network, no DB, no Chrome)
 adminpro/src/app/       Angular 21 source (dashboard, login, register, progress, grafica1)
 templates/scrape.html   The ONLY template a route renders (SocketIO monitor)
@@ -219,7 +220,11 @@ picture — and note `gunicorn_config.py` is orphaned, so it changes nothing.
 - Python: a pytest suite lives in `tests/`. Install the dev toolchain and run
   it with `pip install -r requirements-dev.txt && pytest` (`pytest.ini` already
   points at `tests/`). No test touches the network, Chrome or a real database
-  (the Mongo fixtures use an unroutable URI).
+  (the Mongo fixtures use an unroutable URI), with one opt-in exception: the
+  repository integration tests run against a real MongoDB only when
+  `MONGODB_TEST_URI` is set, always on a throwaway `lalistita_test_<random>`
+  database that the fixture creates and drops (and refuses to drop anything
+  whose name does not start with `lalistita_test_`).
 - Angular: karma + jasmine are configured in `adminpro/package.json` and
   `tsconfig.spec.json` exists, but there are **zero `*.spec.ts` files**.
 - `webdriver-manager` is a declared dependency but every scraper bypasses it.
