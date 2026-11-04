@@ -80,6 +80,7 @@ api/sockets.py          SocketIO singleton + notifyStatus(channel, message) + So
 api/helpers.py          remove_duplicates_by_key(), name_parse() → {name, unidad}
 api/scrapers/*.py       One class per supermarket, uniform start/stop contract
 api/scrapers/base.py    Scraper contract: BaseScraper (slug/label/categories/run(ctx)) + ScrapeContext (report, should_stop, sleep, save, browser(), http)
+api/scrapers/browser.py Chrome factory: build_chrome(settings) driven by CHROMEDRIVER_PATH / CHROME_HEADLESS (D8); Selenium imported lazily
 api/scrapers/registry.py ScraperRegistry (explicit registration, slug validation) + default_registry()
 api/scrapers/errors.py   ScraperError family: UnknownScraper, InvalidCategory, AlreadyRunning, NotRunning
 api/scrapers/http.py     Shared HTTP session with the legacy browser User-Agent (no requests-html)

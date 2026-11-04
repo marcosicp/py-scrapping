@@ -10,6 +10,7 @@ from flask import Flask, current_app
 
 from api.config import Settings
 from api.repositories.products import ProductRepository
+from api.scrapers.browser import build_chrome
 from api.scrapers.registry import ScraperRegistry, default_registry
 from api.services.products import ProductService
 from api.services.scraping import ScraperManager
@@ -29,12 +30,15 @@ class Services:
 def init_services(app: Flask, settings: Settings,
                   repository: ProductRepository, *,
                   scraper_registry: ScraperRegistry | None = None,
-                  reporter=None) -> Services:
+                  reporter=None,
+                  browser_factory=None) -> Services:
     """Build the service set and expose it in ``app.extensions``.
 
     ``scraper_registry`` falls back to ``default_registry()`` (still empty
-    until T7-T11 port the scrapers); ``reporter`` is the run progress sink.
-    No browser factory yet: T6 adds the Chrome one.
+    until T7-T11 port the scrapers); ``reporter`` is the run progress sink;
+    ``browser_factory`` builds the Chrome driver behind ``ctx.browser()``,
+    defaulting to ``build_chrome(settings)`` (D8). Importing ``build_chrome``
+    here is safe because it brings Selenium in lazily.
     """
     services = Services(settings=settings,
                         products=ProductService(repository),
@@ -42,7 +46,10 @@ def init_services(app: Flask, settings: Settings,
                             scraper_registry if scraper_registry is not None
                             else default_registry(),
                             repository,
-                            reporter=reporter))
+                            reporter=reporter,
+                            browser_factory=(
+                                browser_factory if browser_factory is not None
+                                else lambda: build_chrome(settings))))
     app.extensions[EXTENSION_KEY] = services
     return services
 

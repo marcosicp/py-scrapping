@@ -11,6 +11,15 @@ Defaults are the legacy values the app used before this module existed:
   is out of scope here.
 - `MONGODB_URI` / `MONGODB_DB` keep the dev-database defaults.
 
+The Chrome factory (D8) adds two more settings so the driver does not have to
+be hardcoded in the scrapers (K-7):
+
+- `CHROMEDRIVER_PATH` — optional absolute path to a chromedriver binary.
+  Unset by default: Selenium Manager then resolves a driver matching the
+  installed Chrome.
+- `CHROME_HEADLESS` — opt-in headless mode. The default is off, preserving
+  the visible browser window the legacy scrapers showed.
+
 An environment variable set to the empty string counts as unset — that is how
 blank entries in `.env` behave for these defaults.
 """
@@ -30,6 +39,11 @@ DEFAULT_MONGO_DB = "lalistitadev"
 _SECRET_KEY_ENV = "SECRET_KEY"
 _MONGO_URI_ENV = "MONGODB_URI"
 _MONGO_DB_ENV = "MONGODB_DB"
+_CHROMEDRIVER_PATH_ENV = "CHROMEDRIVER_PATH"
+_CHROME_HEADLESS_ENV = "CHROME_HEADLESS"
+
+# Truthy spellings accepted for CHROME_HEADLESS (case-insensitive, stripped).
+_HEADLESS_TRUE = {"1", "true", "yes", "on"}
 
 
 @dataclass(frozen=True)
@@ -39,6 +53,8 @@ class Settings:
     secret_key: str = DEFAULT_SECRET_KEY
     mongodb_uri: str = DEFAULT_MONGO_URI
     mongodb_db: str = DEFAULT_MONGO_DB
+    chromedriver_path: str | None = None
+    chrome_headless: bool = False
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Settings":
@@ -51,4 +67,7 @@ class Settings:
             secret_key=source.get(_SECRET_KEY_ENV) or DEFAULT_SECRET_KEY,
             mongodb_uri=source.get(_MONGO_URI_ENV) or DEFAULT_MONGO_URI,
             mongodb_db=source.get(_MONGO_DB_ENV) or DEFAULT_MONGO_DB,
+            chromedriver_path=source.get(_CHROMEDRIVER_PATH_ENV) or None,
+            chrome_headless=(source.get(_CHROME_HEADLESS_ENV) or "")
+            .strip().lower() in _HEADLESS_TRUE,
         )

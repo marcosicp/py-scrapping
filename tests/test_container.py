@@ -20,6 +20,26 @@ def fake():
     return InMemoryProductRepository()
 
 
+class FakeDriver:
+    """Driver stand-in exposing only ``quit()``; never a real Chrome."""
+
+    def __init__(self):
+        self.quit_called = False
+
+    def quit(self):
+        self.quit_called = True
+
+
+def browser_scraper(slug, drivers):
+    """Fake scraper that borrows the driver through ``ctx.browser()``."""
+
+    def run(self, ctx):
+        with ctx.browser() as driver:
+            drivers.append(driver)
+
+    return make_scraper(slug, slug.title(), run)
+
+
 def test_init_services_stores_services_under_extension_key(app, settings, fake):
     services = init_services(app, settings, fake)
     assert app.extensions[EXTENSION_KEY] is services
@@ -89,6 +109,61 @@ def test_create_app_wires_registry_and_reporter_into_the_manager(
     states = [status.to_dict()["state"] for status in recorder.states]
     assert "running" in states
     assert "succeeded" in states
+
+
+def test_default_browser_factory_builds_through_build_chrome_with_the_app_settings(
+        settings, repository, recorder, scraper_app_factory, monkeypatch):
+    built = []
+
+    def recorder_factory(service_settings):
+        built.append(service_settings)
+        return FakeDriver()
+
+    monkeypatch.setattr("api.container.build_chrome", recorder_factory)
+    app = scraper_app_factory(browser_scraper("factory", []))
+    manager = app.extensions[EXTENSION_KEY].scrapers
+    manager.start("factory")
+    assert manager.wait("factory", timeout=TIMEOUT).state is RunState.SUCCEEDED
+
+    assert built == [services_of(app).settings]
+
+
+def test_browser_borrowed_by_a_run_gets_quit_afterwards(
+        settings, repository, recorder, scraper_app_factory, monkeypatch):
+    monkeypatch.setattr("api.container.build_chrome", lambda _settings: FakeDriver())
+    drivers = []
+    app = scraper_app_factory(browser_scraper("quit", drivers))
+    manager = app.extensions[EXTENSION_KEY].scrapers
+    manager.start("quit")
+    assert manager.wait("quit", timeout=TIMEOUT).state is RunState.SUCCEEDED
+
+    assert len(drivers) == 1
+    assert drivers[0].quit_called is True
+
+
+def test_explicit_browser_factory_override_wins(settings, fake):
+    handled = []
+
+    def factory():
+        driver = FakeDriver()
+        handled.append(driver)
+        return driver
+
+    app = create_app(settings, repository=fake)
+    drivers = []
+    registry = ScraperRegistry([browser_scraper("override", drivers)])
+    services = init_services(app, settings, fake, scraper_registry=registry,
+                             browser_factory=factory)
+    manager = services.scrapers
+    manager.start("override")
+    assert manager.wait("override", timeout=TIMEOUT).state is RunState.SUCCEEDED
+
+    assert handled == drivers == [handled[0]]
+    assert drivers[0].quit_called is True
+
+
+def services_of(application):
+    return application.extensions[EXTENSION_KEY]
 
 
 def test_default_registry_makes_the_scraper_api_empty(client):

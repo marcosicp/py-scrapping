@@ -2,6 +2,8 @@
 
 import dataclasses
 
+import pytest
+
 from api.config import DEFAULT_MONGO_DB, DEFAULT_MONGO_URI, DEFAULT_SECRET_KEY, Settings
 
 
@@ -45,6 +47,34 @@ def test_from_env_partial_override_keeps_defaults_for_the_rest():
     assert settings.mongodb_uri == "mongodb://example.net:27017/"
     assert settings.secret_key == "secret!"
     assert settings.mongodb_db == "lalistitadev"
+
+
+def test_browser_settings_default_to_legacy_behaviour():
+    # No path configured: Selenium Manager resolves a matching driver (D8).
+    # Headless defaults off: today's scrapers run in a visible window.
+    settings = Settings()
+    assert settings.chromedriver_path is None
+    assert settings.chrome_headless is False
+
+
+def test_from_env_reads_chromedriver_path():
+    settings = Settings.from_env({"CHROMEDRIVER_PATH": "/usr/local/bin/chromedriver"})
+    assert settings.chromedriver_path == "/usr/local/bin/chromedriver"
+
+
+def test_from_env_empty_chromedriver_path_counts_as_unset():
+    settings = Settings.from_env({"CHROMEDRIVER_PATH": ""})
+    assert settings.chromedriver_path is None
+
+
+@pytest.mark.parametrize("raw", ["1", "true", "TRUE", "yes", "on", " On "])
+def test_from_env_truthy_headless_values(raw):
+    assert Settings.from_env({"CHROME_HEADLESS": raw}).chrome_headless is True
+
+
+@pytest.mark.parametrize("raw", ["0", "false", "no", "", "maybe"])
+def test_from_env_falsy_headless_values(raw):
+    assert Settings.from_env({"CHROME_HEADLESS": raw}).chrome_headless is False
 
 
 def test_settings_is_frozen():

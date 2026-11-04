@@ -101,6 +101,8 @@ PORT=3000
 | `MONGODB_DB` | `lalistitadev` | previously hardcoded and, worse, hardcoded to the wrong name (K-3) |
 | `SECRET_KEY` | `secret!` | legacy default kept; rotating it for real is K-13 |
 | `PORT` | `3000` | `python app.py` reads it in `__main__`; WSGI hosts inject it |
+| `CHROMEDRIVER_PATH` | unset → Selenium Manager picks a matching driver (needs network on first use) | read by `Settings.from_env`; honored by scrapers that run through `ctx.browser()` (the ported ones) — the not-yet-ported legacy scrapers still use their hardcoded driver path (K-7) |
+| `CHROME_HEADLESS` | off | opt-in headless: `1`, `true`, `yes`, `on` (case-insensitive, surrounding whitespace ignored) add `--headless=new`; same ported/legacy caveat as `CHROMEDRIVER_PATH` |
 
 The URI's own database segment is still ignored — `MONGODB_DB` wins. Collection:
 `productos`.
