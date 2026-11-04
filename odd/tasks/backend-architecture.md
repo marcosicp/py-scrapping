@@ -245,7 +245,7 @@ Chrome, the real sites and a real MongoDB. The first supervised smoke run should
 - A queue-based runner (RQ/Celery) is the natural next step if the app ever needs more
   than one worker; the `ScraperManager` seam is where it plugs in.
 
-## Review (in progress)
+## Review
 
 The accumulated branch is too large for a native review candidate: START fails the
 preflight with `lens_context_budget_exceeded` for the whole branch **and** for the
@@ -253,17 +253,46 @@ T1-T3 slice. The only route that works is one work-unit at a time, in a worktree
 pinned to that commit (`git worktree add --detach <path> <sha>` + START with
 `workspaceRoot`), because the candidate is always `base → HEAD`.
 
+### T1 `88736b2` — approved
+
 | Item | Value |
 | --- | --- |
-| Lineage | `review-3b82df954b840147` — `reviewing`, revision `sha256:b1d3dc4f…` |
+| Lineage | `review-3b82df954b840147` — `approved`; burned revision `sha256:7c74b108…` |
 | Candidate | T1 `88736b2` (388 lines, tier high, correction budget 194) |
-| Worktree | `/tmp/lalistita-rv-t1` (detached at `88736b2`) — do not delete while the lineage lives |
-| Captured | `review-risk` (admitted, `completed`) |
-| Pending | `review-resilience`, `review-readability`, `review-reliability` |
+| Worktree | `/tmp/lalistita-rv-t1` (detached at `88736b2`) — lineage burned, safe to remove |
+| Captured | `review-risk`, `review-resilience`, `review-readability`, `review-reliability` — 4/4 admitted |
+| Verdict | `approved`, no correction opened, authority burned (`gentle-ai.review-acknowledged/v1`) |
 
-Nothing was burned: `mutation_performed: false`, no verdict yet, so the candidate is
-unreviewed rather than approved. Resume by calling `gentle_review status` with the
-lineage and the worktree root, then submit the three remaining slot bindings.
+Advisory findings (non-blocking; separate later work, never a reason to re-review
+this candidate):
+
+| ID | Lens | Location | Severity |
+| --- | --- | --- | --- |
+| R1-1 | risk | `api/config.py:25` | WARNING |
+| R1-2 | risk | `api/config.py:50-54` | WARNING |
+| R2-001 | readability | `tests/test_app_factory.py:35-39` | WARNING |
+| R2-002 | readability | `docs/agent-context/known-issues.md:23` | SUGGESTION |
+| R3-env-test-isolation | reliability | `tests/test_app_factory.py:35-42` | WARNING |
+| R3-mongo-construction-coverage | reliability | `tests/test_app_factory.py:45-49` | WARNING |
+| R4-001 | resilience | `api/config.py:48-51` | WARNING |
+
+Operational lessons:
+
+- STATUS issues a distinct `repository-context` handle per `workspaceRoot`. A binding
+  fetched without `workspaceRoot` cannot be submitted to a `workspaceRoot`-scoped
+  group: the controller rejects it with `collectBindings belong to different
+  registered routes`. Refresh STATUS with the same root the capture will use.
+- The group capture forecasts the reviewer runs first (`pi_host_relay`, one run per
+  lens); the same bindings must be resubmitted with `reviewerRunAcknowledged: true`
+  before anything is admitted.
+
+### Remaining work units
+
+Each needs its own pinned worktree, its own lineage and its own four lenses:
+
+T2 `6790b1e`, T3 `df6a442`, T4 `052aeda`, T5 `7ff8ff2`, T6 `a4bbd18`, T7 `742e63e`,
+T8 `e9de3c7`, T9 `4665c1c`, T10 `5a3bc9c`, T11 `9d9248d`, T12 `da9f375`, T13 `c98b200`,
+T14a `30b20cb`, T14b `10fc059`.
 
 Blocker encountered: the lens agents were pinned to `opencode-go/deepseek-v4-flash`,
 a model that does not exist. `~/.gentle-shell/agent/subagents.json` (`model_profiles`)
