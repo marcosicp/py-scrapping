@@ -351,13 +351,39 @@ same error, and the store revision stayed `9c014c29…`, so nothing was mutated.
 left open on purpose; the correction is real and verified, only the authority handoff
 is blocked.
 
+### T4 `052aeda` — escalated, terminal stop
+
+| Item | Value |
+| --- | --- |
+| Lineage | `review-01c9eb1c9532c735` — `escalated`, revision `sha256:93b8de00…`, authority not burned |
+| Candidate | base `d310d6c` → 40 paths, 3557 lines, tier high, correction budget 200 |
+| Captured | 4/4 lenses (183 KB prompt each), then the refuter |
+| Outcome | `stop` / `native_stop_required` — provider escalation, cause `unknown_causality` on `R4-002` |
+
+The refuter corroborated `R3-001` and `R3-002`, refuted `R4-001`, and left `R4-002`
+with unknown causality — all three outcomes reported `probe unavailable on pi`, so the
+provider escalated instead of opening a correction. This is a maintainer decision, not
+a Pi decision: the lineage needs inspection before anything else runs on it.
+
+Severe findings on the candidate:
+
+| ID | Lens | Location | Severity | Refuter |
+| --- | --- | --- | --- | --- |
+| R3-001 | reliability | `app.py:80-82` | CRITICAL | corroborated |
+| R3-002 | reliability | `api/blueprints/products.py:21` | CRITICAL | corroborated |
+| R4-001 | resilience | `api/scrapers/base.py:158-159` | CRITICAL | refuted |
+| R4-002 | resilience | `app.py:88` | CRITICAL | unknown causality |
+
+Non-blocking findings: `R1-1` `api/config.py:22`, `R3-003` `api/config.py:51-53`,
+`R3-004` `api/services/scraping.py:220` (WARNING); `R2-001` `api/blueprints/products.py:20-29`
+(WARNING); `R1-2`, `R2-002`, `R2-003`, `R2-004`, `R2-005` (SUGGESTION).
+
 ### Remaining work units
 
 Each needs its own pinned worktree, its own lineage and its own four lenses:
 
-T4 `052aeda`, T5 `7ff8ff2`, T6 `a4bbd18`, T7 `742e63e`, T8 `e9de3c7`, T9 `4665c1c`,
-T10 `5a3bc9c`, T11 `9d9248d`, T12 `da9f375`, T13 `c98b200`, T14a `30b20cb`,
-T14b `10fc059`.
+T5 `7ff8ff2`, T6 `a4bbd18`, T7 `742e63e`, T8 `e9de3c7`, T9 `4665c1c`, T10 `5a3bc9c`,
+T11 `9d9248d`, T12 `da9f375`, T13 `c98b200`, T14a `30b20cb`, T14b `10fc059`.
 
 Blocker encountered: the lens agents were pinned to `opencode-go/deepseek-v4-flash`,
 a model that does not exist. `~/.gentle-shell/agent/subagents.json` (`model_profiles`)
