@@ -36,20 +36,36 @@ behind it.
               static/index.html  (Angular 21 bundle — gitignored, built locally)
 ```
 
-## 2. Bootstrap — `app.py` (46 lines)
+## 2. Bootstrap — application factory
 
-| Line | What happens | Consequence |
+`app.py` exposes `create_app()`. Two entry points share it:
+
+| Entry point | Used by | Server |
 | --- | --- | --- |
-| `app.py:11` | `load_dotenv()` | `.env` is optional; absent → defaults kick in |
-| `app.py:13` | `Flask(__name__, static_url_path='')` | `static/` is served at the URL root |
-| `app.py:15` | `CORS(app)` | every origin allowed, including scraper-control POSTs |
-| `app.py:18` | `SECRET_KEY = 'secret!'` | hardcoded; fine only because no auth session is implemented |
-| `app.py:22` | `app.register_blueprint(app_file2)` | all routes come from `api/routes.py` |
-| `app.py:26` | `configure_sockets(app)` | **inside `if __name__ == '__main__'`** → SocketIO uninitialized under gunicorn |
-| `app.py:32,42` | `app.mongodb_client = MongoClient(...)` | **inside `__main__`** → `current_app.mongodb_client` missing under gunicorn |
-| `app.py:33,43` | `app.database = client["lalistita"]` | dead: consumers use `lalistitadev` |
-| `app.py:36` | `app.run(port=3000, debug=True)` | development server as the default runtime |
-| `app.py:46` | `app.run(port=int(PORT), debug=True)` | `debug=True` also in the "production" branch |
+| `python app.py` | local development | Werkzeug, `debug=True` |
+| `gunicorn main:app` | Docker and any WSGI host | `main.py` calls `create_app()` at import |
+
+| Step | Where | What happens |
+| --- | --- | --- |
+| `load_dotenv()` | module scope | `.env` optional; defaults apply without it |
+| `Flask(__name__, static_url_path='')` | `create_app` | `static/` is served at the URL root |
+| `CORS(app)` | `create_app` | every origin allowed, including scraper-control POSTs (K-13) |
+| `SECRET_KEY` | `create_app` | `os.getenv('SECRET_KEY', 'secret!')` — configurable, same default (K-13) |
+| `register_blueprint` | `create_app` | all routes come from `api/routes.py` |
+| `configure_sockets` | `create_app` | SocketIO initialized for **every** entry point (K-1) |
+| `_init_mongo` | `create_app` | `MongoClient` + `app.database` (K-2, K-3) |
+
+Three properties worth knowing:
+
+- **Nothing is wired at import time in `app.py`.** `main.py` builds the
+  module-level `app` WSGI servers expect. `gunicorn app:app` no longer works;
+  use `main:app`.
+- **`MongoClient` is lazy**, so importing the app opens no socket and cannot
+  hang a worker boot.
+- **Mongo config:** `MONGODB_URI` (default `mongodb://localhost:27017/`) and
+  `MONGODB_DB` (default `lalistitadev`).
+- **`async_mode` is `threading`** — no `eventlet`/`gevent` in the tree — so
+  realtime works over long-polling, not over a WebSocket upgrade.
 
 `configure_routes(app)` exists only as a commented-out alternative
 (`api/routes.py:15`); the blueprint path is the live one.

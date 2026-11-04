@@ -68,25 +68,39 @@ Create `.env` at the repo root (gitignored, never commit):
 
 ```env
 MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>/<db>?retryWrites=true&w=majority
+MONGODB_DB=lalistitadev
+SECRET_KEY=<random-string>
 PORT=3000
 ```
 
-- `MONGODB_URI` is read at `app.py:31` and `app.py:40`; without it the dev branch
-  falls back to `mongodb://localhost:27017/`.
-- `PORT` (`cf_port`) only switches which `app.run` branch executes; both call
-  `debug=True`.
-- The database actually queried is hardcoded to **`lalistitadev`**
-  (`api/routes.py:94`) — the URI's own database segment is ignored. Collection:
-  `productos`.
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `MONGODB_URI` | `mongodb://localhost:27017/` | read by `_init_mongo`; the client is always created |
+| `MONGODB_DB` | `lalistitadev` | new; previously hardcoded and, worse, hardcoded to the wrong name (K-3) |
+| `SECRET_KEY` | `secret!` | configurable now; rotating it for real is K-13 |
+| `PORT` | `3000` | `python app.py` binds it; WSGI hosts inject it |
+
+The URI's own database segment is still ignored — `MONGODB_DB` wins. Collection:
+`productos`.
 
 ## 3. Run the backend
+
+Local development (Werkzeug, `debug=True`):
 
 ```bash
 source .venv/bin/activate
 python app.py
 ```
 
-📖 INFERRED. Expects a reachable MongoDB.
+Production-shaped, and exactly what the image runs:
+
+```bash
+.venv/bin/gunicorn --bind 127.0.0.1:8124 --workers 1 main:app
+```
+
+✅ VERIFIED under gunicorn: `GET /` → 200 with 71993 bytes, `GET /scrape` → 200,
+and the Engine.IO handshake returns a valid session — which is the proof that
+SocketIO is initialized outside `python app.py` (K-1).
 
 - App: <http://localhost:3000> — serves `static/index.html` from the locally built
   bundle. **If you have not built the frontend, `/` answers 503 with the build
@@ -95,6 +109,8 @@ python app.py
 - API probe: <http://localhost:3000/supermercados> — returns the grouped payload,
   or an empty payload with `"error": "Database connection error"` if Mongo is
   unreachable (`api/routes.py:137`).
+- `/supermercado-<chain>` routes answer **500** by design-of-bug: they read JSON
+  files that do not exist (K-11).
 
 ## 4. Frontend
 
@@ -156,7 +172,7 @@ Before any of this works:
 
 | Path | Files | Status |
 | --- | --- | --- |
-| Docker | `Dockerfile` | ⛔ `CMD ... main:app` (`Dockerfile:22`) but there is **no `main.py`**. The image builds, the container crashes at start. The frontend bundle **is** handled: a `node:24-alpine` stage runs `npm ci && npm run build` and the Python stage copies `static/` from it. |
+| Docker | `Dockerfile` | ⚠️ **entry point now exists**: `main.py` provides `main:app` and was verified under gunicorn. Still unverified end to end — the image itself has never been built here (daemon not running). The frontend bundle is produced by a `node:24-alpine` stage. |
 | Heroku-style | `Procfile` → `web: python app.py` | ⚠️ runs the Werkzeug dev server with `debug=True`; uses whatever `PORT` the platform injects |
 | Gunicorn (orphan) | `gunicorn_config.py` (`0.0.0.0:3000`, 2 workers) | ⛔ referenced by nothing |
 | App Engine | `app.yaml` (`runtime: python310`) | ⛔ no entrypoint declared |

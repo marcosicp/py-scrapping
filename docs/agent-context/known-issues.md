@@ -15,11 +15,11 @@ Entry point for agents: [`AGENTS.md`](../../AGENTS.md).
 
 | ID | Severity | Area | Status |
 | --- | --- | --- | --- |
-| [K-1](#k-1) | Critical | Runtime | open — SocketIO never initialized under WSGI |
-| [K-2](#k-2) | Critical | Runtime | open — Mongo client only exists inside `__main__` |
-| [K-3](#k-3) | High | Data | open — database name contradiction |
+| [K-1](#k-1) | Critical | Runtime | **fixed** — SocketIO initialized by the factory |
+| [K-2](#k-2) | Critical | Runtime | **fixed** — Mongo handles attached by the factory |
+| [K-3](#k-3) | High | Data | **fixed** — database name centralized on `lalistitadev` |
 | [K-4](#k-4) | High | API | open — `/scraping-disco` thread misuse |
-| [K-5](#k-5) | High | Deploy | open — Dockerfile runs a non-existent module |
+| [K-5](#k-5) | High | Deploy | **fixed** — `main.py` exists, verified under gunicorn |
 | [K-6](#k-6) | High | Deploy | open — CI fails on every push |
 | [K-7](#k-7) | High | Scrapers | open — ChromeDriver 141 vs Chrome 156 |
 | [K-8](#k-8) | High | Data | open — Carrefour deletes before inserting |
@@ -38,27 +38,43 @@ Entry point for agents: [`AGENTS.md`](../../AGENTS.md).
 
 ## <a id="k-1"></a>K-1 · SocketIO is never initialized outside `python app.py`
 
-**Severity:** Critical when deployed; invisible locally.
+**Status: fixed.** `configure_sockets(app)` is now called by `create_app()`, which
+runs for every entry point. `main.py` gives WSGI servers a module-level `app`.
 
-`configure_sockets(app)` is called at `app.py:26`, inside
+Verified under real gunicorn (`gunicorn --bind 127.0.0.1:8124 main:app`): the
+Engine.IO handshake answers with a valid session —
+`GET /socket.io/?EIO=4&transport=polling` → `0{"sid":"…","upgrades":["websocket"]…}`.
+Before the fix that path had no initialized server behind it.
+
+Original symptom, retained for searchability:
+
+`configure_sockets(app)` was called at `app.py:26`, inside
 `if __name__ == '__main__':`. Any WSGI server (gunicorn, uWSGI, Cloud Run,
 Heroku, App Engine) imports `app` as a module, so `__main__` never runs and
 `socketio.init_app(app)` never happens.
 
-**Impact:** every `notifyStatus()` call (`api/sockets.py:48`) emits on an
-uninitialized SocketIO object; `/scrape` shows nothing. Failure is silent — no
+**Impact:** every `notifyStatus()` call (`api/sockets.py:48`) emitted on an
+uninitialized SocketIO object; `/scrape` showed nothing. Failure was silent — no
 exception surfaced to the user.
 
-**Fix direction:** move `configure_sockets(app)` to module scope, or convert
-`app.py` into a `create_app()` factory and call it from a real WSGI entry point.
-The factory is the shape K-2 needs anyway; do both in one work unit.
+Related: `async_mode` is `threading` because neither `eventlet` nor `gevent` is
+installed, so realtime works over long-polling but not the WebSocket transport.
 
 ## <a id="k-2"></a>K-2 · `current_app.mongodb_client` does not exist under WSGI
 
-**Severity:** Critical when deployed.
+**Status: fixed.** `_init_mongo(app)` now runs inside `create_app()` and always
+creates the client — previously it was created only when `MONGODB_URI` happened to
+be set, in the `__main__` branch.
 
-The client is attached at `app.py:32` and `app.py:42`, both inside the
-`__main__` block. Consumers all read `current_app.mongodb_client`:
+Verified: inside `app.app_context()`, `current_app.mongodb_client` resolves to a
+`MongoClient` and `current_app.database.name == "lalistitadev"`. Under gunicorn,
+`GET /` returns 200 with 71993 bytes and `GET /scrape` returns 200 — neither raised
+`AttributeError`.
+
+Original symptom, retained for searchability:
+
+The client was attached at `app.py:32` and `app.py:42`, both inside the
+`__main__` block, while consumers read `current_app.mongodb_client`:
 
 - `api/routes.py:93`
 - `api/scrapers/scrap_disco.py:33`
@@ -66,27 +82,21 @@ The client is attached at `app.py:32` and `app.py:42`, both inside the
 - `api/scrapers/scrap_hiperlibertad.py:32`
 - `api/scrapers/scrap_supermami.py:101`
 
-**Impact:** under gunicorn these raise `AttributeError`. `/supermercados` catches
-it in its `except` (`api/routes.py:137`) and returns an empty payload, so the
-breakage looks like "no data" rather than "misconfigured app". The scrapers do
-not catch it and fail mid-run.
-
-**Fix direction:** same factory move as K-1, or a `@app.before_first_request` /
-`before_request` hook that creates the client lazily.
+**Impact:** under gunicorn these raised `AttributeError`. `/supermercados` caught
+it in its `except` (`api/routes.py:137`) and returned an empty payload, so the
+breakage looked like "no data" rather than "misconfigured app".
 
 ## <a id="k-3"></a>K-3 · Two database names; the one that is set is dead
 
-**Severity:** High (confusion cost, not data loss).
+**Status: fixed.** `_init_mongo` now sets `app.database` from `MONGODB_DB` with the
+default **`lalistitadev`**, the database every consumer already used. The dead
+`"lalistita"` is gone. Verified: `app.database.name == "lalistitadev"`.
 
-`app.py:33` and `app.py:43` set `app.database = client["lalistita"]`. Every
-consumer instead uses `client.lalistitadev` (`api/routes.py:94` and the four
-scrapers). `app.database` is never read.
+Original symptom, retained for searchability:
 
-**Impact:** anyone reading `app.py` believes the database is `lalistita`. It is
-not. Data written by scrapers and read by the API lives in `lalistitadev`.
-
-**Fix direction:** delete `app.database` (dead code) and centralize the database
-name in config, e.g. `MONGODB_DB` with default `lalistitadev`.
+`app.py:33` and `app.py:43` set `app.database = client["lalistita"]` while every
+consumer used `client.lalistitadev` (`api/routes.py:94` and the four scrapers).
+`app.database` was never read, so the value was pure misinformation.
 
 ## <a id="k-4"></a>K-4 · `/scraping-disco` calls the scraper inline and then crashes
 
@@ -110,20 +120,29 @@ no working start route at all.
 
 ## <a id="k-5"></a>K-5 · Docker image builds, then crashes on start
 
-**Severity:** High.
+**Status: fixed.** `main.py` now exists and exposes the module-level `app` the
+`CMD` already pointed at. Verified by running the exact command the image runs:
 
-`Dockerfile:22` → `CMD exec gunicorn ... main:app`. There is no `main.py` in the
-repository (`git ls-files | grep '^main.py'` → empty). Nothing produces or imports
-`main`.
+```
+gunicorn --bind 127.0.0.1:8124 --workers 1 main:app
+  GET /        -> 200, 71993 bytes
+  GET /scrape  -> 200, 6524 bytes
+  GET /socket.io/?EIO=4&transport=polling -> 200, valid sid
+```
 
-**Impact:** the image builds successfully and the container dies immediately at
-boot. Combined with K-1/K-2, even pointing it at `app:app` would deploy a service
-with dead realtime and no database.
+Not verified: `docker build` itself — the Docker daemon is not running on this
+machine, so the image (including the multi-stage frontend build) is unbuilt code.
 
-**Fix direction:** introduce the `main.py` (or `wsgi.py`) entry the factory from
-K-1/K-2 exposes, and point the `CMD` at it. Also decide the single deployment
-story and delete the others (`Procfile`, `gunicorn_config.py`, `app.yaml`,
-`manifest.yml`).
+Still open in this area: **the repository has four deploy stories** (`Dockerfile`,
+`Procfile`, `gunicorn_config.py`, `app.yaml`, `manifest.yml`). Only the Dockerfile
+and `main.py` are coherent; picking one story is a separate decision.
+
+Original symptom, retained for searchability:
+
+`Dockerfile:22` → `CMD exec gunicorn ... main:app` with no `main.py` in the
+repository. Nothing produced or imported `main`, so the image built and the
+container died at boot. Combined with K-1/K-2, pointing it at `app:app` would
+have deployed a service with dead realtime and no database.
 
 ## <a id="k-6"></a>K-6 · CI is red on every push because there are no tests
 

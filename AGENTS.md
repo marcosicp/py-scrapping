@@ -68,7 +68,8 @@ Browser ──► Flask (app.py, port 3000)
 ## 4. Layout — what is alive and what is dead
 
 ```
-app.py                  Flask factory-ish entry point: CORS, SECRET_KEY, blueprint, Mongo
+app.py                  create_app() factory: CORS, SECRET_KEY, blueprint, SocketIO, Mongo
+main.py                 WSGI entry point — `gunicorn main:app` uses this
 api/routes.py           ALL HTTP endpoints (blueprint `app_file2`)
 api/sockets.py          SocketIO singleton + notifyStatus(channel, message)
 api/helpers.py          remove_duplicates_by_key(), name_parse() → {name, unidad}
@@ -108,6 +109,9 @@ cd adminpro && npm ci && npm run build && cd ..
 
 # Run (needs .env with MONGODB_URI)
 python app.py                       # http://localhost:3000  (also /scrape)
+
+# Production-shaped entry point — this is what the Docker image runs
+gunicorn --bind 127.0.0.1:8124 --workers 1 main:app
 
 # Frontend dev server (bypasses the bundle entirely)
 cd adminpro && npm start             # ng serve on :4200
@@ -157,56 +161,51 @@ class ScrapeX:
 **T-1 · `adminpro/node_modules` is absent.** `ng serve`/`ng build` fail until
 `npm install` runs inside `adminpro/`.
 
-**T-2 · MongoDB client is attached only inside `__main__`.** `app.py:32` and
-`app.py:42` set `app.mongodb_client` inside the `if __name__ == '__main__'` block.
-Every consumer reads `current_app.mongodb_client` (`api/routes.py:93`,
-`api/scrapers/scrap_disco.py:33`, and three siblings). Under gunicorn/WSGI the
-attribute does not exist → `AttributeError`. Requires a factory or a
-`before_request` hook before any hosted deploy works.
-
-**T-3 · Two database names.** `app.py:33` sets `app.database` to `"lalistita"`;
-every consumer actually uses `mongodb_client.lalistitadev`. `app.database` is
-dead. The live database is **`lalistitadev`**.
-
-**T-4 · Two scraper routes are not async and one is doubly wrong.**
+**T-2 · Two scraper routes are not async and one is doubly wrong.**
 `/scraping-disco` does `Thread(target=scrape_disco(categoria),)` — the call
 executes inline, then `Thread(target=None)` raises on `.start()`. The request
 blocks for the whole scrape and then 500s. `/scraping-hiperlibertad` and
 `/scraping-supermami` call the scraper synchronously with no thread at all.
 
-**T-5 · Deploy stories contradict each other.** `Dockerfile` CMD runs
+**T-3 · Deploy stories contradict each other.** `Dockerfile` CMD runs
 `gunicorn ... main:app` but **`main.py` does not exist** — the image builds and
 then crashes. `Procfile` runs `python app.py` with `debug=True`.
 `gunicorn_config.py` is orphaned. `app.yaml` (App Engine) and `manifest.yml`
 (Cloud Foundry, 128 MB — too small for Chrome) are leftovers.
 
-**T-6 · CI fails on every push.** `.github/workflows/python-app.yml` runs
+**T-4 · CI fails on every push.** `.github/workflows/python-app.yml` runs
 `pytest` with zero test files; pytest exits 5 ("no tests collected"). The
 `flake8` step is `--exit-zero` for everything except syntax errors.
 
-**T-7 · Hardcoded secrets and hosts.** `app.py:18` sets
+**T-5 · Hardcoded secrets and hosts.** `app.py:18` sets
 `SECRET_KEY = 'secret!'`. `adminpro/src/app/service/app.service.ts:21` hardcodes
 `http://127.0.0.1:3000/supermercados` — there is no `environments/` directory, so
 the production API base URL cannot be configured per build.
 
-**T-8 · ChromeDriver 141 is an absolute path.** `Service('/usr/local/bin/chromedriver-141')`
+**T-6 · ChromeDriver 141 is an absolute path.** `Service('/usr/local/bin/chromedriver-141')`
 in four of the five scrapers. Mismatch with the installed Chrome silently breaks
 scraping. Separately, `requests-html`'s `arender()` (Disco, Carrefour,
 ChangoMás, SuperMami) downloads its own Chromium on first use — a second,
 independent browser dependency.
 
-**T-9 · `*.json` is globally gitignored** (rule 2 above). Highest-frequency
+**T-7 · `*.json` is globally gitignored** (rule 2 above). Highest-frequency
 self-inflicted mistake in this repo.
 
-**T-10 · Duplicate imports and dead code** are normal here (e.g. `from threading
+**T-8 · Duplicate imports and dead code** are normal here (e.g. `from threading
 import Thread` twice in `api/routes.py:1,6`). Do not assume an unused import
 means the surrounding block is live; read the route registration.
 
-**T-11 · `tsconfig` must keep bundler module resolution.** `@angular/common@21`
+**T-9 · `tsconfig` must keep bundler module resolution.** `@angular/common@21`
 no longer ships physical subpath directories, so `"moduleResolution": "node"`
 (Node10) cannot resolve `@angular/common/http` and the build dies with `TS2307`.
 Keep the pair `"moduleResolution": "bundler"` and `"module": "preserve"`.
 Don't revert it to `"node"` to "fix" an unrelated resolution error.
+
+**T-10 · SocketIO runs in `threading` async mode.** Neither `eventlet` nor `gevent`
+is installed, so `async_mode` resolves to `threading`: realtime works over HTTP
+long-polling, and the WebSocket *transport upgrade* is not available. Do not
+"fix" this by adding a worker class without first removing `threading` from the
+picture — and note `gunicorn_config.py` is orphaned, so it changes nothing.
 
 ## 8. Testing reality
 
