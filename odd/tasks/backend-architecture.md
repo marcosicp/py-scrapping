@@ -140,7 +140,7 @@ tests/                      pytest suite (fakes in tests/fakes.py)
 - [x] T4 Scraper core: `BaseScraper`, `ScrapeContext`, `ScraperRegistry`, `ScraperManager`, `ProgressReporter`, HTTP session builder (TDD, fake scrapers)
 - [x] T5 Scraper-control API `/api/scrapers…` + registry-generated legacy aliases + `api/container.py` + `SocketIOReporter`
 - [x] T6 Chrome factory (`CHROMEDRIVER_PATH`, `CHROME_HEADLESS`) + tests (K-7)
-- [ ] T7 Port SuperMami (offline fake-HTTP behavior test)
+- [x] T7 Port SuperMami (offline fake-HTTP behavior test)
 - [ ] T8 Port HiperLibertad
 - [ ] T9 Port Disco
 - [ ] T10 Port Carrefour
@@ -182,6 +182,16 @@ ports, (4) T12–T14 CLI, UI, cleanup. Running authored-line count is recorded b
   `unassessable` while untracked files exist). Plan so far: medium risk, writer
   self-verification stands, no separate verifier required.
 
+- Follow-ups found while porting (deliberately NOT fixed in the port commits):
+  - SuperMami keeps `totalPages` computed and unused, bs4 `findAll`/`text=` deprecation
+    warnings, and the legacy 2-page cap (`MAX_PAGES = 2`).
+  - HiperLibertad's legacy status guard `status_code == 200 | status_code == 206` is
+    chained-comparison nonsense (`200|200 == 200` then `200 == 206`), so the legacy
+    scraper has never collected a single product; T8 fixes it deliberately.
+  - The legacy HiperLibertad driver is created and never used; T8 drops it.
+  - `tests/test_scraper_supermami.py` imports the legacy module for the differential, so
+    those tests must be deleted in the same commit that deletes it (T14).
+
 ## Evidence
 
 | Task | Commit | Lines (+/−) | Checks observed |
@@ -192,3 +202,4 @@ ports, (4) T12–T14 CLI, UI, cleanup. Running authored-line count is recorded b
 | T4 | `052aeda` | +1806 total (10 paths, test-heavy) | RED (ModuleNotFoundError) → GREEN; review found 3 manager defects (stale `running` after fast finish, SystemExit leaving a slug RUNNING, ghost RUNNING when `thread.start()` fails) → fixed test-first (versioned serialized notifications); `127 passed, 9 skipped`; manager/context suites looped 15× green; ad-hoc 8-thread hammer 187k ops: 0 errors, 0 leaked threads, last delivered state == final state; flake8 gate `0`; no flask/pymongo/socketio/selenium imports in the core; native assess: medium, no separate verifier |
 | T5 | `7ff8ff2` | +832 total (14 paths) | RED (ImportError `SocketIOReporter`, TypeError `scraper_registry`; 22 failed) → GREEN `152 passed, 9 skipped`; API suites looped 15× green; route set identical except the 4 new `/api/scrapers` rules; flake8 gate `0`; native assess: medium, no separate verifier required |
 | T6 | `a4bbd18` | +317 total (8 paths) | writer reported RED (AttributeError/TypeError/ModuleNotFoundError) → GREEN; orchestrator re-verified after the owner's pause: `175 passed, 9 skipped`, flake8 gate `0`, F401/F811/F821 clean, diff read (lazy selenium import, Service(path) only when configured, headless opt-in); native assess: medium, no separate verifier required |
+| T7 | `742e63e` | +639/−26 (10 paths) | contract tests added for every port; `194 passed, 9 skipped`; 15× loops green; legacy-vs-port differential over canned HTML (documents equal after `_id`/`scraped_at`; empty-page request sequences pinned); orchestrator audit raised one suspected `countPages` fidelity gap — measured and **refuted** (the legacy `continue` was already preserved; a mutation run now kills it); flake8 gate `0`; native assess: medium |
