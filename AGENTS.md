@@ -73,7 +73,8 @@ app.py                  create_app() factory: CORS, SECRET_KEY, blueprint, Socke
 main.py                 WSGI entry point — `gunicorn main:app` uses this
 api/config.py           Settings (frozen dataclass) resolved from SECRET_KEY/MONGODB_*
 api/container.py        Services composition root: init_services/get_services (app.extensions['lalistita'])
-api/blueprints/         frontend.py (`/`, `/scrape`) + products.py (`/supermercados`) + scrapers.py (`/api/scrapers` control API) + legacy.py (registry-generated `/scraping-<slug>` aliases); HTTP layer only
+api/blueprints/         frontend.py (`/`, `/scrape` — the monitor page is registry-generated) + products.py (`/supermercados`) + scrapers.py (`/api/scrapers` control API) + legacy.py (registry-generated `/scraping-<slug>` aliases); HTTP layer only
+api/cli.py              `python -m api.cli` scraper runner: `list` + `run <slug>`, no Flask/gunicorn
 api/services/           products.py — ProductService.catalog(): grouping/dedupe/count logic
 api/routes.py           Scraper-control routes and the dead `/supermercado-*` routes only (being replaced) (blueprint `app_file2`)
 api/sockets.py          SocketIO singleton + notifyStatus(channel, message) + SocketIOReporter (scraper progress publisher)

@@ -210,6 +210,25 @@ thread, and progress arrives over Socket.IO (channel
 SuperMami needs no browser and no `?category=` (its category list is empty,
 any value is ignored).
 
+### Run a scraper from the shell — `python -m api.cli`
+
+The CLI runs the same `ScraperManager` the control API uses, without Flask,
+gunicorn or SocketIO (progress prints to stdout):
+
+```bash
+.venv/bin/python -m api.cli list                    # one line per registered scraper
+.venv/bin/python -m api.cli run disco               # run one scraper and wait
+.venv/bin/python -m api.cli run carrefour --category almacen
+```
+
+Exit codes: `0` succeeded, `1` failed, `2` stopped (including Ctrl+C — the
+CLI requests a cooperative stop before exiting), `3` scraper-control error
+(unknown slug, invalid category or already running; printed as a clean
+`error: …` line, no traceback).
+
+The `/scrape` monitor page is now generated from the same registry: one card
+per registered scraper, no hand-written HTML per supermarket.
+
 ## 6. Deploy — three contradictory stories, all currently broken
 
 | Path | Files | Status |
