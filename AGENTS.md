@@ -220,6 +220,19 @@ long-polling, and the WebSocket *transport upgrade* is not available. Do not
 "fix" this by adding a worker class without first removing `threading` from the
 picture — and note `gunicorn_config.py` is orphaned, so it changes nothing.
 
+**T-11 · Angular 21 no longer enables zone-driven change detection by itself.**
+The app boots with `platformBrowserDynamic().bootstrapModule(AppModule)`. Since
+the v21 migration that bootstrap does not render async updates: an
+`HttpClient` response assigns to the component and no render is ever scheduled,
+so `/#/dashboard` shows its layout with **no data** and no console error.
+`AppModule.providers` must include
+`provideZoneChangeDetection({ eventCoalescing: true })`; it is easy to delete as
+"redundant" and impossible to notice without a browser, because `adminpro` has
+**zero `*.spec.ts` files**. The diagnostic that found it: in `ng serve` (dev
+mode) `window.ng.getComponent(el).items` is populated while the DOM stays empty,
+and `ng.applyChanges(component)` renders it. Full record:
+`odd/tasks/angular-21-change-detection.md`.
+
 ## 8. Testing reality
 
 - Python: a pytest suite lives in `tests/`. Install the dev toolchain and run

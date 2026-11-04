@@ -198,6 +198,10 @@ export class DashboardComponent implements OnInit {
         break;
 
       case 'Hiperlibertad':
+      case 'HiperLibertad':
+      // La Anónima replaced HiperLibertad; documents stored under either name
+      // share the same comparison panel.
+      case 'La Anónima':
         this.itemsHiper = this.addRemoveItemByName(data, this.itemsHiper!);
         this.totalRow(this.gridApi2, this.itemsHiper);
         break;

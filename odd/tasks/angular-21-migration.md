@@ -128,6 +128,15 @@ recorded as trap T-11 in `AGENTS.md` so nobody reverts it.
 `ag-grid` was not touched, as predicted: `ag-grid-angular@32.3.9` peers
 `@angular/core >= 16`.
 
+### Post-migration regression (found 2026-11-04, fixed)
+
+After the v21 migration the app rendered static content only: every async update
+(an `HttpClient` response in `/#/dashboard`, for instance) was invisible, with
+no console error, because `platformBrowserDynamic` no longer implies zone-driven
+change detection on Angular 21. Fixed with `provideZoneChangeDetection({ eventCoalescing: true })`
+in `AppModule.providers` — see `odd/tasks/angular-21-change-detection.md` and
+trap **T-11** in `AGENTS.md`. It went unnoticed because `adminpro` has no specs.
+
 ### Open follow-ups (not done here)
 
 - `adminpro/package-lock.json` is **gitignored**, so installs are not

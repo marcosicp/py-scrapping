@@ -1,4 +1,4 @@
-import { CUSTOM_ELEMENTS_SCHEMA, NgModule } from '@angular/core';
+import { CUSTOM_ELEMENTS_SCHEMA, NgModule, provideZoneChangeDetection } from '@angular/core';
 import { BrowserModule } from '@angular/platform-browser';
 
 import { AppComponent } from './app.component';
@@ -45,5 +45,12 @@ import { TotalValueRenderer } from './pages/dashboard/cellRender';
         NoopAnimationsModule,
         MatGridListModule,
         MatIconModule,
-        AgGridModule], providers: [AppService, { provide: LocationStrategy, useClass: HashLocationStrategy }, provideHttpClient(withInterceptorsFromDi()),] })
+        AgGridModule], providers: [AppService,
+        // Angular 21 does not turn on zone-driven change detection on its own
+        // for a platformBrowserDynamic bootstrap: without this provider an
+        // async callback (an HttpClient response, for instance) updates the
+        // component and never schedules a render.
+        provideZoneChangeDetection({ eventCoalescing: true }),
+        { provide: LocationStrategy, useClass: HashLocationStrategy },
+        provideHttpClient(withInterceptorsFromDi()),] })
 export class AppModule {}
