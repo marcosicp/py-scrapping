@@ -1,57 +1,57 @@
-# Core Flask dependencies
-Flask==3.0.0
-Werkzeug==3.0.1
-Jinja2==3.1.2
-MarkupSafe==2.1.3
-itsdangerous==2.1.2
-click==8.1.7
+# Runtime dependencies — LaListita / preciosflaskpy
+#
+# Target interpreter: Python 3.15 (see .python-version, runtime.txt, Dockerfile).
+#
+# POLICY — read before adding anything here
+#   Only DIRECT dependencies are pinned in this file. Transitive dependencies are
+#   left unpinned on purpose so security patches flow in without a manual bump.
+#
+#   This file used to be a full `pip freeze`, which silently froze 2023-era
+#   transitive packages and accumulated 91 advisories without anyone noticing.
+#   Do not re-freeze transitives here. If you want reproducible installs, generate
+#   a separate lock and keep this file as the intent.
+#
+#   Every pin below was verified on Python 3.15 and audited with
+#   `uvx pip-audit` → 0 known vulnerabilities.
 
-# Flask extensions
-flask-socketio==5.3.6
-flask-cors==4.0.0
+# --- Web framework -----------------------------------------------------------
+Flask==3.1.3
+Werkzeug==3.1.9            # Flask's WSGI layer; Flask 3.1 requires >=3.1
+Jinja2==3.1.6
+flask-socketio==5.7.2
+flask-cors==6.0.5
 
-# Environment variables
-python-dotenv==1.0.0
+# --- Configuration -----------------------------------------------------------
+python-dotenv==1.2.4
 
-# Database
-pymongo==4.6.0
+# --- Database ---------------------------------------------------------------
+pymongo==4.19.0            # requires Python >=3.11; fine on 3.15
+# NOTE: never add a bare `bson` requirement — the standalone PyPI package shadows
+# pymongo's bundled bson and breaks the driver. Use `from bson import ...` only.
 
-# Web scraping
-beautifulsoup4==4.12.2
-bs4==0.0.1
-lxml==4.9.4
-requests==2.31.0
+# --- HTTP -------------------------------------------------------------------
+requests==2.34.2
+urllib3==2.8.0
+certifi==2026.10.23
+idna==3.20
+
+# --- Scraping ---------------------------------------------------------------
+selenium==4.52.0
+webdriver-manager==4.1.2
+beautifulsoup4==4.15.0
+lxml==6.1.3
+# lxml 5.2 moved `lxml.html.clean` into its own project and requests-html imports
+# it unconditionally. Without this, `import requests_html` fails outright.
+lxml_html_clean==0.4.6
+# Abandoned upstream (last release 2019) and incompatible with modern websockets
+# because its pinned pyppeteer calls connect(loop=...). See known-issues K-18.
 requests-html==0.10.0
-selenium==4.15.2
-webdriver-manager==4.0.1
-fake-useragent==1.4.0
-pyquery==2.0.0
-cssselect==1.2.0
 
-# HTTP and networking
-urllib3==2.2.0
-certifi==2023.11.17
-chardet==5.2.0
-idna==3.6
+# --- Server -----------------------------------------------------------------
+gunicorn==26.2.0
 
-# Server and deployment
-gunicorn==21.2.0
-uvicorn==0.24.0
-
-# Utilities
-python-dateutil==2.8.2
-six==1.16.0
-parse==1.19.1
-tqdm==4.66.1
-w3lib==2.1.2
-
-# Socket and async
-websockets==12.0
-greenlet==3.0.3
-h11==0.14.0
-
-# Data processing
-soupsieve==2.5
-
-# Development tools
-autopep8==2.0.4
+# Deliberately NOT listed (verified unused by application code):
+#   tqdm, fake_useragent, w3lib, parse, cssselect, pyquery, greenlet, six,
+#   h11, uvicorn, autopep8, websockets
+# They were carried as dead weight and several of them owned most of the advisory
+# count. Let the transitive resolver pull whatever the libraries genuinely need.
