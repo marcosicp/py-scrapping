@@ -12,6 +12,7 @@ from typing import Iterable
 
 from api.scrapers.base import BaseScraper
 from api.scrapers.carrefour import ScraperCarrefour
+from api.scrapers.changomas import ScraperChangoMas
 from api.scrapers.disco import ScraperDisco
 from api.scrapers.errors import UnknownScraper
 from api.scrapers.hiperlibertad import ScraperHiperLibertad
@@ -75,15 +76,12 @@ class ScraperRegistry:
 
 
 def default_registry() -> ScraperRegistry:
-    """The registry used by the app.
-
-    ScraperSuperMami (T7), ScraperHiperLibertad (T8), ScraperDisco
-    (T9) and ScraperCarrefour (T10) are ported; ChangoMás is still on the
-    legacy shape and gets registered here when it is ported (T11).
-    """
+    """The registry used by the app: all five supermarket scrapers, ported
+    to the scraper contract (T7-T11)."""
     registry = ScraperRegistry()
     registry.register(ScraperSuperMami)
     registry.register(ScraperHiperLibertad)
     registry.register(ScraperDisco)
     registry.register(ScraperCarrefour)
+    registry.register(ScraperChangoMas)
     return registry
