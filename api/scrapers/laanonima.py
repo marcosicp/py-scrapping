@@ -77,7 +77,8 @@ class ScraperLaAnonima(BaseScraper):
             if documents:
                 ctx.save(documents, categoria=categoria, subcategoria=slug)
 
-        ctx.report("PROCESO TERMINADO")
+        ctx.report("PROCESO DETENIDO" if ctx.should_stop()
+                   else "PROCESO TERMINADO")
 
     def _discover_nodes(self, ctx: ScrapeContext, node_url: str
                         ) -> list[tuple[str, str, str]]:

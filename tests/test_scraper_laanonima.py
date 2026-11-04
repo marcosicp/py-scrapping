@@ -336,11 +336,14 @@ def test_stop_between_nodes_never_requests_the_next_node(repository):
                            FakeResponse(200, item_list_html(
                                product("Galletitas Dulces 500 gr", "1", 100)))],
                           stop_event=stop_event, flip_stop_on=1)
-    ctx, _messages = make_ctx(session, repository, stop_event=stop_event)
+    ctx, messages = make_ctx(session, repository, stop_event=stop_event)
 
     ScraperLaAnonima().run(ctx)
 
     assert session.urls == [ALMACEN_URL, DESAYUNO_URL]
+    # A stopped run must not claim it finished.
+    assert messages[-1] == "PROCESO DETENIDO"
+    assert "PROCESO TERMINADO" not in messages
 
 
 def test_a_pre_cancelled_run_is_inert():
