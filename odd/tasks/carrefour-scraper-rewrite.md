@@ -142,10 +142,32 @@ Correction declared at 95 diff lines (budget maximum 200) and verified with
   invocation carries `--base-ref`. This is the same facade/binary defect the
   previous session hit (the installed `gentle-ai` is the unpinned 4.3.1 dev
   override, not the pinned 4.0.0), not a defect in this candidate.
-- Consequence: the lineage stays in `correction_required` with the correction
-  committed and verified but unacknowledged. Options are an owner decision:
-  leave it open, abandon it explicitly, or start a fresh review of the corrected
-  candidate.
+- Consequence: that lineage stays in `correction_required` with the correction
+  committed and verified but unacknowledged.
+
+### Second attempt: fresh review of the corrected candidate
+
+A new lineage was started for the corrected candidate with `baseRef=4f11e73`,
+which puts `api/helpers.py` **inside** the frozen scope from the start (so the
+`scope_changed` recover can never fire again).
+
+- Lineage `review-c4a3efb1e4e9e26f`, 10 files / 1571 lines, medium, same lens.
+- Reviewer admitted; it downgraded two of its own findings with
+  `unverified_location` (R3-002, R3-003).
+- The provider refuter then **terminated the lineage**: state `escalated`,
+  transition `stop` with `native_stop_required`, cause `unknown_causality` on
+  R3-002/R3-003, and R3-001 `corroborated` **with the proof string
+  `probe unavailable on pi`** — a corroboration with no probe behind it, the
+  same false-positive pattern recorded in the previous session.
+- A `stop` ends the transition and offers no correction route, so there is
+  nothing to act on and nothing to acknowledge. **This is not an approval.**
+
+Net review state for this feature: two open/terminal lineages
+(`review-b7fc109d455348b7` in `correction_required`,
+`review-c4a3efb1e4e9e26f` escalated/terminal) and no burned approval. What *is*
+verified independently of the review: 321 tests, a clean lint gate, and a live
+run of almacen storing 6187 documents, plus the two R3 findings fixed in
+`5c0c8d6`.
 
 ## Follow-ups
 
