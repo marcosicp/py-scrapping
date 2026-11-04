@@ -1,7 +1,10 @@
-"""Frontend blueprint: `/` (SPA bundle guard) and `/scrape` (monitor page) — T3.
+"""Frontend blueprint: `/` (SPA bundle guard) and `/scrape` (monitor page).
 
-Moved verbatim from ``api/routes.py``; these tests pin the legacy responses.
+T3 pinned the legacy responses; T13 renders `/scrape` from the scraper
+registry instead of the five hand-written cards.
 """
+
+from api.scrapers.registry import default_registry
 
 
 def test_missing_bundle_answers_503_text_plain(app, client, tmp_path):
@@ -25,3 +28,19 @@ def test_scrape_renders_the_monitor_page(client):
     response = client.get("/scrape")
     assert response.status_code == 200
     assert b"Carga de datos" in response.data
+
+
+def test_scrape_renders_one_card_per_registered_scraper(client):
+    response = client.get("/scrape")
+    html = response.data.decode("utf-8")
+    for cls in default_registry().classes():
+        assert cls.slug in html, f"missing slug {cls.slug}"
+        assert cls.label in html, f"missing label {cls.label}"
+        assert f"/scraping-{cls.slug}" in html
+        assert f"/scraping-{cls.slug}-stop" in html
+
+
+def test_scrape_uses_relative_urls_only(client):
+    html = client.get("/scrape").data.decode("utf-8")
+    assert "127.0.0.1" not in html
+    assert "http://" not in html

@@ -1,11 +1,15 @@
 """Frontend blueprint: the SPA root and the scrape monitor page.
 
-Moved verbatim from ``api/routes.py`` in T3; responses are unchanged.
+The SPA root moved verbatim from ``api/routes.py`` in T3. Since T13 the
+``/scrape`` monitor page is generated from the scraper registry instead
+of carrying five hand-written cards.
 """
 
 import os
 
 from flask import Blueprint, current_app, render_template, send_from_directory
+
+from api.container import get_services
 
 frontend = Blueprint("frontend", __name__)
 
@@ -27,4 +31,8 @@ def root():
 
 @frontend.route("/scrape")
 def scrape():
-    return render_template('scrape.html', todos=[])
+    manager = get_services().scrapers
+    scrapers = [{"slug": cls.slug, "label": cls.label,
+                 "categories": list(cls.categories)}
+                for cls in manager.registry.classes()]
+    return render_template('scrape.html', scrapers=scrapers, todos=[])

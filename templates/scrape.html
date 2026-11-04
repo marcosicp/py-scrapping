@@ -35,136 +35,83 @@
 		var socket = io();
 		socket.on("connect", function () {
 		});
-	</script>
 
-	<script>
-		function buscar(superTarget, categoria_) {
-			debugger;
-			var obj = { categoria: categoria_ };
-			const Http = new XMLHttpRequest();
-			const url='http://127.0.0.1:3000/scraping-'+ superTarget +'?category=' + categoria_;
+		// -- live state badges: one global channel carrying every snapshot.
+		socket.on("scraper-status", function (data) {
+			var badge = document.getElementById("state-" + data.slug);
+			if (badge) {
+				badge.textContent = data.state;
+			}
+		});
+
+		// -- start a run; the POST URL is relative and rendered by the template.
+		function buscar(superTarget, url) {
+			var input = document.getElementById(superTarget + "-param");
+			var category = input ? input.value : "";
+			var fullUrl = category ? url + "?category=" + encodeURIComponent(category) : url;
+			var Http = new XMLHttpRequest();
+			Http.open("POST", fullUrl);
+			Http.onreadystatechange = function () {
+				if (Http.readyState === 4 && Http.status === 409) {
+					setBadge(superTarget, "error: " + Http.responseText);
+				}
+			};
+			Http.send();
+		}
+
+		// -- request a cooperative stop for an active run.
+		function frenar(superTarget, url) {
+			var Http = new XMLHttpRequest();
 			Http.open("POST", url);
+			Http.onreadystatechange = function () {
+				if (Http.readyState === 4 && Http.status === 409) {
+					setBadge(superTarget, "error: " + Http.responseText);
+				}
+			};
 			Http.send();
-
-			// socket.emit("scraping-" + superTarget, obj);
-			socket.on("scraping-message-" + superTarget, function (param) {
-				$(".progress-bar-" + superTarget)
-					.append("<div>Procesando pagina: " + param + "</div>")
-			});
 		}
 
-		function frenar(superTarget, categoria) {
-			const url='http://127.0.0.1:3000/scraping-'+ superTarget+'?category=' + categoria_;
-			Http.open("GET", url);
-			Http.send();
-			
+		function setBadge(superTarget, text) {
+			var badge = document.getElementById("state-" + superTarget);
+			if (badge) {
+				badge.textContent = text;
+			}
 		}
 	</script>
-
-	<script></script>
 </head>
 
 <body>
-	<!-- <h1>Scrape</h1> -->
 	<hr>
 
 	<h1 class="font-bold text-3xl mt-5 mb-5 text-center">Carga de datos</h1>
 
 	<div class="flex flex-col sm:flex-row ... text-center">
+		{% for s in scrapers %}
 		<div class="flex-1 ...">
+			<h3>{{ s.label }}</h3>
+			<span id="state-{{ s.slug }}" class="state-badge-{{ s.slug }}">idle</span>
 			<button
 				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
-				onclick="buscar('carrefour', document.getElementById('carre-param').value)">Carrefour</button>
+				onclick="buscar('{{ s.slug }}', '/scraping-{{ s.slug }}')">Scrapear</button>
+			{% if s.categories %}
 			<div class="form-control-wrapper">
-				<input type="text" id="carre-param" class="form-control floating-label" placeholder="Categoria">
+				<input type="text" id="{{ s.slug }}-param" class="form-control floating-label"
+					placeholder="Categoria">
 			</div>
-
-			<div class="progress-bar-carrefour" style="width: 50%; margin: 50px">
-				<!-- <div class="progress-bar-carre progress-bar-striped active" role="progressbar" aria-valuenow="0"
-					aria-valuemin="0" aria-valuemax="100" style="width: 0%">
-					<span class="progress-bar-label-carre">0%</span>
-				</div> -->
-			</div>
+			{% endif %}
+			<div class="progress-bar-{{ s.slug }}" style="width: 50%; margin: 50px"></div>
 			<button
 				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
-				onclick="
-			frenar('scraping-carrefour-stop')">Frenar</button>
+				onclick="frenar('{{ s.slug }}', '/scraping-{{ s.slug }}-stop')">Frenar</button>
 		</div>
-		<div class="flex-1 ...">
-			<button
-				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
-				onclick="buscar('supermami', document.getElementById('mami-param').value)">SuperMami</button>
-				<div class="form-control-wrapper">
-					<input type="text" id="mami-param" class="form-control floating-label" placeholder="Categoria">
-				</div>
-			<div class="progress-bar-supermami" style="width: 50%; margin: 50px">
-				<!-- <div class="progress-bar-mami progress-bar-striped active" role="progressbar" aria-valuenow="0"
-					aria-valuemin="0" aria-valuemax="100" style="width: 0%">
-					<span class="progress-bar-label-mami">0%</span>
-				</div> -->
-			</div>
-			<button
-				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
-				onclick="
-				frenar('scraping-supermami-stop')">Frenar</button>
-		</div>
-		<div class="flex-1 ...">
-			<button
-				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
-				onclick="buscar('disco', document.getElementById('disco-param').value)">Disco</button>
-				<div class="form-control-wrapper">
-					<input type="text" id="disco-param" class="form-control floating-label" placeholder="Categoria">
-				</div>
-			<div class="progress-bar-disco" style="width: 50%; margin: 50px">
-				<!-- <div class="progress-bar-disco progress-bar-striped active" role="progressbar" aria-valuenow="0"
-					aria-valuemin="0" aria-valuemax="100" style="width: 0%">
-					<span class="progress-bar-label-disco">0%</span>
-				</div> -->
-			</div>
-			<button
-				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
-				onclick="
-				frenar('scraping-disco-stop')">Frenar</button>
-		</div>
-		<div class="flex-1 ...">
-			<button
-				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
-				onclick="
-				buscar('hiperlibertad', document.getElementById('hiper-param').value)">Hiperlibertad</button>
-				<div class="form-control-wrapper">
-					<input type="text" id="hiper-param" class="form-control floating-label" placeholder="Categoria">
-				</div>
-			<div class="progress-bar-hiperlibertad" style="width: 50%; margin: 50px">
-				<!-- <div class="progress-bar-hiper progress-bar-striped active" role="progressbar" aria-valuenow="0"
-					aria-valuemin="0" aria-valuemax="100" style="width: 0%">
-					<span class="progress-bar-label-hiper">0%</span>
-				</div> -->
-			</div>
-			<button
-				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
-				onclick="
-				frenar('scraping-hiperlibertad-stop')">Frenar</button>
-		</div>
-
-		<div class="flex-1 ...">
-			<button
-				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
-				onclick="
-				buscar('changomas', document.getElementById('changomas-param').value)">ChangoMas</button>
-				<div class="form-control-wrapper">
-					<input type="text" id="changomas-param" class="form-control floating-label" placeholder="Categoria">
-				</div>
-			<div class="progress-bar-changomas" style="width: 50%; margin: 50px">
-				<!-- <div class="progress-bar-hiper progress-bar-striped active" role="progressbar" aria-valuenow="0"
-					aria-valuemin="0" aria-valuemax="100" style="width: 0%">
-					<span class="progress-bar-label-hiper">0%</span>
-				</div> -->
-			</div>
-			<button
-				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
-				onclick="
-				frenar('scraping-changomas-stop')">Frenar</button>
-		</div>
+		<script type="text/javascript" charset="utf-8">
+			// -- progress for this card: one subscription, not one per click.
+			socket.on("scraping-message-{{ s.slug }}", function (param) {
+				$(".progress-bar-{{ s.slug }}")
+					.append("<div>Procesando pagina: " + param + "</div>");
+			});
+		</script>
+		{% endfor %}
 	</div>
 </body>
 
