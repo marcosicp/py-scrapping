@@ -489,11 +489,12 @@ through the `hiper` payload key the dashboard already renders.
   in a real La Anónima run, `Chizitos de maíz sabor a queso Cheetos Original x
   140 g` is stored as `... Cheetos Original x` + `unidad: "140 g"`
   (3011 documents, 2026-11-04). Every scraper that calls `name_parse` inherits it.
-- `name_parse` also mangles **decimal** quantities: the pattern's `\d+` starts at
-  the decimals, so `Aceite ... pet 1.5 lts` becomes `Aceite ... pet 1.` +
-  `unidad: "5 lts"` — measured in a real Carrefour run (6187 documents,
-  2026-11-04). Same root cause as the row above; fixing it changes every
-  scraper's `name`/`unidad` and needs its own validated work unit.
+- `name_parse` also mangled **decimal** quantities until the Carrefour review
+  (R3-002): the pattern's `\d+` started at the decimals, so
+  `Aceite ... pet 1.5 lts` was stored as `Aceite ... pet 1.` + `unidad: "5 lts"`
+  (measured in a real Carrefour run, 6187 documents, 2026-11-04). **Fixed**: the
+  quantity pattern now accepts `\d+(?:[.,]\d+)?` and the removal escapes the
+  match, so `1.5 lts` / `1,5 lts` survive whole. `tests/test_helpers.py` pins it.
 - Duplicate suppression is substring-based in the remaining mechanical ports
   (e.g. `api/scrapers/disco.py:149-152`), which drops legitimately distinct
   products whose names contain another product's name. `laanonima.py` (art id)

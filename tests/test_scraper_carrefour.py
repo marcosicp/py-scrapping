@@ -62,6 +62,18 @@ class FakeSession:
         return self._responses.pop(0)
 
 
+class RaisingSession:
+    """Session whose every GET fails, like a dead network."""
+
+    def __init__(self, error):
+        self.urls = []
+        self._error = error
+
+    def get(self, url, timeout=None, headers=None):
+        self.urls.append(url)
+        raise self._error
+
+
 @pytest.fixture(autouse=True)
 def fast_sleep(monkeypatch):
     """Neutralise the rate-limiting wait: unit tests never sleep."""
@@ -312,14 +324,28 @@ def test_a_page_that_is_not_2xx_is_reported_and_the_next_subcategory_runs(
     assert any("400" in message for message in messages)
 
 
-def test_a_tree_that_is_not_2xx_saves_nothing(repository):
+def test_a_tree_that_is_not_2xx_fails_the_run_instead_of_succeeding_empty(
+        repository):
+    """R3-001: a discovery outage must fail the run, not report success with
+    zero products while the previous slice stays in the database."""
     session = FakeSession([FakeResponse(500, None)])
     ctx, messages = make_ctx(session, repository)
 
-    ScraperCarrefour().run(ctx)
+    with pytest.raises(RuntimeError):
+        ScraperCarrefour().run(ctx)
 
     assert repository.calls == []
     assert any("500" in message for message in messages)
+
+
+def test_a_tree_network_failure_fails_the_run(repository):
+    session = RaisingSession(RuntimeError("network down"))
+    ctx, _messages = make_ctx(session, repository)
+
+    with pytest.raises(RuntimeError):
+        ScraperCarrefour().run(ctx)
+
+    assert repository.calls == []
 
 
 # -- 5. stop and infrastructure seams --------------------------------------

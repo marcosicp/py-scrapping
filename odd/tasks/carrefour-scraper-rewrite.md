@@ -104,6 +104,28 @@ the offer is missing, and `brand` is the payload's `brand`.
 - The tree's children **partition** almacén exactly, so saving per subcategory
   replaces every slice without leaving orphans.
 
+## Correction after the native review (R3-001, R3-002)
+
+The review opened a bounded correction with two **deterministic CRITICAL**
+findings, both introduced by this change:
+
+- **R3-001 — a discovery outage reported success.** `_fetch_tree` swallowed a
+  network error, a non-200 status or invalid JSON and returned `None`; the run
+  read that as "no subcategories" and still reported `PROCESO TERMINADO`, so a
+  total outage left the previous slice in place behind a green run. The previous
+  browser path propagated a driver failure, so this was a regression. **Fixed**:
+  the tree is now fatal — the error is reported and re-raised, the manager
+  records `failed`, and the CLI exits 1.
+- **R3-002 — decimal quantities corrupted names.** The unified mapper calls
+  `name_parse` on every product, including the requested-category path that used
+  to store raw names, and the helper split `pet 1.5 lts` into `pet 1.` +
+  `5 lts`. **Fixed in the shared helper**: the quantity pattern accepts
+  `\d+(?:[.,]\d+)?` and the removal escapes the match, so every scraper benefits
+  and `tests/test_helpers.py` pins the decimal cases.
+
+Correction declared at 95 diff lines (budget maximum 200) and verified with
+**321 passed / 9 skipped** and a clean flake8 gate.
+
 ## Follow-ups
 
 - `desayuno-y-merienda` was not run live (6768 products, ~140 more requests).

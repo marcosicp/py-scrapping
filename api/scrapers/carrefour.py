@@ -94,23 +94,30 @@ class ScraperCarrefour(BaseScraper):
     # -- category tree -------------------------------------------------------
 
     def _fetch_tree(self, ctx: ScrapeContext):
-        """The catalog tree, fetched at most once per run."""
+        """The catalog tree, fetched at most once per run.
+
+        A discovery outage is fatal on purpose (R3-001): reporting it as "no
+        subcategories" would end the run as a success with zero products and
+        leave a stale slice in the database, which is exactly what the
+        previous browser path did not do (a driver failure propagated).
+        """
         if self._tree is not None:
             return self._tree
         try:
             response = ctx.http.get(TREE_URL, timeout=30)
-        except Exception as exc:  # network failures must not kill the run
+        except Exception as exc:
             ctx.report(f"Error de red al leer el árbol de categorías: {exc}")
-            return None
+            raise
         if response.status_code != 200:
             ctx.report(f"Error {response.status_code} al leer el árbol de "
                        f"categorías")
-            return None
+            raise RuntimeError(
+                f"the category tree answered {response.status_code}")
         try:
             self._tree = response.json()
         except Exception as exc:
             ctx.report(f"Árbol de categorías inválido: {exc}")
-            return None
+            raise RuntimeError("the category tree is not valid JSON") from exc
         return self._tree
 
     def _discover_subcategories(self, ctx: ScrapeContext, categoria: str
