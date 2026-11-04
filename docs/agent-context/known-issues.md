@@ -20,7 +20,7 @@ Entry point for agents: [`AGENTS.md`](../../AGENTS.md).
 | [K-3](#k-3) | High | Data | **fixed** — database name centralized on `lalistitadev` |
 | [K-4](#k-4) | High | API | open — `/scraping-disco` thread misuse |
 | [K-5](#k-5) | High | Deploy | **fixed** — `main.py` exists, verified under gunicorn |
-| [K-6](#k-6) | High | Deploy | open — CI fails on every push |
+| [K-6](#k-6) | High | Deploy | **fixed** — pytest suite in `tests/`, CI installs dev deps (sha pending) |
 | [K-7](#k-7) | High | Scrapers | open — ChromeDriver 141 vs Chrome 156 |
 | [K-8](#k-8) | High | Data | open — Carrefour deletes before inserting |
 | [K-9](#k-9) | Medium | API | open — blocking scraper routes |
@@ -148,19 +148,24 @@ have deployed a service with dead realtime and no database.
 
 **Severity:** High (destroys the signal value of CI).
 
-`.github/workflows/python-app.yml` ends with `pytest`. The repo has zero Python
-test files and does not even list pytest in `requirements.txt` (the workflow
-installs it ad hoc). Pytest exits **5 — no tests collected**, which the job
+**Status: fixed — verified locally (pytest exit 0, flake8 gate 0); first run on
+GitHub Actions not yet observed.** (commit sha pending)
+
+The install step now reads `requirements-dev.txt` (`requirements.txt` plus
+pinned pytest and flake8), and a pytest suite lives in `tests/` (settings and
+app-factory tests, with fixtures in `tests/conftest.py`; the suite grows as the
+backend-architecture work proceeds).
+
+Original symptom, retained for searchability:
+
+`.github/workflows/python-app.yml` ends with `pytest`. The repo had zero Python
+test files and did not even list pytest in `requirements.txt` (the workflow
+installed it ad hoc). Pytest exited **5 — no tests collected**, which the job
 treats as failure.
 
 **Impact:** a permanently red check trains everyone to ignore CI. The only real
-gate today is `flake8 --select=E9,F63,F7,F82` (syntax + undefined names); the
-second flake8 invocation is `--exit-zero`.
-
-**Fix direction:** choose one — either add a real test suite (start with
-`name_parse` and `remove_duplicates_by_key`, both pure functions in
-`api/helpers.py`), or gate the step (`pytest … || [ $? -eq 5 ]`). Do not leave it
-red.
+gate was `flake8 --select=E9,F63,F7,F82` (syntax + undefined names); the second
+flake8 invocation is `--exit-zero`.
 
 ## <a id="k-7"></a>K-7 · ChromeDriver pinned to 141, Chrome is 156
 

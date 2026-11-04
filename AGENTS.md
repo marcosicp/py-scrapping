@@ -42,7 +42,8 @@ Browser ──► Flask (app.py, port 3000)
    anything under `.disco/ .carrefour/ .changomas/ .hiperlibertad/ .supermami/`.**
 4. **Do not "fix" the README to match the code by changing the code.** The README
    is stale in specific ways listed in §7. Correct the README.
-5. **No test suite exists.** Do not claim "tests pass". See §8.
+5. **A pytest suite exists in `tests/`** (see §8). Never claim a result you did
+   not observe — run it, or say you did not run it.
 6. **ChromeDriver is a hardcoded absolute path.** `/usr/local/bin/chromedriver-141`
    appears in four of the five scrapers. Scrapers cannot run without a driver
    matching the installed Chrome.
@@ -70,10 +71,12 @@ Browser ──► Flask (app.py, port 3000)
 ```
 app.py                  create_app() factory: CORS, SECRET_KEY, blueprint, SocketIO, Mongo
 main.py                 WSGI entry point — `gunicorn main:app` uses this
+api/config.py           Settings (frozen dataclass) resolved from SECRET_KEY/MONGODB_*
 api/routes.py           ALL HTTP endpoints (blueprint `app_file2`)
 api/sockets.py          SocketIO singleton + notifyStatus(channel, message)
 api/helpers.py          remove_duplicates_by_key(), name_parse() → {name, unidad}
 api/scrapers/*.py       One class per supermarket, uniform start/stop contract
+tests/                  pytest suite (settings + app factory; no network, no DB, no Chrome)
 adminpro/src/app/       Angular 21 source (dashboard, login, register, progress, grafica1)
 templates/scrape.html   The ONLY template a route renders (SocketIO monitor)
 docs/agent-context/     Deep dives for agents — read when you need detail
@@ -103,6 +106,14 @@ Full runbook with status per command:
 # recreate it only if it is missing or broken.
 python3.15 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+
+# Tests + flake8 (dev/CI toolchain; safe to run — no network, no DB, no Chrome)
+pip install -r requirements-dev.txt
+
+pytest
+
+# CI lint gate (the real one; the second workflow flake8 pass is --exit-zero)
+flake8 . --exclude .venv,adminpro,static,node_modules --select=E9,F63,F7,F82 --count
 
 # Frontend bundle — REQUIRED before `/` will answer; static/ is not versioned
 cd adminpro && npm ci && npm run build && cd ..
@@ -173,12 +184,8 @@ then crashes. `Procfile` runs `python app.py` with `debug=True`.
 `gunicorn_config.py` is orphaned. `app.yaml` (App Engine) and `manifest.yml`
 (Cloud Foundry, 128 MB — too small for Chrome) are leftovers.
 
-**T-4 · CI fails on every push.** `.github/workflows/python-app.yml` runs
-`pytest` with zero test files; pytest exits 5 ("no tests collected"). The
-`flake8` step is `--exit-zero` for everything except syntax errors.
-
-**T-5 · Hardcoded secrets and hosts.** `app.py:18` sets
-`SECRET_KEY = 'secret!'`. `adminpro/src/app/service/app.service.ts:21` hardcodes
+**T-5 · Hardcoded secrets and hosts.** `DEFAULT_SECRET_KEY = 'secret!'`
+(`api/config.py`) is the fallback for `SECRET_KEY`. `adminpro/src/app/service/app.service.ts:21` hardcodes
 `http://127.0.0.1:3000/supermercados` — there is no `environments/` directory, so
 the production API base URL cannot be configured per build.
 
@@ -209,15 +216,19 @@ picture — and note `gunicorn_config.py` is orphaned, so it changes nothing.
 
 ## 8. Testing reality
 
-- Python: **zero** test files, no `conftest.py`, no `pytest.ini`, `pytest` is not
-  even in `requirements.txt` (CI installs it ad hoc).
+- Python: a pytest suite lives in `tests/`. Install the dev toolchain and run
+  it with `pip install -r requirements-dev.txt && pytest` (`pytest.ini` already
+  points at `tests/`). No test touches the network, Chrome or a real database
+  (the Mongo fixtures use an unroutable URI).
 - Angular: karma + jasmine are configured in `adminpro/package.json` and
   `tsconfig.spec.json` exists, but there are **zero `*.spec.ts` files**.
 - `webdriver-manager` is a declared dependency but every scraper bypasses it.
 
-Consequence: verification in this repo is **manual and runtime**. When you change
-behavior, state exactly how you verified it (which endpoint, which log line,
-which UI path) and never assert a green test run.
+Consequence: watched behavior is covered by the pytest suite, but **live
+scraping is still verified manually** — the scrapers need Chrome, the pinned
+driver and a real database, none of which any test exercises. When you change
+behavior, state exactly how you verified it (which test, which endpoint, which
+log line, which UI path) and never assert a result you did not observe.
 
 ## 9. Conventions
 

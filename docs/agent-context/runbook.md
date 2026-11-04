@@ -62,6 +62,23 @@ Notes that will save you time:
 - `requests-html` is abandoned (2019) and its rendering path is broken; see
   known-issues K-18 before assuming any scraper works.
 
+### Run the tests
+
+```bash
+source .venv/bin/activate
+pip install -r requirements-dev.txt   # runtime deps + pytest + flake8
+pytest
+```
+
+✅ VERIFIED: `pytest` collects the suite in `tests/` and exits 0. No test touches
+the network, Chrome or a real database — the Mongo fixtures point at an
+unroutable URI (`mongodb://127.0.0.1:1/…`), so an accidental connection fails
+fast instead of reaching any server. The `flake8` gate used by CI is
+`flake8 . --exclude .venv,adminpro,static,node_modules --select=E9,F63,F7,F82 --count`.
+Settings (`SECRET_KEY`, `MONGODB_URI`, `MONGODB_DB`) are resolved in
+`api/config.py` (`Settings.from_env`); `app.py` consumes them via
+`create_app(settings)`.
+
 ## 2. Environment variables
 
 Create `.env` at the repo root (gitignored, never commit):
@@ -75,10 +92,10 @@ PORT=3000
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `MONGODB_URI` | `mongodb://localhost:27017/` | read by `_init_mongo`; the client is always created |
-| `MONGODB_DB` | `lalistitadev` | new; previously hardcoded and, worse, hardcoded to the wrong name (K-3) |
-| `SECRET_KEY` | `secret!` | configurable now; rotating it for real is K-13 |
-| `PORT` | `3000` | `python app.py` binds it; WSGI hosts inject it |
+| `MONGODB_URI` | `mongodb://localhost:27017/` | read by `Settings.from_env` → `_init_mongo`; the client is always created |
+| `MONGODB_DB` | `lalistitadev` | previously hardcoded and, worse, hardcoded to the wrong name (K-3) |
+| `SECRET_KEY` | `secret!` | legacy default kept; rotating it for real is K-13 |
+| `PORT` | `3000` | `python app.py` reads it in `__main__`; WSGI hosts inject it |
 
 The URI's own database segment is still ignored — `MONGODB_DB` wins. Collection:
 `productos`.
