@@ -51,6 +51,37 @@ the same unit.
   missing `_drop_throwaway` helper, and `RuntimeError: cannot join thread before it
   is started` from a re-entrant reporter.
 
+## Native review of this work unit
+
+Lineage `review-fbaf3142f49beede`, tier `medium`, one consolidated lens
+(`review-reliability`, 51 KB prompt) plus one refuter run. The lineage is now in
+`correction_required` for a single CRITICAL finding that does not hold.
+
+**`R3-001` (inferential, `api/services/scraping.py:232`) — false positive.**
+The claim is that publishing the run record before `thread.start()` exposes an
+unlocked window in which "a concurrent or re-entrant start can treat the run as
+inactive and install a second run". The single-flight guard is state-based, not
+liveness-based:
+
+```python
+with self._lock:
+    record = self._runs.get(slug)
+    if record is not None and record.state in ACTIVE_STATES:
+        raise AlreadyRunning(slug)
+```
+
+The record is inserted already `RUNNING`, so during the pre-start window a second
+`start()` raises `AlreadyRunning` and cannot install a second run. `status()`
+reports RUNNING, `stop()` sets the cooperative event before the worker begins (the
+worker then exits immediately), and `wait()` only joins a live thread. No path
+corrupts status or `stop`, and two scrapes for one slug remain impossible.
+
+The correction route is deliberately not used: there is nothing to correct, and the
+`recover` handoff after any correction is broken in the Pi facade (see the T3 entry
+in `backend-architecture.md`). The lineage is left open with its authority unburned
+and the finding documented here as rejected, so a later maintainer decision can
+abandon it explicitly instead of silently rewriting code to satisfy it.
+
 ## Verification
 
 `pytest` (full suite) plus the flake8 CI gate
