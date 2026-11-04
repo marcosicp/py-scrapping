@@ -35,4 +35,4 @@ def scrape():
     scrapers = [{"slug": cls.slug, "label": cls.label,
                  "categories": list(cls.categories)}
                 for cls in manager.registry.classes()]
-    return render_template('scrape.html', scrapers=scrapers, todos=[])
+    return render_template('scrape.html', scrapers=scrapers)

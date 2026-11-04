@@ -1,118 +1,411 @@
-<html>
-
+<!DOCTYPE html>
+<html lang="es">
 <head>
-	<title>Scrape</title>
-	<script src="//ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
-
-	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap.min.css">
-	</link>
-
-	<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/js/bootstrap.min.js"></script>
-
-
-	<link rel="stylesheet" type="text/css" href="{{ url_for('static',filename='assets/style.css')}}">
-	</link>
-
-	<script src="https://cdn.tailwindcss.com"></script>
-
-	<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"
-		integrity="sha512-q/dWJ3kcmjBLU4Qc47E4A9kTB4m3wuTY7vkFJDTZKjTs8jhyGQnaUrxa0Ytd0ssMZhbNua9hE+E7Qv1j+DyZwA=="
-		crossorigin="anonymous"></script>
-
-	<script>
-		tailwind.config = {
-			theme: {
-				extend: {
-					colors: {
-						clifford: '#da373d',
-					}
-				}
-			}
-		}
-	</script>
-
-	<script type="text/javascript" charset="utf-8">
-		var socket = io();
-		socket.on("connect", function () {
-		});
-
-		// -- live state badges: one global channel carrying every snapshot.
-		socket.on("scraper-status", function (data) {
-			var badge = document.getElementById("state-" + data.slug);
-			if (badge) {
-				badge.textContent = data.state;
-			}
-		});
-
-		// -- start a run; the POST URL is relative and rendered by the template.
-		function buscar(superTarget, url) {
-			var input = document.getElementById(superTarget + "-param");
-			var category = input ? input.value : "";
-			var fullUrl = category ? url + "?category=" + encodeURIComponent(category) : url;
-			var Http = new XMLHttpRequest();
-			Http.open("POST", fullUrl);
-			Http.onreadystatechange = function () {
-				if (Http.readyState === 4 && Http.status === 409) {
-					setBadge(superTarget, "error: " + Http.responseText);
-				}
-			};
-			Http.send();
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>LaListita · Carga de datos</title>
+	<!-- Self-contained admin page: no third-party script, style or font is
+	     loaded, and no realtime client library either. The snapshot from
+	     /api/scrapers already carries state, saved count, message and
+	     timestamps, so one poll per second keeps the page truthful. -->
+	<style>
+		:root {
+			--bg: #f6f7f9;
+			--surface: #ffffff;
+			--ink: #16181d;
+			--muted: #6b7280;
+			--line: #e3e6ea;
+			--accent: #1f6feb;
+			--ok: #1a7f37;
+			--warn: #9a6700;
+			--bad: #b42318;
+			--radius: 10px;
 		}
 
-		// -- request a cooperative stop for an active run.
-		function frenar(superTarget, url) {
-			var Http = new XMLHttpRequest();
-			Http.open("POST", url);
-			Http.onreadystatechange = function () {
-				if (Http.readyState === 4 && Http.status === 409) {
-					setBadge(superTarget, "error: " + Http.responseText);
-				}
-			};
-			Http.send();
+		* { box-sizing: border-box; }
+
+		body {
+			margin: 0;
+			padding: 24px 20px 48px;
+			background: var(--bg);
+			color: var(--ink);
+			font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 		}
 
-		function setBadge(superTarget, text) {
-			var badge = document.getElementById("state-" + superTarget);
-			if (badge) {
-				badge.textContent = text;
-			}
+		header, main, footer { max-width: 1180px; margin: 0 auto; }
+
+		h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.01em; }
+		.hint, .muted { color: var(--muted); font-size: 13px; }
+		.hint { margin: 0 0 20px; }
+
+		main {
+			display: grid;
+			grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+			gap: 16px;
 		}
-	</script>
+
+		.card {
+			background: var(--surface);
+			border: 1px solid var(--line);
+			border-radius: var(--radius);
+			padding: 16px;
+			display: flex;
+			flex-direction: column;
+			gap: 12px;
+		}
+
+		.card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+		.card-head h2 { font-size: 17px; margin: 0; }
+
+		.badge {
+			border-radius: 999px;
+			padding: 2px 10px;
+			font-size: 12px;
+			font-weight: 600;
+			text-transform: uppercase;
+			letter-spacing: 0.04em;
+			background: #eef0f3;
+			color: var(--muted);
+		}
+
+		.badge[data-state="running"] { background: #e4edff; color: var(--accent); }
+		.badge[data-state="stopping"] { background: #fdf2dc; color: var(--warn); }
+		.badge[data-state="succeeded"] { background: #e6f4ea; color: var(--ok); }
+		.badge[data-state="stopped"] { background: #fdf2dc; color: var(--warn); }
+		.badge[data-state="failed"] { background: #fdecea; color: var(--bad); }
+
+		.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+		select {
+			font: inherit;
+			color: var(--ink);
+			background: #fff;
+			border: 1px solid var(--line);
+			border-radius: 8px;
+			padding: 7px 9px;
+		}
+
+		.outcome { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; margin: 0; }
+		.outcome div { min-width: 0; }
+		.outcome dt { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+		.outcome dd { margin: 2px 0 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+		.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+		button {
+			font: inherit;
+			font-weight: 600;
+			border-radius: 8px;
+			padding: 8px 14px;
+			border: 1px solid transparent;
+			background: var(--accent);
+			color: #fff;
+			cursor: pointer;
+		}
+
+		button.secondary { background: #fff; color: var(--ink); border-color: var(--line); }
+		button.ghost { background: transparent; color: var(--muted); border-color: transparent; padding: 8px 6px; }
+		button:disabled { opacity: 0.45; cursor: not-allowed; }
+		button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+		.notice {
+			margin: 0;
+			padding: 8px 10px;
+			border-radius: 8px;
+			font-size: 13px;
+			background: #fdecea;
+			color: var(--bad);
+			border: 1px solid #f5c2c0;
+		}
+
+		.log {
+			margin: 0;
+			padding: 8px 10px;
+			list-style: none;
+			background: #0f1115;
+			color: #d6dae1;
+			border-radius: 8px;
+			font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+			max-height: 160px;
+			overflow-y: auto;
+		}
+
+		.log li { display: flex; gap: 8px; overflow-wrap: anywhere; }
+		.log time { color: #7d8694; flex: none; }
+		.log:empty::before { content: "sin eventos todavía"; color: #7d8694; }
+
+		footer { margin-top: 24px; }
+		code { font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+	</style>
 </head>
 
 <body>
-	<hr>
+	<header>
+		<h1>Carga de datos</h1>
+		<p class="hint">
+			Una corrida por supermercado, en el servidor. El estado se lee de
+			<code>/api/scrapers</code> cada segundo; podés recargar la página sin
+			perder una corrida en curso.
+		</p>
+	</header>
 
-	<h1 class="font-bold text-3xl mt-5 mb-5 text-center">Carga de datos</h1>
-
-	<div class="flex flex-col sm:flex-row ... text-center">
+	<main>
 		{% for s in scrapers %}
-		<div class="flex-1 ...">
-			<h3>{{ s.label }}</h3>
-			<span id="state-{{ s.slug }}" class="state-badge-{{ s.slug }}">idle</span>
-			<button
-				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
-				onclick="buscar('{{ s.slug }}', '/scraping-{{ s.slug }}')">Scrapear</button>
-			{% if s.categories %}
-			<div class="form-control-wrapper">
-				<input type="text" id="{{ s.slug }}-param" class="form-control floating-label"
-					placeholder="Categoria">
+		<section class="card" data-slug="{{ s.slug }}">
+			<div class="card-head">
+				<h2>{{ s.label }}</h2>
+				<span class="badge" data-role="state" data-state="idle">—</span>
 			</div>
-			{% endif %}
-			<div class="progress-bar-{{ s.slug }}" style="width: 50%; margin: 50px"></div>
-			<button
-				class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow"
-				onclick="frenar('{{ s.slug }}', '/scraping-{{ s.slug }}-stop')">Frenar</button>
-		</div>
-		<script type="text/javascript" charset="utf-8">
-			// -- progress for this card: one subscription, not one per click.
-			socket.on("scraping-message-{{ s.slug }}", function (param) {
-				$(".progress-bar-{{ s.slug }}")
-					.append("<div>Procesando pagina: " + param + "</div>");
-			});
-		</script>
-		{% endfor %}
-	</div>
-</body>
 
+			{% if s.categories %}
+			<label class="field">
+				Categoría
+				<select data-role="category">
+					{% for categoria in s.categories %}
+					<option value="{{ categoria }}">{{ categoria }}</option>
+					{% endfor %}
+				</select>
+			</label>
+			{% else %}
+			<p class="field muted">Este scraper no acepta categoría.</p>
+			{% endif %}
+
+			<dl class="outcome">
+				<div><dt>Guardados</dt><dd data-role="saved">—</dd></div>
+				<div><dt>Duración</dt><dd data-role="duration">—</dd></div>
+				<div><dt>Categoría corrida</dt><dd data-role="run-category">—</dd></div>
+				<div><dt>Último mensaje</dt><dd data-role="message">—</dd></div>
+			</dl>
+
+			<div class="actions">
+				<button type="button" data-action="start">Scrapear</button>
+				<button type="button" class="secondary" data-action="stop" disabled>Frenar</button>
+				<button type="button" class="ghost" data-action="clear">Limpiar log</button>
+			</div>
+
+			<p class="notice" data-role="notice" role="alert" hidden></p>
+			<ol class="log" data-role="log" aria-live="polite"></ol>
+		</section>
+		{% endfor %}
+	</main>
+
+	<footer>
+		<p class="muted">
+			Los errores del servidor se muestran por tarjeta: categoría rechazada
+			(400) incluye las categorías permitidas; 404 y 409 se muestran con su
+			causa.
+		</p>
+	</footer>
+
+	<script>
+		(function () {
+			"use strict";
+
+			var API = "/api/scrapers";
+			var POLL_MS = 1000;
+			var LOG_LIMIT = 120;
+
+			function byRole(root, role) { return root.querySelector('[data-role="' + role + '"]'); }
+
+			var cards = Array.prototype.map.call(
+				document.querySelectorAll("[data-slug]"),
+				function (root) {
+					return {
+						root: root,
+						slug: root.getAttribute("data-slug"),
+						state: byRole(root, "state"),
+						saved: byRole(root, "saved"),
+						duration: byRole(root, "duration"),
+						runCategory: byRole(root, "run-category"),
+						message: byRole(root, "message"),
+						notice: byRole(root, "notice"),
+						log: byRole(root, "log"),
+						select: byRole(root, "category"),
+						start: root.querySelector('[data-action="start"]'),
+						stop: root.querySelector('[data-action="stop"]'),
+						clear: root.querySelector('[data-action="clear"]'),
+						lastLogged: "",
+						busy: false
+					};
+				});
+
+			function showNotice(card, text) {
+				card.notice.textContent = text;
+				card.notice.hidden = false;
+			}
+
+			function clearNotice(card) {
+				card.notice.hidden = true;
+				card.notice.textContent = "";
+			}
+
+			function setBusy(card, busy) {
+				card.busy = busy;
+				if (!busy) { return; }
+				card.start.disabled = true;
+				card.stop.disabled = true;
+				if (card.select) { card.select.disabled = true; }
+			}
+
+			function describeError(status, payload) {
+				if (payload && payload.code === "invalid_category") {
+					var allowed = (payload.allowed || []).join(", ");
+					return "Categoría no permitida. Permitidas: " + allowed + ".";
+				}
+				if (payload && payload.code === "already_running") {
+					return "Ya hay una corrida en curso para este supermercado.";
+				}
+				if (payload && payload.code === "not_running") {
+					return "No hay ninguna corrida en curso para frenar.";
+				}
+				if (payload && payload.code === "unknown_scraper") {
+					return "El servidor no conoce este scraper (404).";
+				}
+				if (payload && payload.error) { return payload.error; }
+				return "El servidor respondió " + status + ".";
+			}
+
+			function formatDuration(milliseconds) {
+				if (!isFinite(milliseconds) || milliseconds < 0) { return "—"; }
+				var total = Math.floor(milliseconds / 1000);
+				var minutes = Math.floor(total / 60);
+				var seconds = total % 60;
+				return minutes > 0 ? minutes + " min " + seconds + " s" : seconds + " s";
+			}
+
+			function appendLog(card, text) {
+				var entry = document.createElement("li");
+				var stamp = document.createElement("time");
+				var body = document.createElement("span");
+				var now = new Date();
+				stamp.textContent = now.toLocaleTimeString("es-AR", { hour12: false });
+				body.textContent = text;
+				entry.appendChild(stamp);
+				entry.appendChild(body);
+
+				var atBottom = card.log.scrollTop + card.log.clientHeight >= card.log.scrollHeight - 8;
+				card.log.appendChild(entry);
+				while (card.log.children.length > LOG_LIMIT) {
+					card.log.removeChild(card.log.firstChild);
+				}
+				if (atBottom) { card.log.scrollTop = card.log.scrollHeight; }
+			}
+
+			function render(card, snapshot) {
+				var active = snapshot.active === true;
+				card.state.textContent = snapshot.state;
+				card.state.setAttribute("data-state", snapshot.state);
+
+				card.saved.textContent = snapshot.started_at && snapshot.saved != null
+					? String(snapshot.saved)
+					: "—";
+				card.runCategory.textContent = snapshot.category == null ? "—" : snapshot.category;
+				card.message.textContent = snapshot.message == null ? "—" : snapshot.message;
+
+				if (snapshot.started_at) {
+					var started = Date.parse(snapshot.started_at);
+					if (snapshot.finished_at) {
+						card.duration.textContent = formatDuration(Date.parse(snapshot.finished_at) - started);
+					} else if (active) {
+						card.duration.textContent = formatDuration(Date.now() - started);
+					} else {
+						card.duration.textContent = "—";
+					}
+				} else {
+					card.duration.textContent = "—";
+				}
+
+				card.start.disabled = active || card.busy;
+				card.stop.disabled = !active || snapshot.state === "stopping" || card.busy;
+				if (card.select) { card.select.disabled = active || card.busy; }
+
+				if (snapshot.message && snapshot.message !== card.lastLogged) {
+					card.lastLogged = snapshot.message;
+					appendLog(card, snapshot.message);
+				}
+			}
+
+			function applyPayload(card, payload) {
+				if (!payload || payload.slug !== card.slug) { return; }
+				// The notice is NOT cleared here: a 400/404/409 must stay on screen
+				// until the next user action, not vanish on the next poll.
+				render(card, payload);
+			}
+
+			function refresh() {
+				return fetch(API, { headers: { "Accept": "application/json" } })
+					.then(function (response) {
+						if (!response.ok) { throw new Error("HTTP " + response.status); }
+						return response.json();
+					})
+					.then(function (payload) {
+						var bySlug = {};
+						(payload.scrapers || []).forEach(function (snapshot) {
+							bySlug[snapshot.slug] = snapshot;
+						});
+						cards.forEach(function (card) {
+							if (bySlug[card.slug]) { applyPayload(card, bySlug[card.slug]); }
+						});
+					})
+					.catch(function (error) {
+						cards.forEach(function (card) {
+							showNotice(card, "No se pudo leer el estado: " + error.message);
+						});
+					});
+			}
+
+			function post(card, url) {
+				setBusy(card, true);
+				return fetch(url, { method: "POST", headers: { "Accept": "application/json" } })
+					.then(function (response) {
+						return response.json()
+							.catch(function () { return null; })
+							.then(function (payload) {
+								if (!response.ok) { throw { status: response.status, payload: payload }; }
+								return payload;
+							});
+					})
+					.then(function (payload) {
+						if (payload) { render(card, payload); }
+					})
+					.catch(function (error) {
+						if (error && error.status) {
+							showNotice(card, describeError(error.status, error.payload));
+						} else {
+							showNotice(card, "Falló la petición: " + (error && error.message ? error.message : error));
+						}
+					})
+					.then(function () {
+						setBusy(card, false);
+						return refresh();
+					});
+			}
+
+			cards.forEach(function (card) {
+				card.start.addEventListener("click", function () {
+					clearNotice(card);
+					var url = API + "/" + encodeURIComponent(card.slug) + "/start";
+					if (card.select && card.select.value) {
+						url += "?category=" + encodeURIComponent(card.select.value);
+					}
+					post(card, url);
+				});
+
+				card.stop.addEventListener("click", function () {
+					clearNotice(card);
+					post(card, API + "/" + encodeURIComponent(card.slug) + "/stop");
+				});
+
+				card.clear.addEventListener("click", function () {
+					card.log.textContent = "";
+					card.lastLogged = "";
+				});
+			});
+
+			refresh();
+			window.setInterval(function () {
+				if (!document.hidden) { refresh(); }
+			}, POLL_MS);
+		}());
+	</script>
+</body>
 </html>
