@@ -286,12 +286,42 @@ Operational lessons:
   lens); the same bindings must be resubmitted with `reviewerRunAcknowledged: true`
   before anything is admitted.
 
+### T2 `6790b1e` — approved
+
+| Item | Value |
+| --- | --- |
+| Lineage | `review-37a49549fd123556` — `approved`; burned revision `sha256:f4173af9…` |
+| Candidate | base `d310d6c` → `6790b1e`: 19 paths, 1058 lines, tier high, correction budget 200 |
+| Captured | 4/4 lenses (`order` 0..3) on the first attempt |
+| Risk reason | `shell_source` — shell in `.github/workflows/python-app.yml` |
+| Verdict | `approved`, no correction opened, authority burned |
+
+Scope note: the offered START route always uses the branch point as base, so a
+candidate of T*n* actually covers T1..T*n*. Only the frontier commit is new; the
+earlier commits in that range were already reviewed and burned, and re-admitting
+them is not a re-review of their authority.
+
+Advisory findings (non-blocking, separate later work):
+
+| ID | Lens | Location | Severity |
+| --- | --- | --- | --- |
+| R1-001 | risk | `api/config.py:21` | WARNING |
+| R1-002 | risk | `tests/test_product_repository.py:32-54` | SUGGESTION |
+| R2-001 | readability | `docs/agent-context/runbook.md:78-81` | WARNING |
+| R2-002 | readability | `tests/fakes.py:143-144` | WARNING |
+| R2-003 | readability | `tests/test_app_factory.py:45-49` | SUGGESTION |
+| R2-004 | readability | `odd/tasks/backend-architecture.md:137-138` | SUGGESTION |
+| R3-001 | reliability | `tests/test_app_factory.py:29-49` | WARNING |
+| R3-002 | reliability | `tests/test_app_factory.py:35-40` | WARNING |
+| R3-003 | reliability | `tests/test_product_repository.py:43-56` | WARNING |
+| R4-001 | resilience | `api/repositories/products.py:90-95` | WARNING |
+
 ### Remaining work units
 
 Each needs its own pinned worktree, its own lineage and its own four lenses:
 
-T2 `6790b1e`, T3 `df6a442`, T4 `052aeda`, T5 `7ff8ff2`, T6 `a4bbd18`, T7 `742e63e`,
-T8 `e9de3c7`, T9 `4665c1c`, T10 `5a3bc9c`, T11 `9d9248d`, T12 `da9f375`, T13 `c98b200`,
+T3 `df6a442`, T4 `052aeda`, T5 `7ff8ff2`, T6 `a4bbd18`, T7 `742e63e`, T8 `e9de3c7`,
+T9 `4665c1c`, T10 `5a3bc9c`, T11 `9d9248d`, T12 `da9f375`, T13 `c98b200`,
 T14a `30b20cb`, T14b `10fc059`.
 
 Blocker encountered: the lens agents were pinned to `opencode-go/deepseek-v4-flash`,
