@@ -187,8 +187,13 @@ the allowed list (SuperMami and ChangoMas accept no category — any value is
 ignored). The deprecated `POST /scraping-<slug>` / `GET|POST
 /scraping-<slug>-stop` aliases do the same and return `{"success": true}`.
 
-Watch progress at <http://localhost:3000/scrape> (Socket.IO channels
-`scraping-message-<slug>` plus aggregated `scraper-status` snapshots).
+Watch progress at <http://localhost:3000/scrape>: the admin page renders one
+card per registered scraper, reads its state from `GET /api/scrapers` on load
+and once per second, and starts/stops runs through the same API. It loads no
+third-party asset and needs no realtime client. The Socket.IO channels
+(`scraping-message-<slug>` and the aggregated `scraper-status`) are still
+emitted by `api/sockets.py`, but no page subscribes to them any more: removing
+them is an open decision, not a cleanup someone should do silently.
 
 Before any of this works:
 

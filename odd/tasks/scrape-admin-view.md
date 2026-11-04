@@ -1,6 +1,6 @@
 # Feature: admin /scrape view + La Anónima scraper
 
-STATUS: IN PROGRESS
+STATUS: DONE (T1-T3)
 Branch: `feat/scrape-admin-view` (from `main@a695e86`)
 Owner request: "trabajemos en la vista de /scrape y empecemos por un solo scraper
 como el de super mami, probemos con una sola categoria. Esta vista es solo para mi
@@ -70,35 +70,68 @@ open in `docs/agent-context/known-issues.md` as the pre-deploy gate.
 
 ## Tasks
 
-- [ ] **T1 — La Anónima scraper replaces HiperLibertad.** Rename to
-  `laanonima`; discover the n2 nodes from the menu; one GET per node; read the
-  JSON-LD `ItemList`; save per subcategory. Test-first with canned menu and
-  ItemList HTML (no network). Registry, docs and every test that names
-  `hiperlibertad` reconciled in the same commit.
-- [ ] **T2 — `/scrape` rewrite.** Valid HTML5 (`<!DOCTYPE>`, `charset`,
-  viewport), self-contained CSS, one card per registry scraper built from
-  registry data, `<select>` of the scraper's categories (free text only when the
-  scraper accepts no category), buttons against `/api/scrapers/<slug>/start|stop`,
-  full error surface (400 `invalid_category` with `allowed`, 404, 409), initial
-  state fetched on load, button enable/disable from `active`, bounded progress
-  log, and the outcome panel: `state`, `category`, `saved`, duration from
-  `started_at`/`finished_at`, `message`.
-- [ ] **T3 — Close.** Docs (`AGENTS.md`, `docs/agent-context/repo-map.md`,
-  `README.md`, `known-issues.md` dispositions), full `pytest` + flake8 CI gate,
-  and a real verification: CLI run of `laanonima` against the live site with a
-  Mongo count per `subcategoria`, plus a browser pass over `/scrape` starting and
-  stopping a run.
+- [x] **T1 — La Anónima scraper replaces HiperLibertad** (`d852a5d`). Renamed to
+  `laanonima`; the n2 nodes are discovered from the menu; one GET per node;
+  the JSON-LD `ItemList` is the source; saved per subcategory. Test-first with
+  canned menu and ItemList HTML (15 new tests). Registry, `ProductService`
+  bucketing, `AGENTS.md` and `docs/agent-context/` reconciled in the same
+  commit; the legacy module and its 11 tests are gone.
+- [x] **T2 — `/scrape` rewrite** (`3c714a2`). Valid HTML5 document, self-contained
+  `<style>`, registry-driven cards, category `<select>`, buttons against
+  `/api/scrapers/<slug>/start|stop`, initial state from `GET /api/scrapers` plus
+  one poll per second, full error surface (400 with `allowed`, 404, 409),
+  `active`-driven button states, bounded log and an outcome panel.
+  Follow-up fix in the same task: a cancelled run reported `PROCESO TERMINADO`
+  (`6a550c8`).
+- [x] **T3 — Close.** Docs updated (`AGENTS.md`, `repo-map.md`, `runbook.md`,
+  `known-issues.md` dispositions), full suite and lint gate green, and the
+  verification below actually run.
 
-## Verification plan
+## Verification observed
 
-- `pytest` (baseline 291 passed / 9 skipped) and the flake8 CI gate
-  (`--select=E9,F63,F7,F82 --count`) at zero.
-- La Anónima: canned-HTML unit tests for discovery, JSON-LD parsing, dedupe,
-  missing price, empty node and stop; then a live CLI run and
-  `db.productos.aggregate(group by subcategoria)`.
-- `/scrape`: browser check — reload during an active run shows `running` and the
-  disabled state; a 400 surfaces the allowed categories; the log stays bounded;
-  the outcome panel shows `saved` and duration.
+| Check | Result |
+| --- | --- |
+| `pytest` | 301 passed / 9 skipped (baseline was 291 / 9) |
+| flake8 CI gate (`--select=E9,F63,F7,F82 --count`) | 0 |
+| `flake8 --select=F401,F811,F821` on touched files | 0 |
+| `python -m api.cli list` | `supermami, laanonima, disco, carrefour, changomas` with their categories |
+| Live CLI run `python -m api.cli run laanonima` | exit 0, **11 subcategorías, 3011 documents**, `state: succeeded` |
+| Mongo | `supermercado` only `La Anónima`; 11 `subcategoria` values |
+| `GET /supermercados` | `hiper = 2792` (dedupe by name), payload keys unchanged |
+| `GET /scraping-laanonima-stop` | 409 `not_running` (route exists) |
+| `GET /scraping-hiperlibertad-stop` | 404 (alias gone, as decided) |
+| Browser, initial load | 5 cards, state from the API (not the literal `—`), start enabled / stop disabled, `<select>` only on the 3 scrapers with categories |
+| Browser, forced 409 | notice shown and still visible after two polls |
+| Browser, start → stop on La Anónima | `running` (buttons flip, select disabled) → `saved 1112`, `duration 7 s`, message advancing, log appending → `stopping` → `stopped`, saved 1669 |
+| `node --check` on the page script | syntax clean |
+
+## Findings worth keeping
+
+- `ProductService.catalog()` buckets by **substring of `supermercado`** with the
+  keys Angular reads (`carre`, `disco`, `mami`, `hiper`). Renaming the chain
+  without touching it would have persisted data the dashboard silently drops;
+  La Anónima now lands in the `hiper` bucket along with any legacy
+  `HiperLibertad` documents.
+- The site's n1 page reports 201 products while one of its n2 children reports
+  373: the n1 page is truncated, so it is not a valid source. Only the n2 level
+  is complete.
+- `name_parse` leaves a dangling ` x` when the unit is preceded by one; recorded
+  in `known-issues.md` minor observations with the measured example.
+- The header's `<link>` to `static/assets/style.css` could never work: that path
+  belongs to the Angular bundle, which does not emit it. Inline `<style>` cannot
+  regress the same way.
+
+## Follow-ups (not done here)
+
+- **Socket.IO has no consumer left.** `api/sockets.py`, the
+  `scraping-message-<slug>` and `scraper-status` channels still exist and still
+  emit, but `/scrape` no longer subscribes. Either remove them (and the
+  container wiring) or declare a consumer — an explicit decision, not a silent
+  cleanup.
+- `README.md` is still stale in ways this feature did not cause (`Angular 16`,
+  the deleted `scrap_*.py` tree, the Selenium-per-chain table). AGENTS rule 4
+  says correct the README; it deserves its own reviewed work unit.
+- `/scrape` stays unauthenticated (D8). K-13 remains the pre-deploy gate.
 
 ## Risks
 

@@ -103,7 +103,7 @@ aliases, all thin HTTP shells over services.
 | Method | Path | Handler | Real behavior |
 | --- | --- | --- | --- |
 | GET | `/` | `frontend.root` | `send_from_directory(static, index.html)`; **503 with the build command** when the bundle is absent |
-| GET | `/scrape` | `frontend.scrape` | renders `templates/scrape.html` from the registry (one card per registered scraper) |
+| GET | `/scrape` | `frontend.scrape` | renders `templates/scrape.html` from the registry (one card per registered scraper). Self-contained: one `<style>` block, no third-party request, no realtime client — the cards poll `GET /api/scrapers` once per second and POST `/api/scrapers/<slug>/start|stop` |
 | GET | `/<path:filename>` | Flask static | serves the Angular bundle from `static/` |
 
 ### `api/blueprints/products.py`
@@ -140,7 +140,8 @@ For each registered slug (`supermami`, `laanonima`, `disco`, `carrefour`,
 | POST | `/scraping-<slug>` | alias of `/api/scrapers/<slug>/start` — 202, or the same error codes with `{"success": false, ...}` |
 | GET/POST | `/scraping-<slug>-stop` | alias of `/api/scrapers/<slug>/stop` — `{"success": true}` on 200 |
 
-DEPRECATED: they exist for the legacy `/scrape` page and scripts. Unlike the
+DEPRECATED: they existed for the old `/scrape` page, which now calls the
+`/api/scrapers` routes directly. Unlike the API they
 deleted `api/routes.py` routes they never block the request and never run a
 second copy of the same scraper (a second start is a clean 409).
 

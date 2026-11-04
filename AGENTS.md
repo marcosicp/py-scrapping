@@ -93,7 +93,7 @@ api/scrapers/http.py    Shared HTTP session with the legacy browser User-Agent (
 api/scrapers/           One BaseScraper subclass per supermarket: supermami, laanonima, disco, carrefour, changomas
 tests/                  pytest suite (291 passed / 9 skipped by default; no network, no DB, no Chrome)
 adminpro/src/app/       Angular 21 source (dashboard, login, register, progress, grafica1)
-templates/scrape.html   The ONLY template a route renders (SocketIO monitor, registry-generated)
+templates/scrape.html   The ONLY template a route renders (self-contained admin panel: own CSS, no third-party asset, polls /api/scrapers; registry-generated)
 docs/agent-context/     Deep dives for agents — read when you need detail
 odd/tasks/              ODD feature documents
 static/                 Angular build output — GITIGNORED, build it locally

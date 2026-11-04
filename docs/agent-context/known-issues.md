@@ -484,7 +484,11 @@ through the `hiper` payload key the dashboard already renders.
 ## Minor observations (not filed)
 
 - `name_parse`'s regex includes bare `m` as a unit (`api/helpers.py:17`), so a
-  name containing "100 m" can be mis-parsed. It also strips only the first match.
+  name containing "100 m" can be mis-parsed. It also strips only the first match,
+  and it leaves a dangling separator when the unit is preceded by one: measured
+  in a real La Anónima run, `Chizitos de maíz sabor a queso Cheetos Original x
+  140 g` is stored as `... Cheetos Original x` + `unidad: "140 g"`
+  (3011 documents, 2026-11-04). Every scraper that calls `name_parse` inherits it.
 - Duplicate suppression is substring-based, still live in the ported scrapers
   (e.g. `api/scrapers/disco.py:149-152`, `api/scrapers/carrefour.py:178`), which
   drops legitimately distinct products whose names contain another product's name.
