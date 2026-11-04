@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress |
+| Status | done — 20 commits on the branch, none pushed |
 | Owner | el Gentleman (parent orchestrator) |
 | Branch | `feat/backend-architecture` (local; **no push** — push/PR are the owner's call) |
 | Created | 2026-11-04 |
@@ -145,9 +145,9 @@ tests/                      pytest suite (fakes in tests/fakes.py)
 - [x] T9 Port Disco
 - [x] T10 Port Carrefour
 - [x] T11 Port ChangoMás
-- [ ] T12 CLI runner `python -m api.cli`
-- [ ] T13 `/scrape` page generated from the registry; working per-supermarket start/stop; relative URLs
-- [ ] T14 Cleanup + docs: delete `api/routes.py` (K-11) and the `notifyStatus` shim, drop `requests-html` (K-18), reconcile AGENTS.md / repo-map / runbook / known-issues
+- [x] T12 CLI runner `python -m api.cli`
+- [x] T13 `/scrape` page generated from the registry; working per-supermarket start/stop; relative URLs
+- [x] T14 Cleanup + docs: delete `api/routes.py` (K-11) and the `notifyStatus` shim, drop `requests-html` (K-18), reconcile AGENTS.md / repo-map / runbook / known-issues
 
 ## Verification plan
 
@@ -207,3 +207,40 @@ ports, (4) T12–T14 CLI, UI, cleanup. Running authored-line count is recorded b
 | T9 | `4665c1c` | 5 paths | mechanical port; three documented decisions (page 1 stays uncollected, errors propagate, dead `arender` deleted); differential pins driver visits, page URLs and documents; K-4 closed with its route; `239 passed` |
 | T10 | `5a3bc9c` | 5 paths | both legacy collection paths kept (Path A json-LD over HTTP without `unidad`; Path B driver + `name_parse`); **legacy Path A never worked** (`"Scrapeando categoria: " + dict` → TypeError) and the port fixes the message; empty results no longer wipe the slice; two differentials; `262 passed` |
 | T11 | `9d9248d` | 5 paths | last port; async-with-no-await → sync; Selenium waits behind a lazy testable seam; **K-12 scraper half done** (`.changomas/*.json` → repository, `categoria=almacen`, `subcategoria=<section>`), API half open; all five registered, so every `/scraping-<slug>(-stop)` alias exists and Disco/HiperLibertad gained stop endpoints; `280 passed`, suite 1.4 s |
+| T12 | `da9f375` | 4 paths | `python -m api.cli list` and `run <slug> [--category]` with exit codes 0/1/2/3 and Ctrl+C → cooperative stop; 9 offline CLI tests; `run ghost` exits 3 with a clean error |
+| T13 | `c98b200` | 4 paths | `/scrape` generated from the registry (one card per scraper), relative URLs, the broken `frenar()` fixed, 409 surfaced in the card, one `scraper-status` listener |
+| T14a | `30b20cb` | 22 paths (5 files deleted) | `api/routes.py` (K-11), the five `scrap_*.py`, `notifyStatus` and the differentials deleted; `requests-html`, `lxml_html_clean`, `webdriver-manager` dropped (K-18); 291 → 281 tests, green; route set 22 → 18 |
+| T14b | `10fc059` | 6 paths | docs reconciled: AGENTS (§2/§3/§4/§5/§6/§7/§8), known-issues (11 dispositions, 36 citations re-verified), repo-map (layers + 18 routes), runbook, copilot pointer |
+
+## Close
+
+**Done:** the backend has layers (blueprints → services → repositories/registry →
+infrastructure) with one composition root, and each supermarket is an independent,
+individually runnable scraper: `POST /api/scrapers/<slug>/start|stop`,
+`GET /api/scrapers[/<slug>]`, the legacy `/scraping-<slug>` aliases, the registry-driven
+`/scrape` page and `python -m api.cli run <slug>`. Adding a supermarket is one module
+plus one registration line.
+
+**Verified:** 281 tests green (`pytest`, ~1.3 s), flake8 CI gate 0, F401/F811/F821 0,
+18 routes, `/scrape` renders five cards, CLI lists five scrapers. Behaviour-preservation
+evidence: an old-vs-new differential on 600 randomized `/supermercados` payloads (0
+mismatches) and, before the legacy modules were deleted, legacy-vs-port differentials
+over identical canned HTML/JSON for all five scrapers.
+
+**Not verified (requires the owner):** no live scrape was run — every scraper needs
+Chrome, the real sites and a real MongoDB. The first supervised smoke run should be
+`python -m api.cli run hiperlibertad` (the only one that needs no browser) and then
+`disco`, watching `CHROME_HEADLESS=1` behaviour and the documents landing in Mongo.
+
+**Follow-ups (deliberately out of scope):**
+- README is still stale (AGENTS rule 4): it documents Angular 16/Python 3.11 and the
+  old scraper list.
+- K-12 API half: `/supermercados` and the dashboard still ignore the `ChangoMas` group.
+- Disco never collects page 1; SuperMami caps at 2 pages; Carrefour Path A stores no
+  `unidad`. Each needs a real run to validate a fix.
+- K-13 (auth on the control routes, CORS, `SECRET_KEY` rotation), K-15, K-17
+  (aggregation + indexes) remain open.
+- `api/models/productos.py`, `templates/index*.html`, `gunicorn_config.py`,
+  `app.yaml`, `manifest.yml` are still dead files.
+- A queue-based runner (RQ/Celery) is the natural next step if the app ever needs more
+  than one worker; the `ScraperManager` seam is where it plugs in.
