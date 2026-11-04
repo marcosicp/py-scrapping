@@ -489,9 +489,15 @@ through the `hiper` payload key the dashboard already renders.
   in a real La Anónima run, `Chizitos de maíz sabor a queso Cheetos Original x
   140 g` is stored as `... Cheetos Original x` + `unidad: "140 g"`
   (3011 documents, 2026-11-04). Every scraper that calls `name_parse` inherits it.
-- Duplicate suppression is substring-based, still live in the ported scrapers
-  (e.g. `api/scrapers/disco.py:149-152`, `api/scrapers/carrefour.py:178`), which
-  drops legitimately distinct products whose names contain another product's name.
+- `name_parse` also mangles **decimal** quantities: the pattern's `\d+` starts at
+  the decimals, so `Aceite ... pet 1.5 lts` becomes `Aceite ... pet 1.` +
+  `unidad: "5 lts"` — measured in a real Carrefour run (6187 documents,
+  2026-11-04). Same root cause as the row above; fixing it changes every
+  scraper's `name`/`unidad` and needs its own validated work unit.
+- Duplicate suppression is substring-based in the remaining mechanical ports
+  (e.g. `api/scrapers/disco.py:149-152`), which drops legitimately distinct
+  products whose names contain another product's name. `laanonima.py` (art id)
+  and `carrefour.py` (`productId`) dedupe by identity instead.
 - Driver cleanup is now uniform: `ctx.browser()` quits the driver in a `finally`
   (`api/scrapers/base.py`), so the old "only ChangoMás closes its driver" leak is
   gone.

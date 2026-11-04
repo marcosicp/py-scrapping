@@ -179,9 +179,13 @@ in [`docs/agent-context/known-issues.md`](docs/agent-context/known-issues.md)):
 
 - **Disco never collects page 1** — the paging loop starts at `?page=2`
   (`api/scrapers/disco.py:108`).
-- **Carrefour has two collection paths** (requested category via HTTP +
-  JSON-LD without `name_parse`/`unidad`; all categories via the driver +
-  `name_parse`) — `api/scrapers/carrefour.py:118,203`.
+- **Carrefour reads the VTEX catalog API, never the HTML.** `/almacen` is a
+  4.7 MB VTEX shell with no JSON-LD; the products come from
+  `/api/catalog_system/pub/products/search`. That API answers **400 for
+  `_from=2501`**, and almacén holds 6188 products, so the run walks the level-2
+  categories discovered from `/api/catalog_system/pub/category/tree/2` (whose
+  children partition the parent exactly). Do not "simplify" it into one flat
+  paged crawl: the last ~1400 products would silently vanish.
 - **ChangoMás re-fetches the discovery page in its page loop**
   (`api/scrapers/changomas.py:152`) and is persisted but still not shown by
   `/supermercados` (K-12, API half open).

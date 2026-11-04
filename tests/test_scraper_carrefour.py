@@ -1,17 +1,14 @@
-"""Carrefour port (T10): offline fake-driver/fake-HTTP behavior.
+"""Carrefour scraper: offline behavior against the VTEX catalog API.
 
-Every test runs the ported scraper end to end against canned pages: exact
-driver/HTTP request order, stored documents, progress messages and the
-console output. The legacy-vs-port differential suite that used to
-accompany these tests was removed with the legacy module in T14; the
-tests here still pin the ported quirks for BOTH collection paths:
+Carrefour's `/almacen` is a 4.7 MB VTEX shell with no JSON-LD, so the collector
+reads `/api/catalog_system/pub/products/search`, which answers JSON plus a
+`resources: from-to/total` header. The offset ceiling is 2500
+(`_from=2501` → 400) against 6188 products in almacén, so the run walks the
+level-2 categories discovered from `/api/catalog_system/pub/category/tree/2`:
+measured live, almacén's ten children partition the parent exactly.
 
-- Path A (a category was requested): json-LD ``template`` extraction over
-  the HTTP session, documents WITHOUT ``unidad``, no browser at all, and
-  the ``total == 0`` abort of the whole run.
-- Path B (no category): driver visits, ``render-provider`` script JSON,
-  documents WITH ``unidad``, one save per category, plus the empty-result
-  no-op keep-slice behavior on Path A.
+These tests pin that design: tree discovery, the header as the paging bound,
+`productId` identity, per-subcategory saves, and the absence of a browser.
 """
 import json
 import threading
@@ -20,191 +17,54 @@ from types import SimpleNamespace
 import pytest
 
 from api.scrapers.base import ScrapeContext
-from api.scrapers.carrefour import ScraperCarrefour
-
-# -- canned scenario ---------------------------------------------------------
-#
-# total 49 -> range(1, int(49/16)) == range(1, 3) -> pages 1 and 2
-# total 33 -> range(1, int(33/16)) == range(1, 2) -> page 1 only
-# total 65 -> range(1, int(65/16)) == range(1, 4) -> pages 1, 2 and 3
-SUB1 = "aceites-y-vinagres"        # almacen
-SUB2 = "snacks"                    # almacen
-SUB3 = "cafe"                      # desayuno-y-merienda
-SUB_EMPTY = "arroz-y-legumbres"    # almacen (total 0 in the skip test)
-
-SCROLL_SCRIPT = "window.scrollTo(0, document.body.scrollHeight);"
-TOTAL_CLASS_A = "valtech-carrefourar-search-result-0-x-totalProducts--layout"
-
-
-def base_url(categoria, subCategory):
-    return f"https://www.carrefour.com.ar/{categoria}/{subCategory}"
-
-
-def page_url(categoria, subCategory, i):
-    return f"https://www.carrefour.com.ar/{categoria}/{subCategory}?page={i}"
-
-
-def ld_item(name, brand, sku, price):
-    """One product in the shape Carrefour's embedded json-LD itemListElement has."""
-    return {"item": {"name": name, "brand": {"name": brand}, "sku": sku,
-                     "offers": {"lowPrice": price}}}
-
-
-def base_page(total):
-    """A page-1 body whose product total lives in the totalProducts element."""
-    return ('<html><body>'
-            f'<div class="{TOTAL_CLASS_A}">{total} productos</div>'
-            '</body></html>')
-
-
-def template_page(items):
-    """A page whose product list lives in the embedded json-LD template.
-
-    The script tag must follow the template tag with NO whitespace between
-    them: the scraper reads ``anchors[0].next``, the very next node in the
-    parse tree, and skips the page unless it is a script tag.
-    """
-    payload = json.dumps({"itemListElement": items})
-    return ('<html><body>'
-            '<template data-type="json" data-varname="__STATE__">'
-            '<script type="application/ld+json">' + payload + '</script>'
-            '</template></body></html>')
-
-
-def no_template_page():
-    """A page with no json-LD template at all."""
-    return '<html><body><p>no json here</p></body></html>'
-
-
-def template_without_script_page():
-    """A page whose template tag is NOT followed by a script tag."""
-    return ('<html><body>'
-            '<template data-type="json" data-varname="__STATE__">'
-            '<p>no json</p>'
-            '</template></body></html>')
-
-
-# -- Path A items (raw: no name_parse, no unidad — legacy omission) -----------
-ITEM_A = ld_item("Aceite Girasol 900 ml", "Girasol", "1001", 1500.5)
-ITEM_B = ld_item("Yerba Playadito 1 kg", "Playadito", "1002", 2500)
-ITEM_C = ld_item("Mayonesa Hellmann's 500 gr", "Hellmann's", "1003", 999.99)
-
-# -- Path B items (parsed: name_parse splits name/unidad) ---------------------
-B_A = ld_item("Aceite Girasol 900 ml", "Girasol", "1001", 1500.5)
-B_B = ld_item("Yerba Playadito 1 kg", "Playadito", "1002", 2500)
-B_C = ld_item("Mayonesa Hellmann's 500 gr", "Hellmann's", "1003", 999.99)
-B_D = ld_item("Arroz Gallo 1 kg", "Gallo", "1004", 800)
-B_E = ld_item("Café Mercedolas 500 gr", "Mercedolas", "1005", 1200)
-B_F = ld_item("Alfajor Jorgito 60 gr", "Jorgito", "1006", 300)
-B_G = ld_item("Mermelada Arcor 450 gr", "Arcor", "1007", 950)
-B_DUP = ld_item("Café Mercedolas 1 kg", "Mercedolas", "1005", 1150)
-
-
-def expected_doc_a(name, brand, sku, price):
-    """Stored Path A shape: raw name, no unidad (legacy omission kept)."""
-    return {"supermercado": "Carrefour", "name": name, "brand": brand,
-            "sku": sku, "price": price, "categoria": "almacen"}
-
-
-def expected_doc_b(name, unidad, brand, sku, price, categoria):
-    """Stored Path B shape: name_parse split the unit out of the name."""
-    return {"supermercado": "Carrefour", "name": name, "unidad": unidad,
-            "brand": brand, "sku": sku, "price": price, "categoria": categoria}
-
-
-def stored_documents(repository):
-    return [{key: value for key, value in doc.items()
-             if key not in ("_id", "scraped_at")}
-            for doc in repository.documents]
-
+from api.scrapers.carrefour import (SEARCH_URL, TREE_URL, ScraperCarrefour)
+from api.scrapers.errors import InvalidCategory
+from tests.fakes import InMemoryProductRepository
 
 # -- fakes ------------------------------------------------------------------
 
 
-def _split_url(url):
-    """(categoria, subCategory) out of a base or ?page= URL."""
-    path = url.split("//", 1)[1].split("?", 1)[0]
-    _, categoria, subCategory = path.split("/", 2)
-    return categoria, subCategory
-
-
-class FakeDriver:
-    """Recorder standing in for the Selenium Chrome driver.
-
-    Serves the canned product total per (categoria, subCategory) for the
-    totalProducts element and the canned script JSON per (categoria,
-    subCategory, page) for the render-provider element; records every call
-    the port must reproduce. Every other subcategory reads a total of 0.
-    """
-
-    def __init__(self, totals=None, pages=None, *, on_get=None):
-        self.totals = totals or {}
-        self.pages = pages or {}
-        self.on_get = on_get
-        self.urls = []
-        self.scripts = []
-        self.quit_count = 0
-        self.switch_to = SimpleNamespace(window=lambda handle: None)
-        self.current_window_handle = "window-1"
-
-    def get(self, url):
-        self.urls.append(url)
-        if self.on_get is not None:
-            self.on_get(url)
-
-    def execute_script(self, script):
-        self.scripts.append(script)
-
-    def find_element(self, by, selector):
-        categoria, subCategory = _split_url(self.urls[-1])
-        if "totalProducts--layout" in selector:
-            total = self.totals.get((categoria, subCategory), 0)
-            return SimpleNamespace(text=f"{total} productos")
-        if selector == '//div[@class="render-provider"]':
-            page = int(self.urls[-1].rsplit("page=", 1)[-1])
-            payload = json.dumps(
-                {"itemListElement": self.pages[(categoria, subCategory, page)]})
-            return SimpleNamespace(find_element=lambda by, using:
-                                   SimpleNamespace(get_attribute=lambda name:
-                                                   payload))
-        raise AssertionError(f"unexpected find_element: {selector}")
-
-    def quit(self):
-        self.quit_count += 1
-
-
 class FakeResponse:
-    def __init__(self, text):
-        self.text = text
+    """A canned VTEX response: status, decoded JSON and the resources header."""
+
+    def __init__(self, status_code, payload, total=None, start=None):
+        self.status_code = status_code
+        self._payload = payload
+        self.headers = {}
+        if total is not None:
+            first = 0 if start is None else start
+            last = first + len(payload) - 1 if payload else first
+            self.headers["resources"] = f"{first}-{last}/{total}"
+
+    def json(self):
+        if self._payload is None:
+            raise AssertionError("response.json() called on a payload-less "
+                                 "response")
+        return self._payload
 
 
 class FakeSession:
-    """Offline stand-in for the shared HTTP session; records every GET.
+    """Returns queued responses in order; an extra GET fails loudly."""
 
-    Serves canned pages keyed by URL and raises loudly on anything else, so
-    a stray request fails the test instead of passing silently.
-    """
-
-    def __init__(self, pages):
+    def __init__(self, responses, *, stop_event=None, flip_stop_on=None):
         self.urls = []
-        self._pages = dict(pages)
+        self._responses = list(responses)
+        self._stop_event = stop_event
+        self._flip_stop_on = flip_stop_on
 
-    def get(self, url):
+    def get(self, url, timeout=None, headers=None):
+        if (self._stop_event is not None
+                and len(self.urls) == self._flip_stop_on):
+            self._stop_event.set()
         self.urls.append(url)
-        if url not in self._pages:
-            raise AssertionError(f"unexpected GET: {url}")
-        return FakeResponse(self._pages[url])
+        if not self._responses:
+            raise AssertionError(f"unexpected extra GET: {url}")
+        return self._responses.pop(0)
 
 
 @pytest.fixture(autouse=True)
 def fast_sleep(monkeypatch):
-    """Neutralise the real 10 s waits: unit tests never sleep in real time.
-
-    ``ScrapeContext.sleep`` is the real-time seam, patched to record each
-    requested duration and return ``should_stop()`` — False unless the test
-    itself raised the stop, which keeps the stop paths meaningful without
-    any real wait.
-    """
+    """Neutralise the rate-limiting wait: unit tests never sleep."""
     recorder = SimpleNamespace(requests=[])
 
     def fake_sleep(self, seconds):
@@ -215,364 +75,366 @@ def fast_sleep(monkeypatch):
     return recorder
 
 
-def make_ctx(session, repository, *, category=None, driver=None,
-             stop_event=None):
-    """Build a ScrapeContext that counts every browser build (Path A builds none)."""
+# -- canned VTEX payloads ---------------------------------------------------
+
+ALMACEN = "almacen"
+SUB_A = "enlatados-y-conservas"
+SUB_B = "snacks"
+
+TREE_JSON = [
+    {"id": 1, "name": "Hogar", "url": "https://www.carrefour.com.ar/hogar",
+     "children": [{"id": 2, "name": "Bazar",
+                   "url": "https://www.carrefour.com.ar/hogar/bazar",
+                   "children": []}]},
+    {"id": 161, "name": "Almacén", "url": "https://www.carrefour.com.ar/almacen",
+     "children": [
+         {"id": 162, "name": "Enlatados y Conservas",
+          "url": "https://www.carrefour.com.ar/almacen/enlatados-y-conservas",
+          "children": []},
+         {"id": 163, "name": "Snacks",
+          "url": "https://www.carrefour.com.ar/almacen/snacks",
+          "children": [{"id": 164, "name": "Papas fritas",
+                        "url": "https://www.carrefour.com.ar/almacen/snacks/"
+                               "papas-fritas", "children": []}]},
+     ]},
+]
+
+
+def vtex_product(name, product_id, price=1000.0, brand="Marca", offer=True):
+    """One product in the shape the VTEX search API returns."""
+    item = {"itemId": f"i{product_id}", "name": name}
+    if offer:
+        item["sellers"] = [{"commertialOffer": {"Price": price,
+                                                "ListPrice": price}}]
+    else:
+        item["sellers"] = []
+    return {"productName": name, "productId": product_id, "brand": brand,
+            "items": [item],
+            "categories": ["/Almacén/Enlatados y Conservas/"]}
+
+
+def expected_doc(name, unidad, brand, sku, price, subcategoria,
+                 categoria=ALMACEN):
+    return {"supermercado": "Carrefour", "name": name, "unidad": unidad,
+            "brand": brand, "sku": sku, "price": price,
+            "categoria": categoria, "subcategoria": subcategoria}
+
+
+def stored_documents(repository):
+    return [{key: value for key, value in doc.items()
+             if key not in ("_id", "scraped_at")}
+            for doc in repository.documents]
+
+
+def search_url(categoria, subcategoria, start):
+    return (f"{SEARCH_URL}/{categoria}/{subcategoria}"
+            f"?_from={start}&_to={start + 49}")
+
+
+def make_ctx(session, repository, *, category=ALMACEN, stop_event=None,
+             browser_factory=None):
     messages: list[str] = []
-    built: list = []
-
-    def browser_factory():
-        built.append("browser")
-        if driver is None:
-            raise AssertionError("no browser expected")
-        return driver
-
     ctx = ScrapeContext(
         slug=ScraperCarrefour.slug, label=ScraperCarrefour.label,
         category=category, stop_event=stop_event or threading.Event(),
         report=messages.append, repository=repository,
-        browser_factory=browser_factory, http_factory=lambda: session)
-    return ctx, messages, built
+        browser_factory=browser_factory,
+        http_factory=lambda: session)
+    return ctx, messages
 
 
-class OneSubcategoryScraper(ScraperCarrefour):
-    """Bounds Path A / Path B to almacen/[SUB1] so tests stay focused."""
-
-    CATEGORIES = ({"categoria": "almacen", "subcategorias": [SUB1]},)
+# -- 1. identity and discovery ----------------------------------------------
 
 
-class TwoSubcategoryScraper(ScraperCarrefour):
-    """Bounds Path A to almacen/[SUB1, SUB2]."""
-
-    CATEGORIES = ({"categoria": "almacen", "subcategorias": [SUB1, SUB2]},)
-
-
-class TwoCategoryScraper(ScraperCarrefour):
-    """Bounds Path B to one subcategory per category."""
-
-    CATEGORIES = (
-        {"categoria": "almacen", "subcategorias": [SUB1]},
-        {"categoria": "desayuno-y-merienda", "subcategorias": [SUB3]},
-    )
+def test_identity_stays_the_registered_carrefour_scraper():
+    assert ScraperCarrefour.slug == "carrefour"
+    assert ScraperCarrefour.label == "Carrefour"
+    assert ScraperCarrefour.categories == ("almacen", "desayuno-y-merienda")
 
 
-class EmptyFirstScraper(ScraperCarrefour):
-    """Bounds Path B to almacen/[SUB_EMPTY, SUB1]."""
+def test_discovery_reads_the_level_two_children_of_the_requested_category():
+    session = FakeSession([FakeResponse(200, TREE_JSON)])
+    ctx, _messages = make_ctx(session, InMemoryProductRepository())
 
-    CATEGORIES = ({"categoria": "almacen",
-                   "subcategorias": [SUB_EMPTY, SUB1]},)
+    nodes = ScraperCarrefour()._discover_subcategories(ctx, ALMACEN)
+
+    assert [slug for slug, _label, _path in nodes] == [SUB_A, SUB_B]
+    assert [path for _slug, _label, path in nodes] == [
+        "almacen/enlatados-y-conservas", "almacen/snacks"]
+    assert session.urls == [TREE_URL]
 
 
-# -- Path A: a category was requested (json-LD over the HTTP session) ---------
+def test_discovery_never_returns_another_top_category_or_a_grandchild():
+    session = FakeSession([FakeResponse(200, TREE_JSON)])
+    ctx, _messages = make_ctx(session, InMemoryProductRepository())
+
+    paths = [path for _slug, _label, path
+             in ScraperCarrefour()._discover_subcategories(ctx, ALMACEN)]
+
+    assert "hogar/bazar" not in paths
+    assert "almacen/snacks/papas-fritas" not in paths
 
 
-def test_path_a_visits_pages_and_stores_documents_without_unidad(
-        repository, fast_sleep, capsys):
-    session = FakeSession({
-        base_url("almacen", SUB1): base_page(49),
-        page_url("almacen", SUB1, 1): template_page([ITEM_A, ITEM_B]),
-        page_url("almacen", SUB1, 2): template_page([ITEM_C]),
-    })
-    ctx, messages, built = make_ctx(session, repository, category="almacen",
-                                    driver=None)
-    scraper = OneSubcategoryScraper()
-    scraper.CATEGORIES = ({"categoria": "almacen", "subcategorias": [SUB1]},)
+def test_a_category_missing_from_the_tree_saves_nothing_and_says_so():
+    session = FakeSession([FakeResponse(200, TREE_JSON)])
+    repository = InMemoryProductRepository()
+    ctx, messages = make_ctx(session, repository, category="desayuno-y-merienda")
 
-    scraper.run(ctx)
+    ScraperCarrefour().run(ctx)
 
-    # No driver built at all: Path A is pure HTTP.
-    assert built == []
-    # The legacy visited page 1 through the driver (same URL the port GETs)
-    # and fetched ?page=1..N over the HTTP session; the port keeps the exact
-    # URL sequence: base, ?page=1, ?page=2.
-    assert session.urls == [base_url("almacen", SUB1),
-                            page_url("almacen", SUB1, 1),
-                            page_url("almacen", SUB1, 2)]
-    # The legacy 10 s page-1 wait is kept.
-    assert fast_sleep.requests == [10]
-    # Documents WITHOUT unidad and WITHOUT name_parse (legacy omission kept).
+    assert repository.calls == []
+    assert len(session.urls) == 1
+    assert any("desayuno-y-merienda" in message for message in messages)
+
+
+# -- 2. happy path ----------------------------------------------------------
+
+
+def test_full_run_pages_each_subcategory_and_stores_one_slice_each(repository):
+    session = FakeSession([
+        FakeResponse(200, TREE_JSON),
+        FakeResponse(206, [vtex_product("Puré de tomate Arcor 520 g",
+                                        "122140", 890.0, "Arcor")],
+                     total=1),
+        FakeResponse(206, [vtex_product("Papas fritas Lays 90 g", "555",
+                                        2500.0, "Lays")], total=1),
+    ])
+    ctx, messages = make_ctx(session, repository)
+
+    ScraperCarrefour().run(ctx)
+
+    assert session.urls == [TREE_URL,
+                            search_url(ALMACEN, SUB_A, 0),
+                            search_url(ALMACEN, SUB_B, 0)]
+    assert repository.calls == [
+        ("Carrefour", ALMACEN, SUB_A, 1),
+        ("Carrefour", ALMACEN, SUB_B, 1),
+    ]
     assert stored_documents(repository) == [
-        expected_doc_a("Aceite Girasol 900 ml", "Girasol", "1001", 1500.5),
-        expected_doc_a("Yerba Playadito 1 kg", "Playadito", "1002", 2500),
-        expected_doc_a("Mayonesa Hellmann's 500 gr", "Hellmann's", "1003",
-                       999.99),
+        expected_doc("Puré de tomate Arcor", "520 g", "Arcor", "122140", 890.0,
+                     SUB_A),
+        expected_doc("Papas fritas Lays", "90 g", "Lays", "555", 2500.0, SUB_B),
     ]
-    assert repository.calls == [("Carrefour", "almacen", None, 3)]
-    assert messages == [
-        "Scrapeando categoria: almacen",
-        "Inicio Scrap sub-categoria: aceites-y-vinagres",
-        "1-49",
-        "2-49",
-        "Guardados 3 productos de almacen en base de datos",
-    ]
-    # The legacy console noise ('Chirp' per appended item) is kept.
-    assert capsys.readouterr().out.count("Chirp") == 3
+    assert messages[-1] == "PROCESO TERMINADO"
 
 
-def test_path_a_zero_total_aborts_the_whole_run_before_saving(repository,
-                                                              fast_sleep):
-    """Legacy ``if total == 0: return`` kept verbatim: the WHOLE run ends
-    before any save and before the remaining subcategories are touched."""
-    session = FakeSession({
-        base_url("almacen", SUB1): base_page(0),
-        # SUB2 must never be requested: the abort happens on SUB1.
-        base_url("almacen", SUB2): base_page(49),
-    })
-    ctx, messages, built = make_ctx(session, repository, category="almacen",
-                                    driver=None)
+def test_paging_is_bounded_by_the_resources_header_not_by_the_body():
+    """total=120 with two items per page must still fetch three pages."""
+    session = FakeSession([
+        FakeResponse(200, TREE_JSON),
+        FakeResponse(206, [vtex_product("A 1 kg", "1")], total=120, start=0),
+        FakeResponse(206, [vtex_product("B 1 kg", "2")], total=120, start=50),
+        FakeResponse(206, [vtex_product("C 1 kg", "3")], total=120, start=100),
+        FakeResponse(206, [vtex_product("D 1 kg", "4")], total=1, start=0),
+    ])
+    ctx, _messages = make_ctx(session, InMemoryProductRepository())
 
-    TwoSubcategoryScraper().run(ctx)
+    ScraperCarrefour().run(ctx)
 
-    assert session.urls == [base_url("almacen", SUB1)]
+    pages = [url for url in session.urls if "/products/search/" in url]
+    assert pages[:3] == [search_url(ALMACEN, SUB_A, 0),
+                         search_url(ALMACEN, SUB_A, 50),
+                         search_url(ALMACEN, SUB_A, 100)]
+    assert search_url(ALMACEN, SUB_A, 150) not in pages
+
+
+def test_an_empty_subcategory_is_not_saved(repository):
+    session = FakeSession([
+        FakeResponse(200, TREE_JSON),
+        FakeResponse(206, [], total=0),
+        FakeResponse(206, [], total=0),
+    ])
+    ctx, _messages = make_ctx(session, repository)
+
+    ScraperCarrefour().run(ctx)
+
     assert repository.calls == []
     assert repository.documents == []
-    assert built == []
-    assert messages == [
-        "Scrapeando categoria: almacen",
-        "Inicio Scrap sub-categoria: aceites-y-vinagres",
+
+
+# -- 3. field mapping -------------------------------------------------------
+
+
+def test_price_comes_from_the_offer_and_a_missing_offer_stores_zero():
+    session = FakeSession([
+        FakeResponse(200, TREE_JSON),
+        FakeResponse(206, [vtex_product("Sin oferta 500 gr", "900",
+                                        offer=False),
+                           vtex_product("Con oferta 500 gr", "901", 1800.5)],
+                     total=2),
+        FakeResponse(206, [], total=0),
+    ])
+    repository = InMemoryProductRepository()
+    ctx, _messages = make_ctx(session, repository)
+
+    ScraperCarrefour().run(ctx)
+
+    stored = stored_documents(repository)
+    assert [(doc["name"], doc["price"], doc["sku"]) for doc in stored] == [
+        ("Sin oferta", 0, "900"),
+        ("Con oferta", 1800.5, "901"),
     ]
 
 
-def test_path_a_empty_result_keeps_the_stored_slice(repository, fast_sleep):
-    """Decision 1: the legacy called save_to_mongodb unconditionally, which
-    deleted the category and inserted nothing on a zero-product scrape. The
-    port calls ctx.save([]) — a no-op (the D6 guarantee that fixed K-8) — so
-    the pre-existing documents of that category survive."""
-    repository.documents = [{"supermercado": "Carrefour",
-                             "name": "Dulce de leche viejo",
-                             "categoria": "almacen"}]
-    session = FakeSession({
-        base_url("almacen", SUB1): base_page(49),
-        page_url("almacen", SUB1, 1): no_template_page(),
-        page_url("almacen", SUB1, 2): no_template_page(),
-    })
-    ctx, messages, built = make_ctx(session, repository, category="almacen",
-                                    driver=None)
+def test_dedupe_is_by_product_id_within_a_subcategory():
+    repeated = vtex_product("Puré de tomate Arcor 520 g", "122140", 890.0)
+    other = vtex_product("Puré de tomate Carrefour 520 g", "999", 929.0)
+    session = FakeSession([
+        FakeResponse(200, TREE_JSON),
+        FakeResponse(206, [repeated, repeated, other], total=3),
+        FakeResponse(206, [], total=0),
+    ])
+    repository = InMemoryProductRepository()
+    ctx, _messages = make_ctx(session, repository)
 
-    saved: list = []
-    real_save = ctx.save
+    ScraperCarrefour().run(ctx)
 
-    def spy_save(products, **kwargs):
-        saved.append(list(products))
-        return real_save(products, **kwargs)
+    assert [doc["sku"] for doc in stored_documents(repository)] == [
+        "122140", "999"]
 
-    ctx.save = spy_save
 
-    OneSubcategoryScraper().run(ctx)
+# -- 4. failure modes -------------------------------------------------------
 
-    # ctx.save([]) was called and the repository recorded NOTHING.
-    assert saved == [[]]
+
+def test_a_page_that_is_not_2xx_is_reported_and_the_next_subcategory_runs(
+        repository):
+    session = FakeSession([
+        FakeResponse(200, TREE_JSON),
+        FakeResponse(400, None),
+        FakeResponse(206, [vtex_product("Papas fritas Lays 90 g", "555")],
+                     total=1),
+    ])
+    ctx, messages = make_ctx(session, repository)
+
+    ScraperCarrefour().run(ctx)
+
+    assert repository.calls == [("Carrefour", ALMACEN, SUB_B, 1)]
+    assert any("400" in message for message in messages)
+
+
+def test_a_tree_that_is_not_2xx_saves_nothing(repository):
+    session = FakeSession([FakeResponse(500, None)])
+    ctx, messages = make_ctx(session, repository)
+
+    ScraperCarrefour().run(ctx)
+
     assert repository.calls == []
-    # The pre-existing documents of the category survived.
-    assert stored_documents(repository) == [
-        {"supermercado": "Carrefour", "name": "Dulce de leche viejo",
-         "categoria": "almacen"}]
-    assert built == []
+    assert any("500" in message for message in messages)
 
 
-def test_path_a_template_without_script_breaks_the_page_loop(repository,
-                                                             fast_sleep):
-    """Legacy ``anchors[0].next.name != 'script'`` break kept verbatim: the
-    remaining pages of the subcategory are never fetched."""
-    session = FakeSession({
-        base_url("almacen", SUB1): base_page(49),
-        page_url("almacen", SUB1, 1): template_without_script_page(),
-        # Page 2 carries items but must never be requested.
-        page_url("almacen", SUB1, 2): template_page([ITEM_A]),
-    })
-    ctx, messages, built = make_ctx(session, repository, category="almacen",
-                                    driver=None)
-
-    OneSubcategoryScraper().run(ctx)
-
-    assert session.urls == [base_url("almacen", SUB1),
-                            page_url("almacen", SUB1, 1)]
-    assert repository.calls == []
-    assert built == []
-    # The break skips the str(i)+"-"+str(total) report too (legacy verbatim).
-    assert messages == [
-        "Scrapeando categoria: almacen",
-        "Inicio Scrap sub-categoria: aceites-y-vinagres",
-    ]
+# -- 5. stop and infrastructure seams --------------------------------------
 
 
-# -- Path B: no category (driver + render-provider JSON) ----------------------
-
-
-PATH_B_TOTALS = {("almacen", SUB1): 49,
-                 ("desayuno-y-merienda", SUB3): 49}
-PATH_B_PAGES = {
-    ("almacen", SUB1, 1): [B_A, B_B],
-    ("almacen", SUB1, 2): [B_C],
-    ("desayuno-y-merienda", SUB3, 1): [B_E, B_F],
-    ("desayuno-y-merienda", SUB3, 2): [B_DUP, B_G],  # B_DUP is deduped away
-}
-
-
-def test_path_b_walks_subcategories_via_the_driver_and_saves_once_per_category(
-        repository, fast_sleep, capsys):
-    driver = FakeDriver(PATH_B_TOTALS, PATH_B_PAGES)
-    session = FakeSession({})  # any GET would fail loudly: Path B is driver-only
-    ctx, messages, built = make_ctx(session, repository, category=None,
-                                    driver=driver)
-
-    TwoCategoryScraper().run(ctx)
-
-    # The driver visits every subcategory page and every ?page= URL.
-    assert driver.urls == [
-        base_url("almacen", SUB1),
-        page_url("almacen", SUB1, 1),
-        page_url("almacen", SUB1, 2),
-        base_url("desayuno-y-merienda", SUB3),
-        page_url("desayuno-y-merienda", SUB3, 1),
-        page_url("desayuno-y-merienda", SUB3, 2),
-    ]
-    assert driver.scripts == [SCROLL_SCRIPT, SCROLL_SCRIPT]
-    # The 10 s waits are requested through the context, not time.sleep.
-    assert fast_sleep.requests == [10, 10, 10, 10, 10, 10]
-    # The HTTP session is never touched on Path B.
-    assert session.urls == []
-    # Documents WITH unidad (name_parse applied).
-    assert stored_documents(repository) == [
-        expected_doc_b("Aceite Girasol", "900 ml", "Girasol", "1001", 1500.5,
-                       "almacen"),
-        expected_doc_b("Yerba Playadito", "1 kg", "Playadito", "1002", 2500,
-                       "almacen"),
-        expected_doc_b("Mayonesa Hellmann's", "500 gr", "Hellmann's", "1003",
-                       999.99, "almacen"),
-        expected_doc_b("Café Mercedolas", "500 gr", "Mercedolas", "1005",
-                       1200, "desayuno-y-merienda"),
-        expected_doc_b("Alfajor Jorgito", "60 gr", "Jorgito", "1006", 300,
-                       "desayuno-y-merienda"),
-        expected_doc_b("Mermelada Arcor", "450 gr", "Arcor", "1007", 950,
-                       "desayuno-y-merienda"),
-    ]
-    # One save per category, after its subcategories.
-    assert repository.calls == [
-        ("Carrefour", "almacen", None, 3),
-        ("Carrefour", "desayuno-y-merienda", None, 3),
-    ]
-    assert driver.quit_count == 1
-    assert messages == [
-        "Scrapeando categoria: almacen",
-        "Inicio Scrap sub-categoria: aceites-y-vinagres",
-        "1-49",
-        "2-49",
-        "Guardados 3 productos de almacen en base de datos",
-        "Scrapeando categoria: desayuno-y-merienda",
-        "Inicio Scrap sub-categoria: cafe",
-        "1-49",
-        "2-49",
-        "Guardados 3 productos de desayuno-y-merienda en base de datos",
-        "PROCESO TERMINADO",
-    ]
-    assert "Proceso Carrefour terminado" in capsys.readouterr().out
-
-
-def test_path_b_zero_total_skips_the_subcategory_but_still_saves_the_category(
-        repository, fast_sleep):
-    driver = FakeDriver({("almacen", SUB_EMPTY): 0, ("almacen", SUB1): 33},
-                        {("almacen", SUB1, 1): [B_A]})
-    session = FakeSession({})
-    ctx, messages, built = make_ctx(session, repository, category=None,
-                                    driver=driver)
-
-    EmptyFirstScraper().run(ctx)
-
-    # The empty subcategory was visited and skipped; SUB1 was collected.
-    assert driver.urls == [
-        base_url("almacen", SUB_EMPTY),
-        base_url("almacen", SUB1),
-        page_url("almacen", SUB1, 1),
-    ]
-    assert repository.calls == [("Carrefour", "almacen", None, 1)]
-    assert driver.quit_count == 1
-    assert built == ["browser"]
-
-
-def test_path_b_stop_ends_the_page_loop_and_still_saves_the_category(
-        repository, fast_sleep):
+def test_stop_between_pages_halts_the_paging_and_reports_it_stopped(repository):
     stop_event = threading.Event()
+    session = FakeSession([
+        FakeResponse(200, TREE_JSON),
+        FakeResponse(206, [vtex_product("A 1 kg", "1")], total=120, start=0),
+    ], stop_event=stop_event, flip_stop_on=1)
+    ctx, messages = make_ctx(session, repository, stop_event=stop_event)
 
-    def flip_on_second_page(url):
-        if url == page_url("almacen", SUB1, 2):
-            stop_event.set()
+    ScraperCarrefour().run(ctx)
 
-    # total 65 -> range(1, int(65/16)) == range(1, 4) -> pages 1, 2 and 3.
-    driver = FakeDriver({("almacen", SUB1): 65},
-                        {("almacen", SUB1, 1): [B_A, B_B],
-                         ("almacen", SUB1, 2): [B_C],
-                         ("almacen", SUB1, 3): [B_D]},
-                        on_get=flip_on_second_page)
-    session = FakeSession({})
-    ctx, messages, built = make_ctx(session, repository, category=None,
-                                    driver=driver, stop_event=stop_event)
-
-    OneSubcategoryScraper().run(ctx)
-
-    # The stop raised during page 2 ended the page loop before page 3.
-    assert page_url("almacen", SUB1, 3) not in driver.urls
-    assert driver.urls == [
-        base_url("almacen", SUB1),
-        page_url("almacen", SUB1, 1),
-        page_url("almacen", SUB1, 2),
-    ]
-    # What the category collected is still saved, and the driver is quit.
-    assert repository.calls == [("Carrefour", "almacen", None, 3)]
-    assert driver.quit_count == 1
-    assert built == ["browser"]
+    assert search_url(ALMACEN, SUB_A, 50) not in session.urls
+    assert messages[-1] == "PROCESO DETENIDO"
+    assert "PROCESO TERMINADO" not in messages
 
 
-def test_path_b_driver_error_is_reported_and_the_run_continues(
-        repository, fast_sleep, capsys):
-    """The legacy per-subcategory handler (report + print + continue) is
-    kept: the broken subcategory is skipped, the rest is still saved."""
+def test_a_pre_cancelled_run_is_inert():
+    def forbidden():
+        raise AssertionError("no run may build a browser")
 
-    class ExplodingDriver(FakeDriver):
-        def get(self, url):
-            if url == base_url("almacen", SUB1):
-                raise RuntimeError("driver exploded on " + url)
-            super().get(url)
+    session = FakeSession([])
+    ctx, messages = make_ctx(session, InMemoryProductRepository(),
+                             stop_event=_set_event(),
+                             browser_factory=forbidden)
 
-    driver = ExplodingDriver({("almacen", SUB2): 33},
-                             {("almacen", SUB2, 1): [B_D]})
-    session = FakeSession({})
-    ctx, messages, built = make_ctx(session, repository, category=None,
-                                    driver=driver)
+    ScraperCarrefour().run(ctx)
 
-    TwoSubcategoryScraper().run(ctx)
-
-    assert "Error en scraper al traer productos" in messages
-    assert "Error en scraper al traer productos" in capsys.readouterr().out
-    assert repository.calls == [("Carrefour", "almacen", None, 1)]
-    assert driver.quit_count == 1
-    assert built == ["browser"]
+    assert session.urls == []
+    assert messages == []
 
 
-# -- decision 2: unexpected errors propagate ----------------------------------
+def test_no_browser_is_ever_built(repository):
+    def forbidden():
+        raise AssertionError("Carrefour is scraped through the VTEX API only")
+
+    session = FakeSession([
+        FakeResponse(200, TREE_JSON),
+        FakeResponse(206, [vtex_product("A 1 kg", "1")], total=1),
+        FakeResponse(206, [], total=0),
+    ])
+    ctx, _messages = make_ctx(session, repository, browser_factory=forbidden)
+
+    ScraperCarrefour().run(ctx)
 
 
-def test_path_a_unknown_category_propagates(repository):
-    """The manager rejects unknown categories with a 400; if one ever reaches
-    the scraper, InvalidCategory propagates instead of the legacy silent
-    fall-through that ended the run looking successful."""
-    session = FakeSession({})
-    ctx, _, built = make_ctx(session, repository, category="plomeria",
-                             driver=None)
+def test_no_html_page_is_ever_requested(repository):
+    session = FakeSession([
+        FakeResponse(200, TREE_JSON),
+        FakeResponse(206, [], total=0),
+        FakeResponse(206, [], total=0),
+    ])
+    ctx, _messages = make_ctx(session, repository)
 
-    with pytest.raises(Exception) as excinfo:
-        ScraperCarrefour().run(ctx)
-    assert type(excinfo.value).__name__ == "InvalidCategory"
-    assert built == []
+    ScraperCarrefour().run(ctx)
+
+    assert all("/api/catalog_system/" in url for url in session.urls)
+    assert not any(url.rstrip("/").endswith("/almacen") for url in session.urls)
 
 
-def test_path_b_broken_browser_propagates_and_still_quits(repository):
-    """Decision 2: no outer catch-all was added; a broken driver build lets
-    the error escape so the manager marks the run failed."""
-    session = FakeSession({})
-    ctx, _, _ = make_ctx(session, repository, category=None, driver=None)
+def test_the_rate_limit_is_one_second_per_page(repository, fast_sleep):
+    session = FakeSession([
+        FakeResponse(200, TREE_JSON),
+        FakeResponse(206, [vtex_product("A 1 kg", "1")], total=120, start=0),
+        FakeResponse(206, [vtex_product("B 1 kg", "2")], total=120, start=50),
+        FakeResponse(206, [vtex_product("C 1 kg", "3")], total=120, start=100),
+        FakeResponse(206, [], total=0),
+    ])
+    ctx, _messages = make_ctx(session, repository)
 
-    with pytest.raises(AssertionError, match="no browser expected"):
+    ScraperCarrefour().run(ctx)
+
+    assert fast_sleep.requests == [1, 1]
+
+
+def test_an_unknown_category_is_rejected_before_any_request():
+    session = FakeSession([])
+    ctx, _messages = make_ctx(session, InMemoryProductRepository(),
+                              category="hogar")
+
+    with pytest.raises(InvalidCategory):
         ScraperCarrefour().run(ctx)
 
+    assert session.urls == []
 
+
+def test_without_a_category_every_registered_category_is_walked(repository):
+    tree = json.loads(json.dumps(TREE_JSON))
+    tree.append({"id": 300, "name": "Desayuno y merienda",
+                 "url": "https://www.carrefour.com.ar/desayuno-y-merienda",
+                 "children": [{"id": 301, "name": "Yerba",
+                               "url": "https://www.carrefour.com.ar/"
+                                      "desayuno-y-merienda/yerba",
+                               "children": []}]})
+    session = FakeSession([
+        FakeResponse(200, tree),
+        FakeResponse(206, [vtex_product("A 1 kg", "1")], total=1),
+        FakeResponse(206, [vtex_product("B 1 kg", "2")], total=1),
+        FakeResponse(206, [vtex_product("C 1 kg", "3")], total=1),
+        FakeResponse(206, [vtex_product("D 1 kg", "4")], total=1),
+    ])
+    ctx, _messages = make_ctx(session, repository, category=None)
+
+    ScraperCarrefour().run(ctx)
+
+    assert [subcategoria for _sm, _cat, subcategoria, _n in repository.calls] == [
+        SUB_A, SUB_B, "yerba"]
+    assert [categoria for _sm, categoria, _sub, _n in repository.calls] == [
+        ALMACEN, ALMACEN, "desayuno-y-merienda"]
+
+
+def _set_event():
+    event = threading.Event()
+    event.set()
+    return event

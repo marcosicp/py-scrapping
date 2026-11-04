@@ -186,7 +186,7 @@ A scraper never imports Flask, Mongo or SocketIO.
 | `supermami.py` | plain HTTP + gtag `view_item_list` extraction | Mongo via `ctx.save` | no browser, no `sku`; capped at 2 pages (`MAX_PAGES = 2`, `:24`); no categories accepted |
 | `laanonima.py` | plain HTTP: the category tree is read from the page's navigation menu (`a.menu-n1` → `a.menu-n2`), then one GET per n2 node whose JSON-LD `ItemList` carries every product | Mongo per subcategory (n2 slug) | no browser; replaces the dead HiperLibertad module (`hiperlibertad.com.ar` 301s here, its VTEX API 403s); accepts `almacen` |
 | `disco.py` | Chrome driver nav + VTEX `?page=` paging + JSON-LD `itemListElement` | Mongo per subcategory | **page 1 is never collected** (`:108` loop starts at `?page=2`); accepts `almacen` |
-| `carrefour.py` | two paths: requested category → plain HTTP + JSON-LD; all categories → Chrome driver + `render-provider` script | Mongo per category | Path A stores no `unidad` and skips `name_parse` (legacy omission kept); accepts `almacen`, `desayuno-y-merienda` |
+| `carrefour.py` | plain HTTP against the VTEX catalog API: the level-2 categories are read from `/api/catalog_system/pub/category/tree/2`, each one is paged with `_from`/`_to` and the `resources: from-to/total` header | Mongo per subcategory | no browser; the API rejects `_from=2501`, which is why almacén (6188) is split by subcategory (largest: 1933); `sku` is `productId`; accepts `almacen`, `desayuno-y-merienda` |
 | `changomas.py` | Chrome driver over the discovery page, section discovery, JSON-LD | Mongo via `ctx.save` | page loop re-fetches the **discovery** page (`:152`); empty first result aborts the whole run; label `ChangoMas`; **not shown by `/supermercados`** (K-12) |
 
 Common details:
@@ -195,29 +195,32 @@ Common details:
   (`api/scrapers/browser.py`): `--no-sandbox`, `--disable-dev-shm-usage`,
   `--headless=new` when `CHROME_HEADLESS` is on, and `CHROMEDRIVER_PATH` for
   the binary — unset means Selenium Manager (needs network on first use).
-- **Categories:** hardcoded tuples inside each scraper; `start` validates them
-  and raises `invalid_category` with the allowed list
-  (`BaseScraper.validate_category`, `api/scrapers/base.py`).
+- **Categories:** declared tuples on each scraper; `start` validates them and
+  raises `invalid_category` with the allowed list (`BaseScraper.
+  validate_category`, `api/scrapers/base.py`). The *subcategories* are not
+  hardcoded: `laanonima.py` reads them from the page menu and `carrefour.py`
+  from the VTEX category tree, so both follow the site.
 - **Quirks kept verbatim** by the mechanical ports: Disco skips page 1;
   ChangoMás re-fetches the discovery page; ChangoMás's empty-first-result abort
-  ends the whole run; SuperMami caps at 2 pages; Carrefour Path A skips
-  `name_parse`. Fixing any of them changes collected data and must be validated
-  against a real run first (see `docs/agent-context/known-issues.md`).
+  ends the whole run; SuperMami caps at 2 pages. Fixing any of them changes
+  collected data and must be validated against a real run first (see
+  `docs/agent-context/known-issues.md`).
 - Duplicate suppression in the mechanically ported scrapers is substring-based
   and O(n²) per page:
   `if not any(element['name'] in jsonitea['name'] for element in jsondata)`.
-  `laanonima.py` dedupes by the `art_<id>` identity instead: after `name_parse`
-  strips the unit, a substring guard silently drops distinct variants.
+  `laanonima.py` dedupes by `art_<id>` and `carrefour.py` by `productId`: after
+  `name_parse` strips the unit, a substring guard silently drops distinct
+  variants.
 
 ### Record schema
 
 | Field | Source | Notes |
 | --- | --- | --- |
 | `supermercado` | scraper `label` | `Disco` / `Carrefour` / `La Anónima` / `SuperMami` / `ChangoMas` |
-| `name` | JSON-LD / gtag item, size suffix stripped by `name_parse` | Carrefour Path A skips `name_parse` |
-| `unidad` | `name_parse` output, e.g. `"500 ml"` | comma-joined when multiple matches; absent in Carrefour Path A |
-| `brand` | item brand | Hiper uses `.get("brand", "")` |
-| `sku` | item sku | absent for SuperMami |
+| `name` | JSON-LD / gtag / VTEX `productName`, size suffix stripped by `name_parse` | the VTEX shells carry no JSON-LD, so `carrefour.py` reads the API |
+| `unidad` | `name_parse` output, e.g. `"500 ml"` | comma-joined when multiple matches |
+| `brand` | item brand | `""` when the source has none (`laanonima.py` JSON-LD) |
+| `sku` | item identity | `productId` for Carrefour, `art_<id>` for La Anónima, absent for SuperMami |
 | `price` | `item.offers.lowPrice` | stored as a string |
 | `scraped_at` | UTC stamp added by `MongoProductRepository.replace_products` (`api/repositories/products.py:77`) | `datetime.now(timezone.utc)` |
 | `categoria` | the request/subcategory label | |

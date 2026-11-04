@@ -198,8 +198,8 @@ them is an open decision, not a cleanup someone should do silently.
 Before any of this works:
 
 1. A browser run needs Chrome; Selenium Manager resolves the matching driver
-   (network required on first use), or set `CHROMEDRIVER_PATH`. SuperMami and
-   La Anónima never open a browser.
+   (network required on first use), or set `CHROMEDRIVER_PATH`. SuperMami, La
+   Anónima and Carrefour never open a browser.
 2. A visible browser window opens by default (`CHROME_HEADLESS` opts out). Do
    not run browser scrapers on a headless CI box expecting success — Chrome is
    not installed in the workflow.
