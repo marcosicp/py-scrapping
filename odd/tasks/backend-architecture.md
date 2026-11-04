@@ -137,9 +137,9 @@ tests/                      pytest suite (fakes in tests/fakes.py)
 - [x] T1 Foundation: `Settings`, `create_app(settings=…)`, explicit packages, slim `api/sockets.py`, pytest harness, CI installs dev deps, AGENTS rule 5/§8 + runbook
 - [x] T2 `ProductRepository` + Mongo impl (`find_all`, insert-then-prune `replace_products`) + in-memory fake + tests (Mongo integration opt-in)
 - [x] T3 `ProductService` + `frontend`/`products` blueprints; `/`, `/scrape`, `/supermercados` leave `api/routes.py` (characterization test first)
-- [ ] T4 Scraper core: `BaseScraper`, `ScrapeContext`, `ScraperRegistry`, `ScraperManager`, `ProgressReporter`, HTTP session builder (TDD, fake scrapers)
-- [ ] T5 Scraper-control API `/api/scrapers…` + registry-generated legacy aliases + `api/container.py` + `SocketIOReporter`
-- [ ] T6 Chrome factory (`CHROMEDRIVER_PATH`, `CHROME_HEADLESS`) + tests (K-7)
+- [x] T4 Scraper core: `BaseScraper`, `ScrapeContext`, `ScraperRegistry`, `ScraperManager`, `ProgressReporter`, HTTP session builder (TDD, fake scrapers)
+- [x] T5 Scraper-control API `/api/scrapers…` + registry-generated legacy aliases + `api/container.py` + `SocketIOReporter`
+- [x] T6 Chrome factory (`CHROMEDRIVER_PATH`, `CHROME_HEADLESS`) + tests (K-7)
 - [ ] T7 Port SuperMami (offline fake-HTTP behavior test)
 - [ ] T8 Port HiperLibertad
 - [ ] T9 Port Disco
@@ -189,3 +189,6 @@ ports, (4) T12–T14 CLI, UI, cleanup. Running authored-line count is recorded b
 | T1 | `88736b2` | +304/−84 | RED (ImportError `api.config`) → GREEN `14 passed`; flake8 CI gate `0`; route count 15 = baseline; independent verification PASS-WITH-NOTES (2 minor notes fixed: env-sensitive test, stale `app.py:18` doc cite). Verifier fallback: `jd-judge-a` (gentle-ai-verify pin was fixed on disk but the running session still caches the old model until Pi reloads agents) |
 | T2 | `6790b1e` | +495 total (6 paths) | RED (ModuleNotFoundError) → GREEN `34 passed, 9 skipped`; opt-in real MongoDB run on a throwaway `lalistita_test_*` DB `29 passed`, no DB left behind; flake8 gate `0`; native assess on the committed range: risk medium, writer self-verification stands, no separate verifier required |
 | T3 | `df6a442` | +685 total (16 paths) | RED (ModuleNotFoundError / TypeError) → GREEN `55 passed, 9 skipped`; route set identical before/after; **old-vs-new differential on 600 randomized datasets: byte-identical responses (275 success, 325 fallback), 0 mismatches**; flake8 gate `0`; native assess: risk medium, no separate verifier required |
+| T4 | `052aeda` | +1806 total (10 paths, test-heavy) | RED (ModuleNotFoundError) → GREEN; review found 3 manager defects (stale `running` after fast finish, SystemExit leaving a slug RUNNING, ghost RUNNING when `thread.start()` fails) → fixed test-first (versioned serialized notifications); `127 passed, 9 skipped`; manager/context suites looped 15× green; ad-hoc 8-thread hammer 187k ops: 0 errors, 0 leaked threads, last delivered state == final state; flake8 gate `0`; no flask/pymongo/socketio/selenium imports in the core; native assess: medium, no separate verifier |
+| T5 | `7ff8ff2` | +832 total (14 paths) | RED (ImportError `SocketIOReporter`, TypeError `scraper_registry`; 22 failed) → GREEN `152 passed, 9 skipped`; API suites looped 15× green; route set identical except the 4 new `/api/scrapers` rules; flake8 gate `0`; native assess: medium, no separate verifier required |
+| T6 | `a4bbd18` | +317 total (8 paths) | writer reported RED (AttributeError/TypeError/ModuleNotFoundError) → GREEN; orchestrator re-verified after the owner's pause: `175 passed, 9 skipped`, flake8 gate `0`, F401/F811/F821 clean, diff read (lazy selenium import, Service(path) only when configured, headless opt-in); native assess: medium, no separate verifier required |
