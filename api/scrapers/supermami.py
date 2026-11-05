@@ -44,9 +44,17 @@ BACKOFF_SECONDS = (2, 4)
 
 TIMEOUT = 90  # the big pages reach tens of MB at ``Nrpp=1000``
 
-# The page's own total: ``Resultado <strong>1</strong> a <strong>500</strong>
-# de <strong>3210</strong>`` — the number after ``de``.
-TOTAL_RE = re.compile(r"de\s*<strong>\s*(\d+)\s*</strong>")
+# The page's own total, scoped to the measured sentence shape:
+# ``Resultado <strong>1</strong> a <strong>500</strong> de <strong>3210</strong>``
+# (tolerating whitespace/newlines between the tags). Scoping matters: a
+# bare ``de <strong>N</strong>`` matched any such pair in the whole HTML,
+# so a word ending in ``de`` followed by a bold number (``verde
+# <strong>3</strong>`` — measured to sit before the real sentence today)
+# could bind a smaller total, stop the walk after one window and keep the
+# gap guard silent.
+TOTAL_RE = re.compile(
+    r"Resultado\s*<strong>\s*(\d+)\s*</strong>\s*a\s*<strong>\s*\d+\s*"
+    r"</strong>\s*de\s*<strong>\s*(\d+)\s*</strong>")
 
 # The Endeca category path, measured live on /super/home:
 # ``/super/categoria/<segment>/_/N-<id>``. The <segment> must equal
@@ -125,10 +133,6 @@ class ScraperSuperMami(BaseScraper):
                 break
             ctx.report(f"Scrapeando categoria: {categoria}")
             path = self._discover_category(ctx, categoria)
-            if path is None:
-                # The menu answers but simply does not list the category:
-                # not an outage, the run continues to the next category.
-                continue
 
             documents = self._collect(ctx, path, categoria)
             if documents:
@@ -160,10 +164,8 @@ class ScraperSuperMami(BaseScraper):
         self._menu = response.text
         return self._menu
 
-    def _discover_category(self, ctx: ScrapeContext, categoria: str
-                           ) -> str | None:
-        """The Endeca path of ``supermami-<categoria>``, or None when the
-        menu answers but does not list it.
+    def _discover_category(self, ctx: ScrapeContext, categoria: str) -> str:
+        """The Endeca path of ``supermami-<categoria>``, fatal otherwise.
 
         Measured live on ``/super/home``: the parent category has no
         ``href`` at all — its path lives only inside an anchor's
@@ -175,6 +177,13 @@ class ScraperSuperMami(BaseScraper):
         ``supermami-<categoria>`` exactly; a substring test resolves
         ``almacen`` to the first child's Endeca id (75 products) and
         reports success.
+
+        Failures are loud, never a silent skip: a body with links but no
+        ``/super/categoria/`` path anywhere (bot wall, error page) is an
+        outage, and a valid menu that no longer lists a **declared**
+        category means the scraper is broken — both are reported and
+        raised instead of ending the run as a success with a stale saved
+        slice.
         """
         anchors = BeautifulSoup(self._fetch_menu(ctx),
                                "html.parser").find_all("a")
@@ -184,6 +193,7 @@ class ScraperSuperMami(BaseScraper):
             ctx.report("Menú inválido: el HTML no contiene enlaces")
             raise RuntimeError("the menu HTML contains no category links")
         marker = f"supermami-{categoria}"
+        has_category_paths = False
         for anchor in anchors:
             for candidate in (anchor.get("href") or "",
                               anchor.get("onclick") or ""):
@@ -192,9 +202,14 @@ class ScraperSuperMami(BaseScraper):
                     # The path up to and including the ``N-<id>`` segment,
                     # without any query string.
                     return found.group(0)
+                has_category_paths = has_category_paths or found is not None
+        if not has_category_paths:
+            ctx.report("Menú inválido: el HTML no contiene enlaces de "
+                       "categorías")
+            raise RuntimeError("the menu HTML contains no category links")
         ctx.report(f"No se encontró la categoría {categoria} "
                    f"en el menú de categorías")
-        return None
+        raise RuntimeError(f"the menu lists no {categoria} category")
 
     # -- collection -----------------------------------------------------------
 
@@ -207,7 +222,8 @@ class ScraperSuperMami(BaseScraper):
         would silently lose those 530. ``seen`` keys ``item_id`` across
         every page (Endeca may reprint a product between requests), and an
         incomplete walk is reported with the exact missing count — never
-        trimmed silently.
+        trimmed silently. The slice is stored name-sorted, the order the
+        baseline saved.
         """
         documents: list[dict] = []
         seen: set[str] = set()
@@ -252,6 +268,8 @@ class ScraperSuperMami(BaseScraper):
             ctx.report(f"{categoria}: {total - len(documents)} productos "
                        f"faltantes (total {total}, recolectados "
                        f"{len(documents)})")
+        # The baseline stored the slice name-sorted; keep that order.
+        documents.sort(key=lambda doc: doc["name"])
         return documents
 
     def _fetch_page(self, ctx: ScrapeContext, path: str, start: int,
@@ -321,9 +339,12 @@ class ScraperSuperMami(BaseScraper):
 
     @staticmethod
     def _total_of(response) -> int | None:
-        """The category total from ``Resultado ... de <strong>N</strong>``."""
+        """The category total: the number after ``de`` inside the measured
+        ``Resultado <strong>1</strong> a <strong>N</strong> de
+        <strong>M</strong>`` sentence, never a foreign ``de <strong>…``
+        pair."""
         found = TOTAL_RE.search(getattr(response, "text", "") or "")
-        return int(found.group(1)) if found else None
+        return int(found.group(2)) if found else None
 
     # -- document shape ---------------------------------------------------------
 
@@ -351,8 +372,18 @@ class ScraperSuperMami(BaseScraper):
     @staticmethod
     def _price_of(entry: dict):
         """``price``, or 0 when absent or non-numeric (measured: no ``0``
-        prices on SuperMami, but the field is optional in the payload)."""
+        prices on SuperMami, but the field is optional in the payload).
+        Numeric strings carry a real price and are parsed, not zeroed —
+        zeroing is for genuinely non-numeric values (the baseline stored
+        whatever the payload carried, never a wrong 0)."""
         price = entry.get("price")
-        if isinstance(price, bool) or not isinstance(price, (int, float)):
+        if isinstance(price, bool):
             return 0
-        return price
+        if isinstance(price, (int, float)):
+            return price
+        if isinstance(price, str):
+            try:
+                return float(price)
+            except ValueError:
+                return 0
+        return 0

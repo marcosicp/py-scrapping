@@ -1,7 +1,8 @@
 # SuperMami scraper rewrite — Oracle Endeca, full category coverage
 
 **Branch:** `feat/supermami-scraper-rewrite` (from `main`)
-**Status:** DONE (T1-T3) — live-verified; native review pending
+**Status:** DONE (T1-T3) + review corrections — live-verified twice; the review
+lineage terminated with unverifiable authority, so no approval was burned
 
 Rewrite `api/scrapers/supermami.py` with the same techniques that now work for
 Carrefour, La Anónima and Disco: resolve the category from the site itself at
@@ -207,6 +208,36 @@ Documents: `supermercado` = `self.label` ("SuperMami"), `name`/`unidad` from
   9 skipped** (run twice, 2.14–2.21 s). No Python source was edited.
 
 _Remaining evidence (T3) to be filled when the task closes._
+
+**T4 (2026-11-05) — the review's four findings, fixed**
+
+The native review (lineage `review-cc3e3e5449544da6`, medium, lens
+`review-reliability`) produced four findings and the refuter corroborated the
+two CRITICAL ones. All four were verified against the code and the live HTML,
+fixed, and re-verified:
+
+| Id | Severity | Finding | Fix |
+| --- | --- | --- | --- |
+| R3-001 | CRITICAL | `TOTAL_RE` was unscoped (`de <strong>N</strong>` anywhere), so a decoy like `verde <strong>3</strong>` could bind a small total, stop the walk after one window and still report success | the regex now matches the whole `Resultado <strong>1</strong> a <strong>500</strong> de <strong>3210</strong>` sentence; no match → `Respuesta sin total` + raise |
+| R3-002 | CRITICAL | a bot-wall menu with links but no category path was treated as "category missing": the run ended `PROCESO TERMINADO` with nothing saved and a stale slice | a menu with no `/super/categoria/…` path at all is an outage (report + raise), and a **declared** category missing from a valid menu is fatal too (report + raise) — this supersedes the earlier "report and continue" |
+| R3-003 | WARNING | the baseline's `sort(key="name")` was dropped, so the stored slice followed Endeca's page order | the slice is name-sorted before saving, as the baseline did |
+| R3-004 | WARNING | `_price_of` turned numeric strings (`"499.99"`) into `0` | numeric strings are parsed; `0` is kept for genuinely non-numeric values |
+
+Evidence: `pytest -q` → **368 passed, 9 skipped** (5 new tests, one pin renamed
+from "skipped" to "fails"); `flake8` CI gate **0**; RED observed for every
+behaviour change (the decoy bound `total=3`, the missing category `DID NOT
+RAISE`, the stored order was Endeca's, `"499.99"` stored as `0`).
+
+**Review authority (2026-11-05):** after the refuter corroborated R3-001/R3-002
+the lineage moved to `correction_required`, and the next bound STATUS returned a
+terminal `stop` with `corrupted_or_unverifiable_authority` — the on-disk state
+record is intact (`review-state.json`, revision `c8dcce37…`, both findings
+admitted), but the provider will not render the correction route, so this
+lineage cannot close. **No approval was burned.** The corrections above were
+applied and verified independently of that authority.
+
+**T3 re-run after the corrections:** 69 s, 7 pages, **3 210/3 210**, no
+missing-count report — the scoped total regex reads the real page correctly.
 
 ## 7. Out of scope
 

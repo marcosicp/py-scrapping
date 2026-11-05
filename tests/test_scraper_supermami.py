@@ -126,12 +126,17 @@ def filler(index):
                 brand="Marca", category="Almacén general", price=float(index))
 
 
-def page_html(items, *, total=3210, last=None):
-    """One category page: the Endeca total line and the gtag script."""
+def page_html(items, *, total=3210, last=None, before=""):
+    """One category page: the Endeca total line and the gtag script.
+
+    ``before`` lets a test position extra HTML before the total line, to
+    pin that foreign ``de <strong>N</strong>`` never binds the total.
+    """
     payload = json.dumps({"items": items})
     last = last if last is not None else len(items)
     return (
         "<html><head></head><body>"
+        f"{before}"
         '<p class="txt-result">Resultado <strong>1</strong> a '
         f"<strong>{last}</strong> de <strong>{total}</strong></p>"
         "<script>window.dataLayer = window.dataLayer || [];</script>"
@@ -288,6 +293,10 @@ HAPPY_DOCUMENTS = [
     expected_doc("Sal Mina", "500 gr", "Sal Mina", "prod1004", 0, "Sal"),
 ] + [expected_filler(index) for index in range(1, 1197)]
 
+# The slice is stored name-sorted (the baseline order), so the awaited
+# documents of a full run are the pool's documents in name order.
+HAPPY_DOCUMENTS.sort(key=lambda doc: doc["name"])
+
 
 def test_identity_stays_the_registered_supermami_scraper():
     assert ScraperSuperMami.slug == "supermami"
@@ -358,6 +367,42 @@ def test_the_resolved_path_is_paged_with_the_menu_endeca_id(repository):
         in " ".join(session.urls)
 
 
+def test_documents_are_saved_name_sorted_as_the_baseline_did(repository):
+    """The baseline sorted the slice by stored name before saving; the walk
+    appends in Endeca page order, and the slice must come out sorted."""
+    unordered = [
+        item("prodA_z", "Zapallo Corriente 1 kg", brand="Verduleria",
+             category="Verduras", price=900.0),
+        item("prodA_m", "Manzana Roja Popular 1 kg", brand="Roma",
+             category="Frutas", price=1200.0),
+        item("prodA_a", "Aceite Girasol 900 ml", brand="Girasol",
+             category="Aceites", price=1500.0),
+    ]
+    session = FakeSession(MENU_HTML, windows(unordered))
+    repository = InMemoryProductRepository()
+    ctx, _ = make_ctx(session, repository)
+
+    ScraperSuperMami().run(ctx)
+
+    names = [doc["name"] for doc in stored_documents(repository)]
+    assert names == ["Aceite Girasol", "Manzana Roja Popular",
+                     "Zapallo Corriente"]
+
+
+def test_a_numeric_string_price_is_parsed(repository):
+    payload = item("prodA_v", "Harina Blanca fina 1 kg", brand="Blanca",
+                   category="Harinas", price="499.99")
+    session = FakeSession(MENU_HTML,
+                          {0: page_html([payload], total=1)})
+    ctx, _ = make_ctx(session, repository)
+
+    ScraperSuperMami().run(ctx)
+
+    assert stored_documents(repository) == [
+        expected_doc("Harina Blanca fina", "1 kg", "Blanca", "prodA_v",
+                     499.99, "Harinas")]
+
+
 def test_the_menu_is_refetched_per_run_and_cached_only_within_it(repository):
     scraper = ScraperSuperMami()
     session = FakeSession(MENU_HTML, windows(HAPPY_POOL))
@@ -367,17 +412,44 @@ def test_the_menu_is_refetched_per_run_and_cached_only_within_it(repository):
     assert session.urls.count(MENU_URL) == 2
 
 
-def test_a_category_missing_from_the_menu_is_reported_and_skipped(repository):
+def test_a_declared_category_missing_from_the_menu_fails(repository):
+    """``categories`` is a contract: a valid menu that no longer lists the
+    declared category means the scraper is broken — the run must fail
+    loudly instead of ending as a success with a stale saved slice
+    (R3-002)."""
     session = FakeSession(menu_without(ALMACEN), {})
     ctx, messages = make_ctx(session, repository)
 
-    ScraperSuperMami().run(ctx)
+    with pytest.raises(RuntimeError):
+        ScraperSuperMami().run(ctx)
 
     assert session.urls == [MENU_URL]
     assert repository.calls == []
     assert any("No se encontró la categoría almacen" in message
                for message in messages)
-    assert messages[-1] == "PROCESO TERMINADO"
+    # Superseded by R3-002: a declared category missing from a valid menu
+    # is fatal, never a silent skip.
+    assert "PROCESO TERMINADO" not in messages
+
+
+def test_a_menu_with_links_but_no_category_paths_is_an_outage(repository):
+    """A 200 body with links but no ``/super/categoria/…`` path anywhere
+    (bot wall, error page) is not a menu: reported and raised — never a
+    search through links that silently reads as 'category missing'
+    (R3-002)."""
+    menu = ("<html><body>"
+            "<a href='/carrito'>Carrito</a>"
+            "<a href='/ayuda'>Ayuda</a>"
+            "</body></html>")
+    session = FakeSession(menu, {})
+    ctx, messages = make_ctx(session, repository)
+
+    with pytest.raises(RuntimeError):
+        ScraperSuperMami().run(ctx)
+
+    assert session.urls == [MENU_URL]
+    assert repository.calls == []
+    assert any("Menú inválido" in message for message in messages)
 
 
 def test_a_menu_network_error_is_reported_and_fatal(repository):
@@ -430,18 +502,20 @@ def test_children_before_the_parent_still_resolve_the_parent(repository):
 def test_a_child_similar_slug_never_resolves_the_category(repository):
     """A menu whose ``almacen``-prefixed links are all children of the
     ``supermami-almacen-<algo>`` form, with the parent absent, must NOT
-    resolve a child: reported, nothing requested or saved."""
+    resolve a child — and, per the declared `categories` contract, the
+    declared category being absent from a valid menu is fatal."""
     menu = menus_no_parent()
     session = FakeSession(menu, {})
     ctx, messages = make_ctx(session, repository)
 
-    ScraperSuperMami().run(ctx)
+    with pytest.raises(RuntimeError):
+        ScraperSuperMami().run(ctx)
 
     assert session.urls == [MENU_URL]
     assert repository.calls == []
     assert any("No se encontró la categoría almacen" in message
                for message in messages)
-    assert messages[-1] == "PROCESO TERMINADO"
+    assert "PROCESO TERMINADO" not in messages
 
 
 def test_the_parent_wins_regardless_of_document_order(repository):
@@ -476,6 +550,47 @@ def test_invalid_menu_html_is_reported_and_fatal(repository):
 
 
 # -- 3. the paging bound, dedupe and the document shape ------------------------
+
+def test_a_decoy_de_strong_before_the_resultado_never_binds_the_total(
+        repository):
+    """Measured live: today's page happens to have exactly two
+    ``de <strong>N</strong>`` matches, both 3210 — but the total regex
+    matched any of them. A decoy ``verde <strong>3</strong>`` before the
+    real ``Resultado`` line must never bind a total of 3 that would stop
+    the walk after one window and keep the gap guard silent."""
+    pages = windows([filler(i) for i in range(701)])
+    pages[0] = ("<html><body><p>Hoja verde <strong>3</strong> del catálogo"
+                "</p></body></html>" + pages[0].replace("<html><body>", ""))
+    session = FakeSession(MENU_HTML, pages)
+    repository = InMemoryProductRepository()
+    ctx, messages = make_ctx(session, repository)
+
+    ScraperSuperMami().run(ctx)
+
+    assert session.urls == [MENU_URL, page_url(0), page_url(500)]
+    assert any("Total de productos en almacen: 701" in message
+               for message in messages)
+    assert not any("faltantes" in message for message in messages)
+    assert messages[-1] == "PROCESO TERMINADO"
+
+
+def test_a_page_without_the_resultado_sentence_reports_and_fails(repository,
+                                                                 fast_sleep):
+    """A page whose gtag payload parses but carries no ``Resultado … de``
+    sentence gives no paging bound: 'Respuesta sin total' and raise."""
+    broken = (page_html([COCA], total=701, last=701)
+              .replace('<p class="txt-result">Resultado <strong>1</strong> a '
+                       "<strong>701</strong> de <strong>701</strong></p>", ""))
+    session = FakeSession(MENU_HTML, {0: broken})
+    ctx, messages = make_ctx(session, repository)
+
+    with pytest.raises(RuntimeError):
+        ScraperSuperMami().run(ctx)
+
+    assert session.urls == [MENU_URL, page_url(0)]
+    assert repository.calls == []
+    assert any("Respuesta sin total" in message for message in messages)
+
 
 def test_the_reported_total_bounds_the_paging(repository):
     """A pool of exactly 1000 at ``Nrpp=500`` means two windows: no request
@@ -536,24 +651,26 @@ def test_dedupes_by_item_id_across_pages(repository):
 
     stored = stored_documents(repository)
     assert len(stored) == 1199
-    assert stored[0] == HAPPY_DOCUMENTS[0]
+    names = [doc["name"] for doc in stored]
+    assert names == sorted(names)  # the baseline order
     assert [doc["sku"] for doc in stored].count("prod1001") == 1
     assert expected_doc("Coca Cola", "2 lt", "Coca-Cola", "prod1001",
                         1234.5, "Gaseosas") in stored
 
 
-def test_a_non_numeric_price_is_stored_as_zero(repository):
+def test_a_genuinely_non_numeric_price_is_stored_as_zero(repository):
     stale = item("prod1009", "Harina Blanca 1 kg", brand="Blanca",
-                 category="Harinas", price="499.99")
+                 category="Harinas", price="abc")
+    missing = item("prod1010", "Arroz Grano fino 1 kg", brand="Dos Hermanos",
+                   category="Arroces")
     session = FakeSession(MENU_HTML,
-                          {0: page_html([stale], total=1, last=1)})
+                          {0: page_html([stale, missing], total=2, last=2)})
     ctx, _ = make_ctx(session, repository)
 
     ScraperSuperMami().run(ctx)
 
-    assert stored_documents(repository) == [
-        expected_doc("Harina Blanca", "1 kg", "Blanca", "prod1009", 0,
-                     "Harinas")]
+    stored = stored_documents(repository)
+    assert [doc["price"] for doc in stored] == [0, 0]
 
 
 # -- 4. the page-error retry policy --------------------------------------------
@@ -695,8 +812,9 @@ def test_stop_during_paging_saves_the_partial_documents_and_reports_the_gap(
 
     assert session.urls == [MENU_URL, page_url(0), page_url(500)]
     assert repository.calls == [("SuperMami", ALMACEN, None, 1000)]
-    assert stored_documents(repository) == [
-        expected_filler(index) for index in range(1000)]
+    expected = [expected_filler(index) for index in range(1000)]
+    expected.sort(key=lambda doc: doc["name"])
+    assert stored_documents(repository) == expected
     assert any("500 productos faltantes" in message
                for message in messages)
     assert messages[-1] == "PROCESO DETENIDO"
