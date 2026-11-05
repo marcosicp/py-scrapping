@@ -1,7 +1,7 @@
 # Disco scraper rewrite — VTEX catalog API, complete coverage
 
 **Branch:** `feat/disco-vtex-rewrite` (from `main`)
-**Status:** IN PROGRESS — T3 open
+**Status:** DONE (T1, T1b, T2, T3) — live-verified; native review pending
 
 Rewrite `api/scrapers/disco.py` with the same techniques that already work for
 Carrefour (`carrefour-scraper-rewrite`) and La Anónima (`scrape-admin-view`):
@@ -225,7 +225,7 @@ Documents: `supermercado` = `self.label` ("Disco"), `name`/`unidad` from
   `docs/agent-context/known-issues.md` (substring-dedupe note and the
   "rendering needs `ctx.browser()`" list), `README.md` (the
   `Disco | Selenium` row).
-- [ ] **T3 — live verification.** Real run of the **whole `almacen`** (4 703
+- [x] **T3 — live verification.** Real run of the **whole `almacen`** (4 703
   priced products measured) against the local MongoDB on the final code, plus
   a re-run of `aceites-y-vinagres` to confirm the per-child slice shape,
   `pytest` and the flake8 CI gate.
@@ -269,7 +269,26 @@ Documents: `supermercado` = `self.label` ("Disco"), `name`/`unidad` from
   call-site list and the K-4 `/scraping-disco` route history describe the past.
 - `pytest -q` → **334 passed, 9 skipped** (observed during T2, matches T1).
 
-_Remaining evidence (T3) to be filled after the final live run._
+**T3 (2026-11-05) — final live run of the whole `almacen`**
+
+- A `python` harness driving the real `ScraperDisco.run(ctx)` against
+  `www.disco.com.ar` and the local MongoDB (`lalistitadev`): **173 s**, 15/15
+  children, `ctx.saved = 4704`, final report `PROCESO TERMINADO`.
+- **Zero** `productos faltantes` reports: every child's available subset was
+  collected completely. Every child reported its out-of-stock count
+  (`aceites` 1 280, `desayuno-y-merienda` 11 622, `golosinas-y-chocolates`
+  5 468, …), and each stored count equals the measured available total.
+- MongoDB after the run: `supermercado=Disco` **4 704** documents, all with
+  `categoria=almacen` and a `subcategoria`; price range 0–105 500 (the top
+  matches the measured priced maximum); a single document with `price 0` (a
+  product whose available offer is not `sellers[0]`).
+  `lalistitadev.productos` total: 13 902.
+- `/supermercados` → `disco: 4451` (name-deduped from 4 704), `carre: 5689`,
+  `hiper: 2792`, `todos: 12 932` — the payload keys the Angular dashboard
+  reads are unchanged.
+- No 500 was hit on this run, so the retry path stayed dormant in production;
+  it is pinned by tests (500→200, 500×2→200 with sleeps `[2, 4]`, 500×3 →
+  propagate, 400 → no retry, network→200, stop during backoff).
 
 ## 7. Out of scope
 
