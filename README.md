@@ -6,7 +6,7 @@ Sistema de scraping y comparación de precios de productos de supermercados arge
 
 | Supermercado | Método de scraping |
 |---|---|
-| Disco | Selenium |
+| Disco | API VTEX |
 | Carrefour | API VTEX |
 | ChangoMás | Selenium (async + paginación) |
 | La Anónima | HTTP + JSON-LD |

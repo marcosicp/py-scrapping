@@ -199,7 +199,7 @@ Before any of this works:
 
 1. A browser run needs Chrome; Selenium Manager resolves the matching driver
    (network required on first use), or set `CHROMEDRIVER_PATH`. SuperMami, La
-   Anónima and Carrefour never open a browser.
+   Anónima, Carrefour and Disco never open a browser.
 2. A visible browser window opens by default (`CHROME_HEADLESS` opts out). Do
    not run browser scrapers on a headless CI box expecting success — Chrome is
    not installed in the workflow.
@@ -207,11 +207,14 @@ Before any of this works:
    `ProductRepository.replace_products` (insert first, then prune; an empty
    scrape is a no-op) — it does not append. Do not point a run at production
    data casually.
-4. Known per-scraper quirks kept verbatim by the ports: Disco never collects
-   page 1; SuperMami caps at 2 pages even though it computes `totalPages`;
-   ChangoMás re-fetches the discovery page in its page loop, aborts the whole
-   run on an empty first result, and is persisted but **not shown by
-   `/supermercados`** (K-12). See
+4. Disco reads the VTEX catalog API (like Carrefour) and its search endpoint
+   rejects any offset window beyond item **2550** — oversized categories are
+   split by price (`fq=P:[lo TO hi]`), so do not flatten the crawl or bump
+   `MAX_WINDOW` (`api/scrapers/disco.py`).
+5. Known per-scraper quirks kept verbatim by the ports: SuperMami caps at
+   2 pages even though it computes `totalPages`; ChangoMás re-fetches the
+   discovery page in its page loop, aborts the whole run on an empty first
+   result, and is persisted but **not shown by `/supermercados`** (K-12). See
    [`known-issues.md`](known-issues.md) before treating any of them as a bug to
    fix silently.
 

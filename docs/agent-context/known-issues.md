@@ -468,9 +468,11 @@ reason.
 fix.
 
 **Fix (shipped):** stop using `arender()`. The ports render through the
-Selenium driver behind `ctx.browser()` where rendering is needed (Disco,
-Carrefour, ChangoMás) or parse the plain HTTP response directly (HiperLibertad,
-SuperMami) — no second browser, no abandoned dependency.
+Selenium driver behind `ctx.browser()` where rendering is needed (Carrefour,
+ChangoMás) or parse the plain HTTP response directly (HiperLibertad,
+SuperMami) — no second browser, no abandoned dependency. Disco later left this
+group too: since the VTEX rewrite it reads the catalog API with plain HTTP
+(`api/scrapers/disco.py`).
 
 **Disposition (`scrape-admin-view` T1):** the HiperLibertad scraper no longer
 exists. `hiperlibertad.com.ar` now answers **301** to `laanonima.com.ar` and the
@@ -495,10 +497,26 @@ through the `hiper` payload key the dashboard already renders.
   (measured in a real Carrefour run, 6187 documents, 2026-11-04). **Fixed**: the
   quantity pattern now accepts `\d+(?:[.,]\d+)?` and the removal escapes the
   match, so `1.5 lts` / `1,5 lts` survive whole. `tests/test_helpers.py` pins it.
-- Duplicate suppression is substring-based in the remaining mechanical ports
-  (e.g. `api/scrapers/disco.py:149-152`), which drops legitimately distinct
+- Duplicate suppression is substring-based in the remaining mechanical port
+  (e.g. `api/scrapers/changomas.py:178`), which drops legitimately distinct
   products whose names contain another product's name. `laanonima.py` (art id)
-  and `carrefour.py` (`productId`) dedupe by identity instead.
+  and `carrefour.py` + `disco.py` (`productId`) dedupe by identity instead.
+- **VTEX search-API limits (measured 2026-11-05 for Disco, reusable for the
+  next VTEX scraper):** `/api/catalog_system/pub/products/search` accepts only
+  offset windows that end at item 2549 — `_from=2500&_to=2549` answers 206,
+  `_from=2500&_to=2550` and `_from=2501` answer **400** — so a node above
+  2550 products cannot be paged flat and is bisected instead with
+  `fq=P:[lo TO hi]` over a measured price range (`O=OrderByPriceASC/DESC`
+  gives the bounds; bounds are inclusive on both ends, so boundary products
+  appear twice and the `productId` dedupe absorbs them). `fq=B:<brandId>`
+  works; `fq=B:<brand name>` answers 400. `page`/`count` are ignored (the
+  response is a fixed 10 items), and the intelligent-search endpoint
+  (`/api/io/_v/api/intelligent-search/product_search/...`) answered `400` for
+  `page=52` and `recordsFiltered: 0` for a plain `?query=&page=1&count=50`, so
+  it is not a deep-paging escape either. Implemented
+  in `api/scrapers/disco.py` (almacén totals 39 220 products); Carrefour hits
+  the same `400` for `_from=2501` and dodges it by walking level-2 categories.
+  Full measurement table: `odd/tasks/disco-scraper-rewrite.md` §2.
 - Driver cleanup is now uniform: `ctx.browser()` quits the driver in a `finally`
   (`api/scrapers/base.py`), so the old "only ChangoMás closes its driver" leak is
   gone.

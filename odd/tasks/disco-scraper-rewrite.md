@@ -1,7 +1,7 @@
 # Disco scraper rewrite — VTEX catalog API, complete coverage
 
 **Branch:** `feat/disco-vtex-rewrite` (from `main`)
-**Status:** IN PROGRESS — T1..T3 open
+**Status:** IN PROGRESS — T3 open
 
 Rewrite `api/scrapers/disco.py` with the same techniques that already work for
 Carrefour (`carrefour-scraper-rewrite`) and La Anónima (`scrape-admin-view`):
@@ -155,7 +155,7 @@ Documents: `supermercado` = `self.label` ("Disco"), `name`/`unidad` from
   ceiling, price-bucket bisection on an oversized node, boundary duplicates
   collapsed by `productId`, zero-total skip, fatal tree outage, page error
   propagation, stop during paging, pre-cancelled run, invalid category.
-- [ ] **T2 — docs sync.** `AGENTS.md` §6 (drop the page-1 quirk, state the API
+- [x] **T2 — docs sync.** `AGENTS.md` §6 (drop the page-1 quirk, state the API
   and the 2550 ceiling), `docs/agent-context/repo-map.md` (scraper row, quirks,
   browser list), `docs/agent-context/runbook.md` (quirk list),
   `docs/agent-context/known-issues.md` (substring-dedupe note and the
@@ -176,7 +176,25 @@ Documents: `supermercado` = `self.label` ("Disco"), `name`/`unidad` from
 - Ceiling regression guard: the fake session now answers 400 for `_to > 2549` / `_from >= 2501` like the live site, and `test_a_bumped_max_window_hits_the_live_ceiling_and_fails_the_run` proves a bumped `MAX_WINDOW` fails the run instead of silently collecting.
 - Empty-bucket correctness measured live before pinning it: a zero-result filter answers **200** with `resources: 0-0/0` and body `[]` (not an error, not a missing header), so `test_an_empty_price_bucket_is_skipped_and_the_other_buckets_are_paged` pins that bisection survives a distribution gap.
 
-_Remaining evidence (T2/T3) to be filled as those tasks close._
+**T2 (2026-11-05, `feat/disco-vtex-rewrite`, docs-only worktree)**
+
+- Files touched (only docs): `AGENTS.md`, `README.md`,
+  `docs/agent-context/repo-map.md`, `docs/agent-context/runbook.md`,
+  `docs/agent-context/known-issues.md`, and this file. No `.py`, no tests, no
+  code (`git diff --stat` confirms: six `.md` files only).
+- `grep -rn -i disco AGENTS.md README.md docs/agent-context/*.md` was the
+  claim inventory. Updated: `AGENTS.md` §6 (page-1 bullet replaced by the API
+  path + 2550 ceiling bullet), `AGENTS.md` §4/§8 test counts, `repo-map.md`
+  (disco scraper row, quirks paragraph, dedupe paragraph, `categoria`/
+  `subcategoria` schema rows), `runbook.md` (browser note + quirk list),
+  `known-issues.md` (K-18 `ctx.browser()` list, substring-dedupe observation
+  now citing `changomas.py:178`, and a new minor observation with the VTEX
+  search-API limits), `README.md` (`Disco | Selenium` row → `API VTEX`).
+- Historical mentions left untouched on purpose: the K-18 original-analysis
+  call-site list and the K-4 `/scraping-disco` route history describe the past.
+- `pytest -q` → **334 passed, 9 skipped** (observed during T2, matches T1).
+
+_Remaining evidence (T3) to be filled as it closes._
 
 ## 7. Out of scope
 

@@ -91,7 +91,7 @@ api/scrapers/errors.py   ScraperError family: UnknownScraper, InvalidCategory, A
 api/scrapers/browser.py Chrome factory: build_chrome(settings) driven by CHROMEDRIVER_PATH / CHROME_HEADLESS (D8); Selenium imported lazily
 api/scrapers/http.py    Shared HTTP session with the legacy browser User-Agent (no requests-html)
 api/scrapers/           One BaseScraper subclass per supermarket: supermami, laanonima, disco, carrefour, changomas
-tests/                  pytest suite (291 passed / 9 skipped by default; no network, no DB, no Chrome)
+tests/                  pytest suite (334 passed / 9 skipped by default; no network, no DB, no Chrome)
 adminpro/src/app/       Angular 21 source (dashboard, login, register, progress, grafica1)
 templates/scrape.html   The ONLY template a route renders (self-contained admin panel: own CSS, no third-party asset, polls /api/scrapers; registry-generated)
 docs/agent-context/     Deep dives for agents — read when you need detail
@@ -173,12 +173,20 @@ card, no CLI change: the control API, the `/scraping-<slug>` aliases, the
 `/scrape` monitor page and `python -m api.cli` are all generated from the
 registry.
 
-Quirk inventory — legacy behaviours kept verbatim by the mechanical ports, so
-they must be validated against a real run before anyone "fixes" them (details
-in [`docs/agent-context/known-issues.md`](docs/agent-context/known-issues.md)):
+Quirk inventory — behaviours that look odd and must be validated against a
+real run before anyone "fixes" them, plus the site facts a future change must
+not undo (details in
+[`docs/agent-context/known-issues.md`](docs/agent-context/known-issues.md)):
 
-- **Disco never collects page 1** — the paging loop starts at `?page=2`
-  (`api/scrapers/disco.py:108`).
+- **Disco reads the VTEX catalog API, never the HTML or a browser.** The
+  subcategories are the children of `almacen` discovered from
+  `/api/catalog_system/pub/category/tree/2` and the products come from
+  `/api/catalog_system/pub/products/search/<path>` in 50-item windows. That API
+  answers **400 for any window beyond item 2550** (`_from=2501` and
+  `_to=2550`), so a node bigger than that (almacén totals 39 220 products) is
+  bisected with `fq=P:[lo TO hi]` price ranges. Do not "simplify" it into one
+  flat paged crawl or bump `MAX_WINDOW`: the tail of the big nodes would 400
+  and fail the run.
 - **Carrefour reads the VTEX catalog API, never the HTML.** `/almacen` is a
   4.7 MB VTEX shell with no JSON-LD; the products come from
   `/api/catalog_system/pub/products/search`. That API answers **400 for
@@ -250,7 +258,7 @@ and `ng.applyChanges(component)` renders it. Full record:
 - Angular: karma + jasmine are configured in `adminpro/package.json` and
   `tsconfig.spec.json` exists, but there are **zero `*.spec.ts` files**.
 
-Default run: **291 passed, 9 skipped** — the 9 skips are the opt-in MongoDB
+Default run: **334 passed, 9 skipped** — the 9 skips are the opt-in MongoDB
 integration tests.
 
 Consequence: watched behavior is covered by the pytest suite, but **live
