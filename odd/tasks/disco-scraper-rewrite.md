@@ -57,6 +57,20 @@ the exact request fingerprint the scrapers already use.
 | `galletitas-dulces` (a level-3 leaf) | 2 974 — above the ceiling and childless |
 | Payload size | ~31 KB per product (~1.5 MB per 50-item page) |
 
+**Live run of the T1 implementation (2026-11-05) — found the design flaw below.**
+
+| Measurement | Result |
+| --- | --- |
+| `aceites-y-vinagres` collected live | 1 478 of 1 478 in 48 s, 0 duplicate `sku`, 350 with `price 0` |
+| `golosinas-y-chocolates` collected live | **741 of 6 210** in 26 s; the run reported `5469 productos faltantes` |
+| Products with a price, `almacen` | **4 703 of 39 220** — 34 517 (88 %) carry no price |
+| `fq=P:[0 TO 0]` (the unpriced cluster) | `golosinas` 5 467 of 6 210; `desayuno-y-merienda` 11 621 of 13 317; `galletitas-dulces` 2 575 of 2 974 |
+| `fq=P:[0 TO 100000000]` | the **full** total (6 210 on `golosinas`, 2 974 on `galletitas-dulces`) — the price filter itself does cover everything |
+| `O=OrderByPriceASC` first price | 479.0 on `golosinas` (there are 5 467 products below it, priced 0) — **the sort does not return the true minimum** |
+| `O=OrderByPriceDESC` inside `fq=P:[0.01 TO 1e8]` | 105 500 on `almacen` — the true priced maximum |
+| Price-0 samples inspected | `IsAvailable: false`, `Price 0.0`, `priceRange: null` — out-of-stock entries |
+| Carrefour already stored with `price 0` | 1 480 of 6 187 (same cause, pre-existing) |
+
 ## 3. Decisions
 
 **D-1 — Read the catalog API, not the HTML. Drop the browser entirely.**
@@ -69,17 +83,41 @@ The hardcoded 14-slug tuple is already 4 slugs wrong. Children are matched by
 URL path under the requested category and the slug is the last path segment —
 exactly Carrefour's `_discover_subcategories`.
 
-**D-3 — Full coverage: partition by price when a node exceeds the 2550 window.**
-Owner decision (2026-11-05): completeness over code minimalism.
-`golosinas-y-chocolates` (6 210) and `desayuno-y-merienda` (13 317) cannot be
-reached by paging alone, and the level-3 fallback would still lose 32 plus the
-2 974 → 2 550 cut inside `galletitas-dulces` (≈1,2 % of almacén).
-Instead: when a node's total exceeds `MAX_WINDOW`, take its measured price
-range and bisect it with `fq=P:[lo TO hi]` until every bucket fits, then page
-each bucket. Inclusive bounds make products on a boundary appear twice; the
-`productId` dedupe set collapses them, so over-coverage is harmless and
-under-coverage (`P` filter not indexing a product) is caught by the explicit
-gap report below.
+**D-3 — Full coverage means full coverage of the available subset: page `fq=P:[0.01 TO max]`.**
+Owner decision (2026-11-05), taken after the live measurement below.
+A price comparer needs sellable products, and only **4 703 of `almacen`'s 39 220**
+entries are available. `fq=P:` indexes **available offers only**, which is what
+the storefront shows; the other 34 517 entries are `IsAvailable: false` and
+split into two classes that are useless here — most carry a *stale* price
+(measured on `aceites`: 928 of 1 478 have `Price` 8.69 / 864.29 against a
+`ListPrice` of 718 / 71 429) and 350 carry `Price 0`. Those entries also form a
+single atomic cluster no price filter can split (`P:[0 TO 0]` alone holds
+5 467 on `golosinas`), so they cannot be paged in bulk at all — the tree
+descent would recover most of them while still leaving ~456 unreachable in
+`almacen` and storing 34 517 unusable rows.
+The legacy scraper read the storefront HTML, which hides out-of-stock
+products, so storing them would have been a regression, not a gain.
+Collection scope is therefore the available subset, built with
+`fq=P:[0.01 TO <measured priced max>]` and bisected by price when it exceeds
+`MAX_WINDOW`. The exact count of omitted out-of-stock entries is reported per
+child (`sin stock omitidos`) — the omission is a decision, never a silence.
+
+Measured split of one child, `aceites-y-vinagres` (1 478 entries):
+
+| Class | n | `Price` | `IsAvailable` | In `fq=P:` | Stored |
+| --- | --- | --- | --- | --- | --- |
+| Available | 200 | real | `true` | yes | yes |
+| Out of stock, stale price | 928 | 8.69 / 864.29 (vs `ListPrice` 718 / 71 429) | `false` | no | no |
+| Out of stock, no price | 350 | 0 | `false` | no | no |
+
+**D-3a — The price range starts at the floor and its top is measured inside the filter.**
+The first implementation bisected the range between the `OrderByPriceASC`
+and `OrderByPriceDESC` prices of the **unfiltered** node. Measured live, `ASC`
+returns 479 on `golosinas`, not the true minimum: 5 467 products price at 0 and
+sit below it, so the run collected 741 of 6 210 and reported the rest as
+missing. The low bound is now the constant `PRICE_FLOOR = 0.01` (a lower bound
+is unsafe to infer from a sort) and the top is the `OrderByPriceDESC` price of
+the **filtered** set, which is the real maximum.
 
 **D-4 — Identity is `productId`, not a name substring.** The API's
 `productId` is stable and already what Carrefour stores as `sku`. The legacy
@@ -110,17 +148,29 @@ reported with a message naming the number, which is what the repo's
 **D-8 — `categories` stays `("almacen",)`.** Same accepted category as today;
 the tree makes adding another one a one-line change later. No scope creep.
 
-**D-9 — No retries.** A page failure inside a child propagates, the manager
-marks the run `failed`, and children already saved keep their fresh data (the
-same trade-off Carrefour documents). Bounded retry/backoff is a separate
-decision, not invented here.
+**D-9 — Bounded retries for transient failures; everything else still fails fast.**
+Measured live: the first full `almacen` run died at 93 s with
+`RuntimeError: the search API answered 500`; the next run, same code and data,
+finished all 15 children. With no retry a ~3-minute scrape is a coin flip, so
+`_search` now makes **3 attempts** with a 2 s / 4 s backoff through `ctx.sleep`
+(stop-aware), retrying **only** network errors and HTTP `>= 500`. A 4xx is a
+wrong request, not a flaky server: reported and raised on the first attempt.
+After the last attempt the failure is reported and re-raised, so the run
+manager still marks the run `failed` and the children already saved keep their
+fresh data. A stop requested during a backoff returns `None` instead of
+raising, so a stopped run ends as `PROCESO DETENIDO`, never as `failed`.
+The category tree keeps its single-shot behaviour: a tree outage is fatal
+(D-6) and retrying it would only delay the inevitable.
 
 ## 4. Contract the implementation must satisfy
 
 Constants: `BASE_URL = "https://www.disco.com.ar"`,
 `TREE_URL = f"{BASE_URL}/api/catalog_system/pub/category/tree/2"`,
 `SEARCH_URL = f"{BASE_URL}/api/catalog_system/pub/products/search"`,
-`PAGE_SIZE = 50`, `MAX_WINDOW = 2550`, `PAGE_SLEEP_SECONDS = 1`.
+`PAGE_SIZE = 50`, `MAX_WINDOW = 2550`, `PAGE_SLEEP_SECONDS = 1`,
+`PRICE_FLOOR = 0.01` (excludes the unpriced cluster, D-3) and
+`PRICE_CEILING = 100_000_000` (a synthetic upper bound, only used to scope the
+filter until the real maximum is measured).
 
 ```
 run(ctx):
@@ -129,16 +179,19 @@ run(ctx):
   for categoria in categories:
       children = _discover_subcategories(ctx, categoria)   # D-6: raises on outage
       for (slug, label, path) in children:
-          documents = _collect(ctx, path)                  # D-3, D-7
+          documents = _collect(ctx, path, label)           # D-3, D-3a, D-7
           if documents: ctx.save(documents, categoria=categoria, subcategoria=slug)
   report "PROCESO DETENIDO" when stopped, else "PROCESO TERMINADO"
 
-_collect(ctx, path):
-  total = _count(ctx, path, fq=None)          # resources header of _from=0&_to=0
-  if not total: return []
-  if total <= MAX_WINDOW: page the whole path (D-4 dedupe)
-  else: lo, hi = _price_bounds(ctx, path) (O=OrderByPriceASC/DESC)
-        bisect with _partition(...) until each bucket fits, paging buckets
+_collect(ctx, path, label):
+  total  = _fetch_total(ctx, path, label)                       # every entry
+  priced = _fetch_total(ctx, path, label, (FLOOR, CEILING))     # D-3 scope
+  if total > priced: report "<label>: <total - priced> sin precio omitidos"
+  if not priced: return []
+  if priced <= MAX_WINDOW: page (FLOOR, CEILING)                # D-4 dedupe
+  else: hi = OrderByPriceDESC price within the priced filter     # D-3a
+        bisect [FLOOR, hi] until each bucket fits, page each bucket
+  gap = priced - collected; report it when > 0                   # D-7
 ```
 
 Documents: `supermercado` = `self.label` ("Disco"), `name`/`unidad` from
@@ -148,7 +201,18 @@ Documents: `supermercado` = `self.label` ("Disco"), `name`/`unidad` from
 
 ## 5. Tasks
 
-- [x] **T1 — rewrite `api/scrapers/disco.py` and `tests/test_scraper_disco.py`.**
+- [x] **T1 — rewrite `api/scrapers/disco.py` and `tests/test_scraper_disco.py`**
+  (commit `c21f226`; superseded by T1b below).
+- [x] **T1b — correct the collection scope after the live measurement.**
+  Collect only the priced subset (D-3) starting the range at `PRICE_FLOOR`
+  with the top measured inside the filter (D-3a), report the omitted unpriced
+  count per child, and make the test fake model the real API faithfully: an
+  unpriced atomic cluster below the `OrderByPriceASC` value, price filters
+  that exclude it, and the full unfiltered total. Cases to add: the atom is
+  excluded and counted, a priced subset under the ceiling is paged whole, an
+  oversized priced subset is bisected from the floor and covers 100 % of the
+  priced total, and a fake-backed regression to the old ASC-bound range fails
+  the suite.
   Test-first: the new fake-HTTP test module is written first and observed red,
   then the scraper turns it green. Cases: tree discovery + child order,
   per-child save with `categoria`/`subcategoria`, window paging, the 2550
@@ -161,8 +225,10 @@ Documents: `supermercado` = `self.label` ("Disco"), `name`/`unidad` from
   `docs/agent-context/known-issues.md` (substring-dedupe note and the
   "rendering needs `ctx.browser()`" list), `README.md` (the
   `Disco | Selenium` row).
-- [ ] **T3 — live verification.** Real run of `aceites-y-vinagres` (1 478
-  products measured) against the local MongoDB, `pytest`, the flake8 CI gate.
+- [ ] **T3 — live verification.** Real run of the **whole `almacen`** (4 703
+  priced products measured) against the local MongoDB on the final code, plus
+  a re-run of `aceites-y-vinagres` to confirm the per-child slice shape,
+  `pytest` and the flake8 CI gate.
 
 ## 6. Verification evidence
 
@@ -175,6 +241,15 @@ Documents: `supermercado` = `self.label` ("Disco"), `name`/`unidad` from
 - Independent verifier pass (fresh session, `git diff --name-only` = the two files only): no Selenium/browser/BeautifulSoup/`print()` left, every window is `_from=start&_to=start+49` with max `_to` 2549 for any cap in 0..2550, bisection is bounded and iterative, the three tree-outage paths report **and** re-raise, and the test module makes no network call.
 - Ceiling regression guard: the fake session now answers 400 for `_to > 2549` / `_from >= 2501` like the live site, and `test_a_bumped_max_window_hits_the_live_ceiling_and_fails_the_run` proves a bumped `MAX_WINDOW` fails the run instead of silently collecting.
 - Empty-bucket correctness measured live before pinning it: a zero-result filter answers **200** with `resources: 0-0/0` and body `[]` (not an error, not a missing header), so `test_an_empty_price_bucket_is_skipped_and_the_other_buckets_are_paged` pins that bisection survives a distribution gap.
+
+**T1b (2026-11-05) — the live run corrected the design twice**
+
+- `pytest -q` → **340 passed, 9 skipped**; `flake8` CI gate → **0**.
+- First live run of the T1 code (`golosinas-y-chocolates`, 6 210 catalog entries): collected **741**, reported `5469 productos faltantes`. Root cause: the bisection range started at the `OrderByPriceASC` price of the unfiltered node (479.0), and 5 467 entries priced 0 sit below it.
+- Measurements that fixed it: `fq=P:[0 TO 100000000]` returns the full total, `fq=P:[0 TO 0]` isolates the atomic cluster (5 467 / 11 621 / 2 575), `OrderByPriceDESC` **inside** the filter gives the real maximum (105 500 on `almacen`), and the omitted entries are out of stock (`IsAvailable: false`).
+- Second live run, whole `almacen` with the priced scope: **4 704 documents** across the 15 children in ~3 min (Mongo: `categoria=almacen`, one `subcategoria` per child, 1 document with `price 0`). No gap report fired for any child, and every child's `sin stock omitidos` matched the measured difference (e.g. `desayuno-y-merienda` 11 621 omitted / 1 696 stored).
+- Third finding, from the same session: a full run died at 93 s on a transient **500**; the next identical run completed. That is why D-9 now has bounded retries (`ATTEMPTS = 3`, backoff 2 s / 4 s, 5xx and network only, 4xx still fatal on the first attempt).
+- Test-first RED for T1b: **10 failed, 14 passed** before the priced-scope fix; **10 failed, 18 passed** before the retry policy; GREEN **28 passed** in the module afterwards.
 
 **T2 (2026-11-05, `feat/disco-vtex-rewrite`, docs-only worktree)**
 
@@ -194,12 +269,16 @@ Documents: `supermercado` = `self.label` ("Disco"), `name`/`unidad` from
   call-site list and the K-4 `/scraping-disco` route history describe the past.
 - `pytest -q` → **334 passed, 9 skipped** (observed during T2, matches T1).
 
-_Remaining evidence (T3) to be filled as it closes._
+_Remaining evidence (T3) to be filled after the final live run._
 
 ## 7. Out of scope
 
+- **Carrefour's 1 480 `price: 0` documents (24 %)** — same cause as D-3,
+  owner decision 2026-11-05: documented here and in `known-issues.md` as its
+  own follow-up, not touched in this feature.
 - Retry/backoff policy (D-9).
-- A full 39 220-product almacén run: it is triggered from `/scrape` by the
-  owner (~1,2 GB of JSON, 10-20 min) after the small live run passes.
-- `name_parse` quirks (`known-issues.md`), unchanged here.
+- `name_parse` quirks (`known-issues.md`), unchanged here. The live run did
+  surface one: `Aceite De Girasol1.5 L Natura` keeps the unit in the name
+  because the shared helper's unit list has no bare `l` — pre-existing, shared
+  by every scraper, and a separate work unit.
 - The other four scrapers.

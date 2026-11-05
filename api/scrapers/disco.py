@@ -10,15 +10,49 @@ driver, the scroll, the CSS-class total and the BeautifulSoup parse go away
 slug as the last path segment — Carrefour's ``_discover_subcategories`` (D-2).
 
 The search API caps every offset window at 2550 items: ``_from=2500&_to=2549``
-answers 206, ``_from=2500&_to=2550`` and ``_from=2501`` answer 400. Nodes
-bigger than that (``desayuno-y-merienda`` holds 13 317 products) cannot be
-paged flat and their level-3 children do not partition them exactly, so an
-oversized node is measured (min/max price via ``O=OrderByPriceASC/DESC``) and
-bisected with ``fq=P:[lo TO hi]`` until every bucket fits the ceiling; bucket
-bounds are inclusive on both ends, so a boundary product shows up in two
-buckets and the ``productId`` dedupe absorbs it (D-3). Identity is
-``productId`` — the legacy name-substring guard dropped distinct products
-(D-4).
+answers 206, ``_from=2500&_to=2550`` and ``_from=2501`` answer 400.
+
+**Collection scope is the available subset (D-3, owner decision 2026-11-05).**
+A price comparer needs what the storefront shows: available offers. Measured
+live on ``aceites-y-vinagres`` (1 478 catalog entries): 200 available with a
+real price — the only ones ``fq=P:[0.01 TO ...]`` returns — 928 out of stock
+with a stale, unusable price (``Price`` 8.69 / 864.29 against ``ListPrice``
+718 / 71 429) and 350 out of stock with ``Price 0``. So the filter selects the
+*available* subset, not merely products with a price: most of the omitted
+entries do carry a price, a stale one. The out-of-stock rows also form one
+atomic cluster no price range can split (``fq=P:[0 TO 0]`` alone holds 5 467
+on ``golosinas-y-chocolates``), and the storefront the legacy scraper read hid
+them — storing those stale/zero prices would be a regression, not a gain.
+Every collection request is scoped with ``fq=P:[0.01 TO <priced max>]``, which
+indexes available offers only, the exact count of omitted out-of-stock
+entries is reported per child ("``sin stock omitidos``", D-7), and the
+coverage target is the priced total, not the catalog total. The saved set
+therefore matches what the storefront shows: ``almacen``'s 39 220 catalog
+entries yield 34 517 out-of-stock entries omitted.
+
+**The range's bounds are never inferred from ``OrderByPriceASC`` (D-3a).**
+The first implementation bisected the unfiltered ``ASC``/``DESC`` prices; the
+live run proved ``ASC`` does not return the true minimum (479.0 on
+``golosinas`` while the out-of-stock atom sat below it, collecting 741 of
+6 210), so the lower bound is the constant ``PRICE_FLOOR = 0.01`` and the
+upper bound is the ``OrderByPriceDESC`` price fetched *inside* the priced
+filter — the real maximum (105 500.0 on ``almacen``). A node whose priced
+subset exceeds ``MAX_WINDOW = 2550`` is bisected with ``fq=P:[lo TO hi]``
+until every bucket fits; bucket bounds stay inclusive on both ends, so a
+boundary product shows up in two buckets and the ``productId`` dedupe absorbs
+it (D-4) — the legacy name-substring guard dropped distinct products and is
+gone.
+
+**Transient search failures are retried (owner decision 2026-11-05).** A full
+live run of ``almacen`` died at 93 s with a 500 and the next run with the same
+code and data completed, so ``_search`` retries once (2 s backoff) and twice
+(4 s backoff) — through ``ctx.sleep``, so a requested stop is honoured — on
+network errors and HTTP >= 500, never on 4xx (the request is wrong, not the
+server). Anything else propagates as before (D-9): a discovery outage is
+fatal and never looks like "zero subcategories" (D-6), and after the last
+attempt the failure is reported and re-raised. A stop requested during a
+backoff is not a failure: the explorer loop ends cleanly as ``PROCESO
+DETENIDO`` with whatever was already collected.
 
 Every saved slice is ``categoria=<requested category>``,
 ``subcategoria=<child slug>`` (D-5): no Disco documents exist in
@@ -42,9 +76,25 @@ SEARCH_URL = f"{BASE_URL}/api/catalog_system/pub/products/search"
 
 PAGE_SIZE = 50
 # The search API rejects any window beyond item 2549 (measured: ``_from=2500
-# &_to=2550`` → 400); a node bigger than this is split by price first.
+# &_to=2550`` → 400); a bigger priced subset is split by price first.
 MAX_WINDOW = 2550
 PAGE_SLEEP_SECONDS = 1
+
+# Collection scope (D-3): the out-of-stock cluster (stale prices and
+# ``Price 0`` rows, all ``IsAvailable: false``) is atomic and intentionally
+# omitted. Every collection request filters on
+# ``fq=P:[PRICE_FLOOR TO <priced max>]``, which indexes available offers only.
+PRICE_FLOOR = 0.01
+# Synthetic scope top, never assumed to hold: the real maximum is measured
+# with ``O=OrderByPriceDESC`` inside the priced filter (105 500 on ``almacen``).
+PRICE_CEILING = 100_000_000
+
+# Transient-failure retries (owner decision): one 500 killed a full live run
+# at 93 s that the next run completed, so search requests -- probes and
+# windows alike -- are attempted three times with 2 s / 4 s backoff through
+# ``ctx.sleep`` (stop-aware, so tests never sleep).
+ATTEMPTS = 3
+BACKOFF_SECONDS = (2, 4)
 
 TREE_TIMEOUT = 30      # the tree is one 211 KB request per run
 WINDOW_TIMEOUT = 90    # ~31 KB per product: a 50-item page reaches ~1.6 MB
@@ -173,12 +223,13 @@ class ScraperDisco(BaseScraper):
 
     def _collect(self, ctx: ScrapeContext, path: str, label: str
                  ) -> list[dict]:
-        """Every reachable product of one level-two category.
+        """The available subset of one level-two category (D-3, D-3a).
 
-        An incomplete collection is never silent (D-7): the difference with
-        the total the API reported is reported with the exact count, whatever
-        produced it (a ``P`` bucket that under-indexes, a bisection that
-        cannot split further ...).
+        The out-of-stock atom is a decision to omit, never a silence: its
+        exact count is reported per child, and the end-of-child gap is
+        measured against the priced total, not the catalog total (D-7). A
+        stop reached through a backoff returns without the totals and stops
+        cleanly instead of failing.
         """
         documents: list[dict] = []
         seen: set[str] = set()
@@ -186,9 +237,19 @@ class ScraperDisco(BaseScraper):
         total = self._fetch_total(ctx, path, label)
         if not total:
             return documents
+        priced = self._fetch_total(ctx, path, label,
+                                   (PRICE_FLOOR, PRICE_CEILING))
+        if priced is None:
+            # The stop hit a backoff: no totals are pending, stop cleanly.
+            return documents
+        if total > priced:
+            ctx.report(f"{label}: {total - priced} sin stock omitidos")
+        if not priced:
+            return documents
 
-        if total <= MAX_WINDOW:
-            self._page_range(ctx, path, label, None, seen, documents, total)
+        if priced <= MAX_WINDOW:
+            self._page_range(ctx, path, label, (PRICE_FLOOR, PRICE_CEILING),
+                             seen, documents, priced)
         else:
             buckets = self._partition_by_price(ctx, path, label)
             for lo, hi, bucket_total in buckets:
@@ -197,35 +258,58 @@ class ScraperDisco(BaseScraper):
                 self._page_range(ctx, path, label, (lo, hi), seen, documents,
                                  min(bucket_total, MAX_WINDOW))
 
-        missing = total - len(seen)
+        missing = priced - len(seen)
         if missing > 0:
             ctx.report(f"{label}: {missing} productos faltantes "
-                       f"(total del catálogo {total}, "
-                       f"recolectados {len(seen)})")
+                       f"(con precio {priced}, recolectados {len(seen)})")
         return documents
 
     def _search(self, ctx: ScrapeContext, query_suffix: str, label: str):
-        """One GET to the search endpoint.
+        """One GET to the search endpoint, retried on transient failures.
 
-        Page failures are fatal (D-9): they propagate and never retry, and
-        the children already saved keep their fresh data.
+        Network errors and HTTP >= 500 (measured live: a 500 killed a full
+        run that the next run completed) get two retries with a 2 s / 4 s
+        backoff through ``ctx.sleep``; a 4xx means the request is wrong and
+        is reported and raised on the first attempt. After the last attempt
+        the failure is reported and re-raised (D-9). A stop requested during
+        a backoff returns ``None`` so the callers stop cleanly instead of
+        failing a stopped run.
         """
         url = f"{SEARCH_URL}/{query_suffix}"
-        try:
-            response = ctx.http.get(url, timeout=WINDOW_TIMEOUT)
-        except Exception as exc:
-            ctx.report(f"Error de red en {label}: {exc}")
-            raise
-        if response.status_code not in (200, 206):
-            ctx.report(f"Error {response.status_code} en {label}")
-            raise RuntimeError(
-                f"the search API answered {response.status_code}")
-        return response
+        last_error: Exception | None = None
+        last_status: int | None = None
+        for attempt in range(ATTEMPTS):
+            if attempt > 0 and ctx.sleep(BACKOFF_SECONDS[attempt - 1]):
+                return None
+            try:
+                response = ctx.http.get(url, timeout=WINDOW_TIMEOUT)
+            except Exception as exc:
+                last_error, last_status = exc, None
+            else:
+                status = getattr(response, "status_code", None)
+                if status in (200, 206):
+                    return response
+                if status is not None and status < 500:
+                    # 4xx: the request is wrong, not the server.
+                    ctx.report(f"Error {status} en {label}")
+                    raise RuntimeError(
+                        f"the search API answered {status}")
+                last_error, last_status = None, status
+        if last_status is not None:
+            ctx.report(f"Error {last_status} en {label}")
+            raise RuntimeError(f"the search API answered {last_status}")
+        ctx.report(f"Error de red en {label}: {last_error}")
+        raise last_error  # type: ignore[misc]  # set whenever status is None
 
     def _search_json(self, ctx: ScrapeContext, query_suffix: str,
-                     label: str) -> list:
-        """``_search`` decoded; an invalid body is fatal, like a page error."""
+                     label: str) -> list | None:
+        """``_search`` decoded; an invalid body is fatal, like a page error.
+
+        ``None`` means the stop ended a backoff with no response available.
+        """
         response = self._search(ctx, query_suffix, label)
+        if response is None:
+            return None
         try:
             return response.json() or []
         except Exception as exc:
@@ -258,6 +342,8 @@ class ScraperDisco(BaseScraper):
             lo, hi = price_range
             query = f"{query}&fq=P:[{lo} TO {hi}]"
         response = self._search(ctx, f"{path}?{query}", label)
+        if response is None:
+            return None
         total = self._total_from(response)
         if total is None:
             # Without the header there is no reliable paging bound: complete
@@ -271,21 +357,25 @@ class ScraperDisco(BaseScraper):
 
     def _partition_by_price(self, ctx: ScrapeContext, path: str, label: str
                             ) -> list[tuple[float, float, int]]:
-        """Bisect the node's measured price range (D-3).
+        """Bisect the priced subset (D-3, D-3a).
 
-        Returns the finalized ``[lo, hi]`` buckets (each with its measured
-        total) in detection order, every one at or under ``MAX_WINDOW``.
-        Bucket bounds stay inclusive on both ends, as the API is.
+        The range starts at ``PRICE_FLOOR`` — never at an ``OrderByPriceASC``
+        value — and its top is the measured priced maximum. Returns the
+        finalized ``[lo, hi]`` buckets (each with its measured total) in
+        detection order, every one at or under ``MAX_WINDOW``. Bucket bounds
+        stay inclusive on both ends, as the API is.
         """
-        low = self._price_bound(ctx, path, label, "OrderByPriceASC")
-        high = self._price_bound(ctx, path, label, "OrderByPriceDESC")
+        high = self._priced_max(ctx, path, label)
         final_buckets: list[tuple[float, float, int]] = []
-        queue: list[tuple[float, float]] = [(low, high)]
+        queue: list[tuple[float, float]] = [(PRICE_FLOOR, high)]
         while queue:
             lo, hi = queue.pop(0)
             if ctx.should_stop():
                 break
             total = self._fetch_total(ctx, path, label, price_range=(lo, hi))
+            if total is None:
+                # The stop hit a backoff: stop cleanly, keep what is finalized.
+                break
             if not total:
                 continue
             if total <= MAX_WINDOW:
@@ -302,14 +392,26 @@ class ScraperDisco(BaseScraper):
             queue.append((mid, hi))
         return final_buckets
 
-    def _price_bound(self, ctx: ScrapeContext, path: str, label: str,
-                     order: str) -> float:
-        """The single ``O={order}`` window's price: min (ASC) or max (DESC)."""
+    def _priced_max(self, ctx: ScrapeContext, path: str, label: str) -> float:
+        """The true maximum of the priced subset (D-3a).
+
+        ``O=OrderByPriceDESC`` measured *inside* the priced filter. The ASC
+        direction is deliberately never used as a bound helper: its
+        unfiltered first window returned 479.0 live on ``golosinas`` while
+        the out-of-stock atom sat below it, and a lower bound may not be
+        inferred from a sort.
+        """
         items = self._search_json(
-            ctx, f"{path}?_from=0&_to=0&O={order}", label)
+            ctx, f"{path}?_from=0&_to=0&O=OrderByPriceDESC"
+                 f"&fq=P:[{PRICE_FLOOR} TO {PRICE_CEILING}]", label)
+        if items is None:
+            return PRICE_FLOOR
         if not items or not isinstance(items[0], dict):
-            return 0.0
-        return float(self._price_of(items[0]) or 0.0)
+            return PRICE_FLOOR
+        price = self._price_of(items[0])
+        if not isinstance(price, (int, float)) or isinstance(price, bool):
+            return PRICE_FLOOR
+        return max(float(price), PRICE_FLOOR)
 
     # -- paging ----------------------------------------------------------------
 
