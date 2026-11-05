@@ -1,8 +1,9 @@
 # SuperMami scraper rewrite — Oracle Endeca, full category coverage
 
 **Branch:** `feat/supermami-scraper-rewrite` (from `main`)
-**Status:** DONE (T1-T3) + review corrections — live-verified twice; the review
-lineage terminated with unverifiable authority, so no approval was burned
+**Status:** DONE (T1-T3) + review corrections — live-verified twice; native
+review **approved** on the corrected candidate (`review-e6a3b6efd0b65d96`),
+authority burned
 
 Rewrite `api/scrapers/supermami.py` with the same techniques that now work for
 Carrefour, La Anónima and Disco: resolve the category from the site itself at
@@ -238,6 +239,21 @@ applied and verified independently of that authority.
 
 **T3 re-run after the corrections:** 69 s, 7 pages, **3 210/3 210**, no
 missing-count report — the scoped total regex reads the real page correctly.
+
+**Review of the corrected candidate (2026-11-05):** a fresh lineage
+`review-e6a3b6efd0b65d96` was started on the full branch range (`baseRef`
+`add44ca`, 9 paths, 1 687 lines, medium, lens `review-reliability`) — the
+previous lineage could not be recovered and its authority never verified. The
+reviewer captured and returned **approved** on the first pass, with no refuter
+requested and no correction offered; the approval was acknowledged and its
+authority **burned** (`gentle-ai.review-acknowledged/v1`). Two informational
+WARNINGs, both on the code the corrections added: `api/scrapers/supermami.py:55`
+(the scoped `TOTAL_RE`) and `:323` (the `Respuesta sin total` raise) — advisory
+only, no action required.
+
+**Dead lineage:** `review-cc3e3e5449544da6` remains in `correction_required`
+with a terminal `corrupted_or_unverifiable_authority` STATUS. It is superseded
+by the approved lineage above and needs an explicit abandon decision (owner).
 
 ## 7. Out of scope
 
