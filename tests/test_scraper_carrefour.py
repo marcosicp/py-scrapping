@@ -112,9 +112,16 @@ TREE_JSON = [
 ]
 
 
-def vtex_product(name, product_id, price=1000.0, brand="Marca", offer=True):
-    """One product in the shape the VTEX search API returns."""
+def vtex_product(name, product_id, price=1000.0, brand="Marca", offer=True,
+                 ean="7790272001005"):
+    """One product in the shape the VTEX search API returns.
+
+    Every ``items[]`` entry carries an ``ean`` string (live probe, T1);
+    ``ean=None`` omits the key.
+    """
     item = {"itemId": f"i{product_id}", "name": name}
+    if ean is not None:
+        item["ean"] = ean
     if offer:
         item["sellers"] = [{"commertialOffer": {"Price": price,
                                                 "ListPrice": price}}]
@@ -126,9 +133,9 @@ def vtex_product(name, product_id, price=1000.0, brand="Marca", offer=True):
 
 
 def expected_doc(name, unidad, brand, sku, price, subcategoria,
-                 categoria=ALMACEN):
+                 categoria=ALMACEN, ean="7790272001005"):
     return {"supermercado": "Carrefour", "name": name, "unidad": unidad,
-            "brand": brand, "sku": sku, "price": price,
+            "brand": brand, "sku": sku, "price": price, "ean": ean,
             "categoria": categoria, "subcategoria": subcategoria}
 
 
@@ -303,6 +310,31 @@ def test_dedupe_is_by_product_id_within_a_subcategory():
 
     assert [doc["sku"] for doc in stored_documents(repository)] == [
         "122140", "999"]
+
+
+def test_ean_comes_from_the_item_and_a_missing_ean_stores_empty():
+    """The live probe verified every ``items[]`` entry carries an ``ean``
+    string; an item without the key must not crash the run and stores
+    ``""``."""
+    session = FakeSession([
+        FakeResponse(200, TREE_JSON),
+        FakeResponse(206, [vtex_product("Con EAN 500 gr", "801", 1200.5,
+                                        ean="7794567890123"),
+                           vtex_product("Sin EAN 500 gr", "802", 1200.5,
+                                        ean=None)],
+                     total=2),
+        FakeResponse(206, [], total=0),
+    ])
+    repository = InMemoryProductRepository()
+    ctx, _messages = make_ctx(session, repository)
+
+    ScraperCarrefour().run(ctx)
+
+    stored = stored_documents(repository)
+    assert [(doc["sku"], doc["ean"]) for doc in stored] == [
+        ("801", "7794567890123"),
+        ("802", ""),
+    ]
 
 
 # -- 4. failure modes -------------------------------------------------------

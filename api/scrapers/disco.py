@@ -465,6 +465,8 @@ class ScraperDisco(BaseScraper):
             # stable identity and the one Carrefour stores today.
             "sku": str(item.get("productId") or ""),
             "price": self._price_of(item),
+            # The item's EAN barcode as a string, "" when absent or null.
+            "ean": self._ean_of(item),
         }
 
     @staticmethod
@@ -481,3 +483,11 @@ class ScraperDisco(BaseScraper):
         if isinstance(price, bool) or not isinstance(price, (int, float)):
             return 0
         return price
+
+    @staticmethod
+    def _ean_of(item: dict) -> str:
+        """``items[0].ean`` as a string, or "" when absent or null."""
+        items = item.get("items") or []
+        ean = items[0].get("ean") if items and isinstance(items[0], dict) \
+            else None
+        return str(ean) if ean else ""

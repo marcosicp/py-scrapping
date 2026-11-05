@@ -62,13 +62,18 @@ TREE_JSON = [
 ]
 
 
-def product(name, product_id, price=1000.0, brand="Marca", offer=True):
+def product(name, product_id, price=1000.0, brand="Marca", offer=True,
+            ean="7790272001005"):
     """One product in the shape the VTEX search API returns.
 
     ``price=0.0`` is the unpriced cluster the live run measured:
     ``IsAvailable: false`` rows whose ``commertialOffer.Price`` is 0.
+    ``ean`` is the barcode the live probe verified on every ``items[]``
+    entry; ``ean=None`` omits the key.
     """
     item = {"itemId": f"i{product_id}", "name": name}
+    if ean is not None:
+        item["ean"] = ean
     if offer:
         item["sellers"] = [{"commertialOffer": {"Price": price,
                                                 "ListPrice": price}}]
@@ -253,9 +258,10 @@ def stored_documents(repository):
             for doc in repository.documents]
 
 
-def expected_doc(name, unidad, brand, sku, price, subcategoria):
+def expected_doc(name, unidad, brand, sku, price, subcategoria,
+                 ean="7790272001005"):
     return {"supermercado": "Disco", "name": name, "unidad": unidad,
-            "brand": brand, "sku": sku, "price": price,
+            "brand": brand, "sku": sku, "price": price, "ean": ean,
             "categoria": ALMACEN, "subcategoria": subcategoria}
 
 
@@ -826,6 +832,33 @@ def test_a_pre_cancelled_run_is_inert():
 
     assert session.urls == []
     assert messages == []
+
+
+def test_ean_comes_from_the_item_and_a_missing_ean_stores_empty(repository):
+    """The live probe verified every ``items[]`` entry carries an ``ean``
+    string; an item without the key must not crash the run and stores
+    ``""``."""
+    node = f"/{ALMACEN}/{SUB}"
+    node2 = f"/{ALMACEN}/{SUB2}"
+    catalog = {
+        node: [
+            (1200.5, product("Con EAN 500 gr", 801, 1200.5,
+                             ean="7794567890123")),
+            (1200.5, product("Sin EAN 500 gr", 802, 1200.5, ean=None)),
+        ],
+        node2: [],
+    }
+    session = VtexSession(TREE_JSON, catalog)
+    repository = InMemoryProductRepository()
+    ctx, _messages = make_ctx(session, repository)
+
+    ScraperDisco().run(ctx)
+
+    stored = stored_documents(repository)
+    assert [(doc["sku"], doc["ean"]) for doc in stored] == [
+        ("801", "7794567890123"),
+        ("802", ""),
+    ]
 
 
 # -- 6. field mapping and validation -----------------------------------------
