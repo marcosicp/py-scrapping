@@ -295,9 +295,33 @@ Documents: `supermercado` = `self.label` ("Disco"), `name`/`unidad` from
 - **Carrefour's 1 480 `price: 0` documents (24 %)** — same cause as D-3,
   owner decision 2026-11-05: documented here and in `known-issues.md` as its
   own follow-up, not touched in this feature.
-- Retry/backoff policy (D-9).
+- **Retry policy for the category tree** (D-9): only the search endpoint
+  retries; a transient tree outage still fails the run on the first attempt.
 - `name_parse` quirks (`known-issues.md`), unchanged here. The live run did
   surface one: `Aceite De Girasol1.5 L Natura` keeps the unit in the name
   because the shared helper's unit list has no bare `l` — pre-existing, shared
   by every scraper, and a separate work unit.
 - The other four scrapers.
+
+## 8. Native review
+
+- Candidate: the whole branch range, `baseRef=90d6c6e` + `committedOnly=true`
+  (8 paths, 2 101 changed lines), tier **medium**, lens
+  `review-reliability`, correction budget 200.
+- Lineage `review-950b0c7b97b66e5f` → reviewer captured → the provider required
+  a refuter for its blocking finding → refuter captured → **approved**, and the
+  approval was acknowledged (`authority: burned`,
+  `gentle-ai.review-acknowledged/v1`).
+- Findings, both non-blocking:
+  - `R3-001` (CRITICAL, `api/scrapers/disco.py:186-192`) — **refuted** by the
+    refuter: `_discover_subcategories` returning `[]` when the requested
+    category node is absent is not a discovery outage; the run reports
+    `No se encontraron subcategorías` and moves on, which is the documented
+    behaviour for a category the site no longer publishes.
+  - `R3-002` (WARNING, `api/scrapers/disco.py:470-480`) — informational:
+    `_price_of` reads `items[0].sellers[0].commertialOffer.Price`, so a product
+    whose *available* offer is not `sellers[0]` is stored with `price 0`. That
+    is the single `price 0` document in the live run. A follow-up, not a
+    blocker: pick the seller whose `commertialOffer.IsAvailable` is true.
+- Delivery: approval never authorises delivery. Commit/push/PR/merge remain the
+  owner's decisions; the branch is local and unpushed.
