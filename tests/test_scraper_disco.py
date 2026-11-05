@@ -1,194 +1,194 @@
-"""Disco port (T9): offline fake-driver/fake-HTTP behavior.
+"""Disco scraper: offline behavior against the VTEX catalog API.
 
-Every test runs the ported scraper end to end against canned Selenium
-driver data and canned json-LD HTML served by a fake HTTP session: exact
-driver/HTTP request order, stored documents, progress messages and the
-console output. The legacy-vs-port differential suite that used to
-accompany these tests was removed with the legacy module in T14; the
-examples here still pin the ported quirks (page 1 never collected, the
-zero-total skip, the error and stop paths).
+`/almacen`'s HTML needs a browser; the catalog API does not. The tree at
+``/api/catalog_system/pub/category/tree/2`` and the search endpoint
+``/api/catalog_system/pub/products/search/<path>`` (206 with a
+``resources: from-to/total`` header, measured on 2026-11-05) answer everything
+the HTML path scraped. The offset ceiling is 2550 items (``_from=2500&_to=2550``
+→ 400), and nodes bigger than that are read through inclusive
+``fq=P:[lo TO hi]`` price buckets bisected until each one fits, so the
+duplicates on a bucket boundary are collapsed by the ``productId`` dedupe.
+
+These tests pin that design offline: the fake session answers the two
+endpoints the way the measured API does, and nothing here ever opens a
+browser, touches an HTML page or the network.
 """
-import json
+import re
 import threading
 from types import SimpleNamespace
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
+import api.scrapers.disco as disco_module
 from api.scrapers.base import ScrapeContext
-from api.scrapers.disco import ScraperDisco
+from api.scrapers.disco import (SEARCH_URL, TREE_URL, ScraperDisco)
+from api.scrapers.errors import InvalidCategory
+from tests.fakes import InMemoryProductRepository
 
-# -- canned scenario ---------------------------------------------------------
-#
-# Two bounded subcategories carry items; every other subcategory reads a
-# total of 0 and is skipped without any HTTP request.
-#
-# total 61 -> range(2, int(61/20)+1) == range(2, 4) -> pages 2 and 3
-# total 41 -> range(2, int(41/20)+1) == range(2, 3) -> page 2 only
-SUB1 = "aceites-y-vinagres"
-SUB2 = "aderezos"
+# -- canned data -------------------------------------------------------------
 
-SCROLL_SCRIPT = "window.scrollTo(0, document.body.scrollHeight/2);"
-PAGE_1_URL = "https://www.disco.com.ar/almacen/" + SUB1
+ALMACEN = "almacen"
+SUB = "aceites-y-vinagres"
+SUB2 = "golosinas-y-chocolates"
 
+BASE = "https://www.disco.com.ar"
 
-def page_url(seccion, i):
-    return f'https://www.disco.com.ar/almacen/{seccion}?page={i}'
-
-
-def ld_item(name, brand, sku, price):
-    """One product in the shape Disco's embedded json-LD itemListElement has."""
-    return {"item": {"name": name, "brand": {"name": brand}, "sku": sku,
-                     "offers": {"lowPrice": price}}}
-
-
-def jsonld_page(items):
-    """A page whose product list lives in the embedded json-LD script.
-
-    The script tag must follow the anchor div with NO whitespace between
-    them: the scraper reads ``anchors[0].next``, the very next node in the
-    parse tree, and skips the page unless it is a script tag.
-    """
-    payload = json.dumps({"itemListElement": items})
-    return ('<html><body>'
-            '<div class="flex flex-column min-vh-100 w-100">'
-            '<script type="application/ld+json">' + payload + '</script>'
-            '</div></body></html>')
-
-
-def no_script_page():
-    """A page whose anchor div is NOT followed by a script tag."""
-    return ('<html><body>'
-            '<div class="flex flex-column min-vh-100 w-100"><p>no json</p>'
-            '</div></body></html>')
-
-
-ITEM_A = ld_item("Aceite Girasol 900 ml", "Girasol", "1001", 1500.5)
-ITEM_B = ld_item("Yerba Playadito 1 kg", "Playadito", "1002", 2500)
-ITEM_C = ld_item("Mayonesa Hellmann's 500 gr", "Hellmann's", "1003", 999.99)
-ITEM_D = ld_item("Arroz Gallo 1 kg", "Gallo", "1004", 800)
-
-
-def expected_doc(name, unidad, brand, sku, price, categoria):
-    """Stored shape as the repository persists it (scraped_at normalised away)."""
-    return {"supermercado": "Disco", "name": name, "unidad": unidad,
-            "brand": brand, "sku": sku, "price": price,
-            "categoria": categoria}
-
-
-HAPPY_PAGES = {
-    page_url(SUB1, 2): jsonld_page([ITEM_A, ITEM_B]),
-    page_url(SUB1, 3): jsonld_page([ITEM_C]),
-}
-
-# Stored shape after name_parse and the per-subcategory name sort.
-EXPECTED_SUB1_DOCUMENTS = [
-    expected_doc("Aceite Girasol", "900 ml", "Girasol", "1001", 1500.5, SUB1),
-    expected_doc("Mayonesa Hellmann's", "500 gr", "Hellmann's", "1003",
-                 999.99, SUB1),
-    expected_doc("Yerba Playadito", "1 kg", "Playadito", "1002", 2500, SUB1),
+TREE_JSON = [
+    {"id": 5, "name": "Tecnología",
+     "url": f"{BASE}/tecnologia", "children": []},
+    {"id": 100, "name": "Almacén",
+     "url": f"{BASE}/almacen", "children": [
+         {"id": 101, "name": "Aceites y Vinagres",
+          "url": f"{BASE}/almacen/{SUB}", "children": []},
+         {"id": 102, "name": "Golosinas y Chocolates",
+          "url": f"{BASE}/almacen/{SUB2}", "children": [
+              # A level-3 grandchild: discovery must stop at level 2.
+              {"id": 103, "name": "Galletitas",
+               "url": f"{BASE}/almacen/{SUB2}/galletitas", "children": []},
+          ]},
+     ]},
 ]
 
 
-def normalise(documents):
-    return [{key: value for key, value in doc.items()
-             if key not in ("_id", "scraped_at")}
-            for doc in documents]
+def product(name, product_id, price=1000.0, brand="Marca", offer=True):
+    """One product in the shape the VTEX search API returns."""
+    item = {"itemId": f"i{product_id}", "name": name}
+    if offer:
+        item["sellers"] = [{"commertialOffer": {"Price": price,
+                                                "ListPrice": price}}]
+    else:
+        item["sellers"] = []
+    return {"productName": name, "productId": product_id, "brand": brand,
+            "items": [item],
+            "categories": ["/Almacén/Aceites y Vinagres/"]}
 
 
-def stored_documents(repository):
-    return normalise(repository.documents)
+def node_catalog(spec):
+    """``[(price, product), ...]`` per ``(price, count)`` pairs, unique ids."""
+    entries = []
+    product_id = 0
+    for price, count in spec:
+        for _ in range(count):
+            product_id += 1
+            entries.append((price,
+                            product(f"Producto test {product_id}", product_id,
+                                    price)))
+    return entries
 
 
-# -- fakes ------------------------------------------------------------------
-
-
-class FakeDriver:
-    """Recorder standing in for the Selenium Chrome driver.
-
-    Serves a canned product total per subcategory (the last visited page-1
-    URL decides which subcategory is being read) and records every call
-    the port must reproduce.
-    """
-
-    def __init__(self, totals, *, on_script=None, get_error=None):
-        self.totals = totals
-        self.on_script = on_script
-        self.get_error = get_error
-        self.urls = []
-        self.scripts = []
-        self.maximized = False
-        self.implicit_waits = []
-        self.quit_count = 0
-
-    def maximize_window(self):
-        self.maximized = True
-
-    def implicitly_wait(self, seconds):
-        self.implicit_waits.append(seconds)
-
-    def get(self, url):
-        if self.get_error is not None:
-            raise self.get_error
-        self.urls.append(url)
-
-    def execute_script(self, script):
-        self.scripts.append(script)
-        if self.on_script is not None:
-            self.on_script(script)
-
-    def find_element(self, by, selector):
-        seccion = self.urls[-1].rstrip("/").rsplit("/", 1)[-1]
-        return SimpleNamespace(text=f"{self.totals.get(seccion, 0)} productos")
-
-    def quit(self):
-        self.quit_count += 1
+# -- fakes -------------------------------------------------------------------
 
 
 class FakeResponse:
-    def __init__(self, text):
+    """A canned VTEX response: status, decoded JSON and the resources header."""
+
+    def __init__(self, status_code, payload=None, *, total=None, first=0,
+                 last=0, valid_json=True, text=""):
+        self.status_code = status_code
+        self._payload = payload
+        self._valid_json = valid_json
         self.text = text
-        # The legacy path calls response.html.arender(sleep=8) without ever
-        # awaiting it; the fake's arender is a plain no-op for that path.
-        self.html = SimpleNamespace(arender=lambda **kwargs: None)
+        self.headers = {}
+        if total is not None:
+            self.headers["resources"] = f"{first}-{last}/{total}"
+
+    def json(self):
+        if not self._valid_json:
+            raise ValueError("Expecting value: line 1 column 1 (char 0)")
+        if self._payload is None:
+            raise AssertionError("response.json() called on a payload-less "
+                                 "response")
+        return self._payload
 
 
-class FakeSession:
-    """Offline stand-in for the shared HTTP session; records every GET.
+PRICE_RANGE = re.compile(r"P:\[([^\s\]]+)\s+TO\s+([^\]]+)\]")
 
-    Serves canned pages keyed by URL, can raise on selected URLs (to
-    exercise the per-page except) and can flip a stop event on the
-    n-th request (to exercise the page-loop stop).
+
+class VtexSession:
+    """Offline stand-in for the measured catalog API.
+
+    ``catalog`` maps a node path (``/almacen/aceites-y-vinagres``) to the
+    ordered ``(price, product)`` list the search endpoint pages there.
+    ``failures`` is a consumed-on-first-match list of ``(url substring,
+    outcome)`` where an outcome is a raising exception, a response status,
+    or ``"invalid-json"``.
+
+    Faithful to the measured API: any window with ``_to > 2549`` or
+    ``_from >= 2501`` answers 400 (the offset ceiling), and an empty result
+    answers 200 with ``resources: 0-0/0`` and body ``[]`` — never 206.
     """
 
-    def __init__(self, pages, *, stop_event=None, flip_stop_on=None,
-                 errors=None):
+    def __init__(self, tree, catalog, *, failures=(),
+                 stop_event=None, flip_stop_on=None):
         self.urls = []
-        self._pages = dict(pages)
+        self.timeouts = []
+        self.tree = tree
+        self.catalog = catalog
+        self._failures = list(failures)
         self._stop_event = stop_event
         self._flip_stop_on = flip_stop_on
-        self._errors = dict(errors or {})
 
-    def get(self, url):
+    def get(self, url, timeout=None, headers=None):
+        self.urls.append(url)
+        self.timeouts.append(timeout)
         if (self._stop_event is not None
                 and len(self.urls) == self._flip_stop_on):
             self._stop_event.set()
-        self.urls.append(url)
-        if url in self._errors:
-            raise self._errors[url]
-        if url not in self._pages:
-            raise AssertionError(f"unexpected GET: {url}")
-        return FakeResponse(self._pages[url])
+        for index, (pattern, outcome) in enumerate(self._failures):
+            if pattern in url:
+                del self._failures[index]
+                if isinstance(outcome, BaseException):
+                    raise outcome
+                if outcome == "invalid-json":
+                    return FakeResponse(200, valid_json=False)
+                return FakeResponse(int(outcome), text=f"error {outcome}")
+
+        parts = urlsplit(url)
+        if parts.path.rstrip("/") == "/api/catalog_system/pub/category/tree/2":
+            return FakeResponse(200, self.tree)
+
+        query = parse_qs(parts.query)
+        start = int((query.get("_from") or ["0"])[0])
+        end = int((query.get("_to") or [str(start)])[0])
+        order = (query.get("O") or [None])[0]
+        price_range = PRICE_RANGE.match((query.get("fq") or [""])[0])
+        node = parts.path[len("/api/catalog_system/pub/products/search"):]
+        entries = self.catalog.get(node, [])
+        if price_range:
+            lo, hi = float(price_range.group(1)), float(price_range.group(2))
+            entries = [entry for entry in entries if lo <= entry[0] <= hi]
+        if order == "OrderByPriceASC":
+            items = [product for _price, product
+                     in sorted(entries, key=lambda entry: entry[0])[:1]]
+            if not items:
+                return FakeResponse(200, [], total=0, first=start, last=end)
+            return FakeResponse(206, items, total=len(entries),
+                                first=start, last=end)
+        if order == "OrderByPriceDESC":
+            items = [product for _price, product
+                     in sorted(entries, key=lambda entry: entry[0])[-1:]]
+            if not items:
+                return FakeResponse(200, [], total=0, first=start, last=end)
+            return FakeResponse(206, items, total=len(entries),
+                                first=start, last=end)
+        total = len(entries)
+        if not total:
+            # Verified live: an empty result is 200 with resources 0-0/0,
+            # never a 206 — a zero-total bucket is skipped, not fatal.
+            return FakeResponse(200, [], total=0, first=start, last=end)
+        if end > 2549 or start >= 2501:
+            # Verified live: `_from=2500&_to=2549` is the last valid window;
+            # `_to=2550` and `_from=2501` both answer 400.
+            return FakeResponse(400, text="the offset window is capped")
+        items = [product for _price, product
+                 in entries[start:min(end, total - 1) + 1]]
+        return FakeResponse(206, items, total=total, first=start, last=end)
 
 
 @pytest.fixture(autouse=True)
 def fast_sleep(monkeypatch):
-    """Neutralise the real 5 s waits: unit tests never sleep in real time.
-
-    ``ScrapeContext.sleep`` is the real-time seam, patched to record each
-    requested duration and return ``should_stop()`` — False unless the
-    test itself raised the stop, which keeps the stop-during-sleep break
-    path meaningful without any real wait.
-    """
+    """Neutralise the rate-limiting wait: unit tests never sleep."""
     recorder = SimpleNamespace(requests=[])
 
     def fake_sleep(self, seconds):
@@ -199,212 +199,426 @@ def fast_sleep(monkeypatch):
     return recorder
 
 
-def make_ctx(session, repository, *, driver=None, stop_event=None):
+def stored_documents(repository):
+    return [{key: value for key, value in doc.items()
+             if key not in ("_id", "scraped_at")}
+            for doc in repository.documents]
+
+
+def expected_doc(name, unidad, brand, sku, price, subcategoria):
+    return {"supermercado": "Disco", "name": name, "unidad": unidad,
+            "brand": brand, "sku": sku, "price": price,
+            "categoria": ALMACEN, "subcategoria": subcategoria}
+
+
+def probe_url(node, price_range=None, order=None):
+    query = "_from=0&_to=0"
+    if order:
+        query = f"{query}&O={order}"
+    if price_range:
+        query = f"{query}&fq=P:[{price_range[0]} TO {price_range[1]}]"
+    return f"{SEARCH_URL}{node}?{query}"
+
+
+def window_url(node, start, price_range=None):
+    query = f"_from={start}&_to={start + 49}"
+    if price_range:
+        query = f"{query}&fq=P:[{price_range[0]} TO {price_range[1]}]"
+    return f"{SEARCH_URL}{node}?{query}"
+
+
+def make_ctx(session, repository, *, category=ALMACEN, stop_event=None,
+             browser_factory=None):
     messages: list[str] = []
     ctx = ScrapeContext(
         slug=ScraperDisco.slug, label=ScraperDisco.label,
-        category="almacen", stop_event=stop_event or threading.Event(),
+        category=category, stop_event=stop_event or threading.Event(),
         report=messages.append, repository=repository,
-        browser_factory=(lambda: driver) if driver is not None else None,
+        browser_factory=browser_factory,
         http_factory=lambda: session)
     return ctx, messages
 
 
-class OneSubcategoryScraper(ScraperDisco):
-    """Bounds the run to a single subcategory so tests stay focused."""
-
-    SUBCATEGORIES = (SUB1,)
+# -- 1. identity and discovery ----------------------------------------------
 
 
-class TwoSubcategoryScraper(ScraperDisco):
-    """Bounds the run to two subcategories."""
-
-    SUBCATEGORIES = (SUB1, SUB2)
-
-
-# -- 1. happy path: driver calls, URLs, documents, messages -------------------
+def test_identity_stays_the_registered_disco_scraper():
+    assert ScraperDisco.slug == "disco"
+    assert ScraperDisco.label == "Disco"
+    assert ScraperDisco.categories == (ALMACEN,)
 
 
-def test_full_run_visits_the_page_and_stores_the_sorted_documents(
-        repository, fast_sleep):
-    driver = FakeDriver({SUB1: 61})
-    session = FakeSession(HAPPY_PAGES)
-    ctx, messages = make_ctx(session, repository, driver=driver)
+def test_discovery_reads_the_level_two_children_of_the_requested_category():
+    session = VtexSession(TREE_JSON, {})
+    ctx, _messages = make_ctx(session, InMemoryProductRepository())
 
-    OneSubcategoryScraper().run(ctx)
+    children = ScraperDisco()._discover_subcategories(ctx, ALMACEN)
 
-    assert driver.maximized is True
-    assert driver.implicit_waits == [50]
-    # The driver loaded the page-1 URL and executed the legacy scroll.
-    assert driver.urls == [PAGE_1_URL]
-    assert driver.scripts == [SCROLL_SCRIPT]
-    # The 5 s wait was requested through the context, not time.sleep.
-    assert fast_sleep.requests == [5]
-    # Page 1 is never collected (legacy quirk, decision 1).
-    assert session.urls == [page_url(SUB1, 2), page_url(SUB1, 3)]
-    # Documents are name-sorted before saving (Cafe-style ordering).
-    assert stored_documents(repository) == EXPECTED_SUB1_DOCUMENTS
-    assert repository.calls == [("Disco", SUB1, None, 3)]
-    assert driver.quit_count == 1
-    assert messages == [
-        f"Scrapeando subcategoría: {SUB1}",
-        f"{SUB1} - página 2",
-        f"{SUB1} - página 3",
-        f"Guardados 3 productos de {SUB1} en base de datos",
-        "PROCESO TERMINADO - Todas las subcategorías procesadas",
+    assert session.urls == [TREE_URL]
+    assert [slug for slug, _label, _path in children] == [SUB, SUB2]
+    assert [label for _slug, label, _path in children] == [
+        "Aceites y Vinagres", "Golosinas y Chocolates"]
+    assert [path for _slug, _label, path in children] == [
+        f"{ALMACEN}/{SUB}", f"{ALMACEN}/{SUB2}"]
+
+
+def test_discovery_never_returns_another_top_category_or_a_grandchild():
+    session = VtexSession(TREE_JSON, {})
+    ctx, _messages = make_ctx(session, InMemoryProductRepository())
+
+    paths = [path for _slug, _label, path
+             in ScraperDisco()._discover_subcategories(ctx, ALMACEN)]
+
+    assert paths == [f"{ALMACEN}/{SUB}", f"{ALMACEN}/{SUB2}"]
+
+
+def test_a_category_missing_from_the_tree_says_so_and_the_run_continues():
+    """'almacen' is a registered category but absent from the measured tree:
+    reported, nothing requested or saved, and the run still ends cleanly."""
+    tree = [dict(TREE_JSON[0])]  # only 'tecnología', no 'almacén' node
+    session = VtexSession(tree, {})
+    repository = InMemoryProductRepository()
+    ctx, messages = make_ctx(session, repository, category=ALMACEN)
+
+    ScraperDisco().run(ctx)
+
+    assert session.urls == [TREE_URL]
+    assert repository.calls == []
+    assert any("No se encontraron subcategorías" in message
+               for message in messages)
+    assert messages[-1] == "PROCESO TERMINADO"
+
+
+def test_the_tree_is_refetched_per_run_and_only_then_cached():
+    """One tree GET per run (an instance attribute set at run start), not a
+    class-level cache shared between runs."""
+    session = VtexSession(TREE_JSON, {})
+    repository = InMemoryProductRepository()
+    scraper = ScraperDisco()
+
+    scraper.run(make_ctx(session, repository)[0])
+    scraper.run(make_ctx(session, repository)[0])
+    assert session.urls.count(TREE_URL) == 2
+
+    # Inside the same run the cache holds: a second discovery asks nothing.
+    ctx, _messages = make_ctx(session, repository)
+    scraper._discover_subcategories(ctx, ALMACEN)
+    assert session.urls.count(TREE_URL) == 2
+
+
+# -- 2. happy path -----------------------------------------------------------
+
+
+def test_full_run_pages_each_node_and_stores_one_slice_per_child(repository):
+    def forbidden():
+        raise AssertionError("Disco is scraped through the VTEX API only")
+
+    bulk = [(400.0 + index, product(f"Diverso test {index} 500 gr", index,
+                                    400.0 + index))
+            for index in range(1, 70)]
+    catalog = {
+        f"/{ALMACEN}/{SUB}": [(890.0, product("Puré de tomate Arcor 520 g",
+                                              122140, 890.0, "Arcor"))] + bulk,
+        f"/{ALMACEN}/{SUB2}": [],
+    }
+    session = VtexSession(TREE_JSON, catalog)
+    ctx, messages = make_ctx(session, repository, browser_factory=forbidden)
+
+    ScraperDisco().run(ctx)
+
+    assert session.urls == [
+        TREE_URL,
+        probe_url(f"/{ALMACEN}/{SUB}"),
+        window_url(f"/{ALMACEN}/{SUB}", 0),
+        window_url(f"/{ALMACEN}/{SUB}", 50),
+        probe_url(f"/{ALMACEN}/{SUB2}"),
     ]
+    assert session.timeouts == [30, 90, 90, 90, 90]
+    assert repository.calls == [("Disco", ALMACEN, SUB, 70)]
+    stored = stored_documents(repository)
+    assert stored[0] == expected_doc("Puré de tomate Arcor", "520 g", "Arcor",
+                                     "122140", 890.0, SUB)
+    # The paged range is bounded by the resources header (70): at start=100
+    # the loop stops, no `_from=100` is ever requested.
+    assert window_url(f"/{ALMACEN}/{SUB}", 100) not in session.urls
+    assert messages[-1] == "PROCESO TERMINADO"
+    assert not any("faltan" in message for message in messages)
 
 
-def test_page_one_is_never_collected(repository, fast_sleep):
-    """Decision 1: the paging loop starts at ?page=2 and the page-1 HTML the
-    driver loaded is never parsed, so page 1 products are missing from every
-    Disco scrape. The mechanical port keeps the quirk; fixing it is a
-    separate, real-run-validated follow-up (see the module docstring)."""
-    driver = FakeDriver({SUB1: 61, SUB2: 41})
-    session = FakeSession({**HAPPY_PAGES,
-                           page_url(SUB2, 2): jsonld_page([ITEM_D])})
-    ctx, _ = make_ctx(session, repository, driver=driver)
+def test_a_zero_total_node_probes_once_and_saves_nothing(repository):
+    node = f"/{ALMACEN}/{SUB}"
+    node2 = f"/{ALMACEN}/{SUB2}"
+    session = VtexSession(TREE_JSON, {node: [], node2: []})
+    repository = InMemoryProductRepository()
+    ctx, _messages = make_ctx(session, repository)
 
-    TwoSubcategoryScraper().run(ctx)
+    ScraperDisco().run(ctx)
 
-    # Every requested page URL starts at ?page=2; ?page=1 never appears.
-    assert session.urls == [page_url(SUB1, 2), page_url(SUB1, 3),
-                            page_url(SUB2, 2)]
-    assert not any(url.endswith("page=1") for url in session.urls)
-
-
-def test_full_run_keeps_the_legacy_console_progress(repository, capsys):
-    driver = FakeDriver({SUB1: 61})
-    ctx, _ = make_ctx(FakeSession(HAPPY_PAGES), repository, driver=driver)
-
-    OneSubcategoryScraper().run(ctx)
-
-    console = capsys.readouterr().out
-    assert f"Total de productos en {SUB1}: 61" in console
-    assert f"scraping data from Disco - {SUB1} pagina: 2" in console
-    assert f"scraping data from Disco - {SUB1} pagina: 3" in console
-    assert f"Procesada subcategoría {SUB1} con 3 productos" in console
-    assert "Proceso Disco terminado OK" in console
-
-
-# -- 2. total == 0 ------------------------------------------------------------
-
-
-def test_zero_total_skips_the_subcategory_without_http_or_save(
-        repository, capsys):
-    driver = FakeDriver({SUB1: 0})
-    session = FakeSession({})  # any GET would fail loudly
-    ctx, messages = make_ctx(session, repository, driver=driver)
-
-    OneSubcategoryScraper().run(ctx)
-
-    assert session.urls == []
+    assert session.urls == [TREE_URL, probe_url(node), probe_url(node2)]
     assert repository.calls == []
     assert repository.documents == []
-    assert driver.quit_count == 1
-    assert f"No hay productos en {SUB1}, continuando..." \
-        in capsys.readouterr().out
-    # The run still ends with the legacy final message.
-    assert messages[-1] == "PROCESO TERMINADO - Todas las subcategorías procesadas"
 
 
-# -- 3. stop -----------------------------------------------------------------
+def test_dedupe_is_by_product_id_within_a_node(repository):
+    node = f"/{ALMACEN}/{SUB}"
+    repeated = (1000.0, product("Puré de tomate Arcor 500 gr", 1, 1000.0))
+    catalog = {node: [repeated, repeated,
+                      (1000.0, product("Puré de tomate Disco 500 gr", 2,
+                                       1000.0))]}
+    session = VtexSession(TREE_JSON, catalog)
+    repository = InMemoryProductRepository()
+    ctx, _messages = make_ctx(session, repository)
+
+    ScraperDisco().run(ctx)
+
+    assert [doc["sku"] for doc in stored_documents(repository)] == ["1", "2"]
 
 
-def test_stop_during_paging_saves_what_was_collected_and_quits(repository):
-    stop_event = threading.Event()
-    driver = FakeDriver({SUB1: 61})
-    session = FakeSession({**HAPPY_PAGES,
-                           page_url(SUB1, 3): jsonld_page([ITEM_C])},
-                          stop_event=stop_event, flip_stop_on=0)
-    ctx, messages = make_ctx(session, repository, driver=driver,
-                             stop_event=stop_event)
-
-    OneSubcategoryScraper().run(ctx)
-
-    # Page 2 was fetched, page 3 never was: the stop honoured at the top of
-    # the page loop ended the paging.
-    assert session.urls == [page_url(SUB1, 2)]
-    # What page 2 collected is still saved (name-sorted on its own).
-    assert repository.calls == [("Disco", SUB1, None, 2)]
-    assert stored_documents(repository) == [
-        EXPECTED_SUB1_DOCUMENTS[0], EXPECTED_SUB1_DOCUMENTS[2]]
-    # The context manager always quits the driver.
-    assert driver.quit_count == 1
+# -- 3. the 2550 ceiling and the price partition -----------------------------
 
 
-def test_stop_during_the_five_second_wait_ends_the_run_cleanly(repository):
-    stop_event = threading.Event()
-    driver = FakeDriver({SUB1: 61}, on_script=lambda script: stop_event.set())
-    session = FakeSession({})  # any GET would fail loudly
-    ctx, messages = make_ctx(session, repository, driver=driver,
-                             stop_event=stop_event)
+def test_an_oversized_node_is_bisected_by_price_and_every_bucket_is_paged(
+        repository):
+    """total 2700 > MAX_WINDOW: bounds probes, bisection probes, then the
+    buckets in detection order. The 100 products priced exactly on the split
+    boundary fall in both buckets and are stored exactly once."""
+    node = f"/{ALMACEN}/{SUB}"
+    catalog = {node: node_catalog([(1.0, 1300), (6.0, 100), (11.0, 1300)]),
+               f"/{ALMACEN}/{SUB2}": []}
+    session = VtexSession(TREE_JSON, catalog)
+    repository = InMemoryProductRepository()
+    ctx, messages = make_ctx(session, repository)
 
-    OneSubcategoryScraper().run(ctx)
+    ScraperDisco().run(ctx)
 
-    # The stop raised during the wait broke out before any HTTP request or
-    # total read; nothing was collected, nothing saved, driver still quit.
-    assert driver.urls == [PAGE_1_URL]
-    assert session.urls == []
+    assert session.urls[:7] == [
+        TREE_URL,
+        probe_url(node),
+        probe_url(node, order="OrderByPriceASC"),
+        probe_url(node, order="OrderByPriceDESC"),
+        probe_url(node, price_range=(1.0, 11.0)),
+        probe_url(node, price_range=(1.0, 6.0)),
+        probe_url(node, price_range=(6.0, 11.0)),
+    ]
+    buckets = session.urls[7:]
+    first_bucket = [window_url(node, start, price_range=(1.0, 6.0))
+                    for start in range(0, 1400, 50)]
+    second_bucket = [window_url(node, start, price_range=(6.0, 11.0))
+                     for start in range(0, 1400, 50)]
+    assert buckets == first_bucket + second_bucket \
+        + [probe_url(f"/{ALMACEN}/{SUB2}")]
+    assert repository.calls == [("Disco", ALMACEN, SUB, 2700)]
+    skus = [doc["sku"] for doc in stored_documents(repository)]
+    assert skus.count("1301") == 1  # a boundary product, stored once
+    assert len(skus) == len(set(skus)) == 2700
+    assert not any("faltan" in message for message in messages)
+
+
+def test_bisection_that_cannot_split_reports_the_exact_unreachable_count(
+        repository):
+    """All 3000 products share one price: the bucket cannot split, the
+    reachable window (items 0..2549) is still collected and the 450 missing
+    are reported by name."""
+    node = f"/{ALMACEN}/{SUB}"
+    catalog = {node: node_catalog([(100.0, 3000)]), f"/{ALMACEN}/{SUB2}": []}
+    session = VtexSession(TREE_JSON, catalog)
+    repository = InMemoryProductRepository()
+    ctx, messages = make_ctx(session, repository)
+
+    ScraperDisco().run(ctx)
+
+    assert session.urls[:5] == [
+        TREE_URL,
+        probe_url(node),
+        probe_url(node, order="OrderByPriceASC"),
+        probe_url(node, order="OrderByPriceDESC"),
+        probe_url(node, price_range=(100.0, 100.0)),
+    ]
+    bucket = session.urls[5:-1]
+    assert bucket == [window_url(node, start, price_range=(100.0, 100.0))
+                      for start in range(0, 2550, 50)]
+    assert session.urls[-1] == probe_url(f"/{ALMACEN}/{SUB2}")
+    # The ceiling is never crossed: the last window ends at index 2549.
+    assert "_to=2550" not in "".join(session.urls)
+    assert repository.calls == [("Disco", ALMACEN, SUB, 2550)]
+    skus = [doc["sku"] for doc in stored_documents(repository)]
+    assert len(skus) == len(set(skus)) == 2550
+    assert any("450" in message for message in messages)
+
+
+def test_a_bumped_max_window_hits_the_live_ceiling_and_fails_the_run(
+        repository, monkeypatch):
+    """The fake enforces the measured API ceiling, so the scraper cannot
+    regress without the suite catching it: bump MAX_WINDOW past 2550 and the
+    window at 2550+ answers 400, which fails the run loudly."""
+    node = f"/{ALMACEN}/{SUB}"
+    session = VtexSession(TREE_JSON, {node: node_catalog([(100.0, 3000)]),
+                                      f"/{ALMACEN}/{SUB2}": []})
+    repository = InMemoryProductRepository()
+    ctx, messages = make_ctx(session, repository)
+    monkeypatch.setattr(disco_module, "MAX_WINDOW", 10 ** 6)
+
+    with pytest.raises(RuntimeError):
+        ScraperDisco().run(ctx)
+
+    # The last legal window (2500..2549) was served; the very next window
+    # crossed the ceiling and the fake answered 400.
+    assert window_url(node, 2500) in session.urls
+    assert window_url(node, 2550) in session.urls
+    assert any("Error 400" in message for message in messages)
     assert repository.calls == []
-    assert driver.quit_count == 1
-    assert messages == [
-        f"Scrapeando subcategoría: {SUB1}",
-        "PROCESO TERMINADO - Todas las subcategorías procesadas",
+
+
+def test_an_empty_price_bucket_is_skipped_and_the_other_buckets_are_paged(
+        repository):
+    """A distribution gap inside the measured range (no product between 8.5
+    and 11.0): the empty bucket probe answers 200 with `0-0/0`, is skipped
+    without failing, the 100 products of [6.0 TO 8.5] are fully paged, and
+    the single-price remainder converges to a ceiling-capped bucket."""
+    node = f"/{ALMACEN}/{SUB}"
+    catalog = {node: node_catalog([(6.0, 100), (11.0, 2900)]),
+               f"/{ALMACEN}/{SUB2}": []}
+    session = VtexSession(TREE_JSON, catalog)
+    repository = InMemoryProductRepository()
+    ctx, messages = make_ctx(session, repository)
+
+    ScraperDisco().run(ctx)
+
+    assert probe_url(node, price_range=(8.5, 9.75)) in session.urls
+    assert window_url(node, 0, price_range=(6.0, 8.5)) in session.urls
+    assert window_url(node, 50, price_range=(6.0, 8.5)) in session.urls
+    skus = [doc["sku"] for doc in stored_documents(repository)]
+    assert len(skus) == len(set(skus)) == 100 + 2550
+    assert any("350" in message for message in messages)
+    assert messages[-1] == "PROCESO TERMINADO"
+
+
+# -- 4. failure modes --------------------------------------------------------
+
+
+@pytest.mark.parametrize("outcome", [
+    RuntimeError("network down"),
+    503,
+    "invalid-json",
+])
+def test_a_tree_outage_is_fatal_and_never_looks_like_no_subcategories(
+        repository, outcome):
+    """R3-001: a discovery outage must fail the run, not end as a success
+    with zero products while the previous slice stays in the database."""
+    session = VtexSession(TREE_JSON, {}, failures=[("category/tree", outcome)])
+    repository = InMemoryProductRepository()
+    ctx, messages = make_ctx(session, repository)
+
+    with pytest.raises(RuntimeError):
+        ScraperDisco().run(ctx)
+
+    assert repository.calls == []
+    assert not any("No se encontraron subcategorías" in message
+                   for message in messages)
+    assert any("rbol de categor" in message for message in messages)
+
+
+@pytest.mark.parametrize("outcome", [RuntimeError("network down"), 500])
+def test_a_product_window_error_is_reported_and_propagates(repository,
+                                                           outcome):
+    """No retries: a failed window fails the child and the run (D-9)."""
+    node = f"/{ALMACEN}/{SUB}"
+    session = VtexSession(TREE_JSON, {node: node_catalog([(10.0, 70)])},
+                          failures=[("_to=49", outcome)])
+    repository = InMemoryProductRepository()
+    ctx, messages = make_ctx(session, repository)
+
+    with pytest.raises(RuntimeError):
+        ScraperDisco().run(ctx)
+
+    assert session.urls[:3] == [TREE_URL, probe_url(node),
+                                window_url(node, 0)]
+    assert window_url(node, 50) not in session.urls
+    assert repository.calls == []
+    if isinstance(outcome, int):
+        assert any("500" in message for message in messages)
+    else:
+        assert any("Error de red" in message for message in messages)
+
+
+# -- 5. stop -----------------------------------------------------------------
+
+
+def test_stop_during_paging_saves_the_partial_documents_and_reports_it(
+        repository):
+    stop_event = threading.Event()
+    node = f"/{ALMACEN}/{SUB}"
+    session = VtexSession(TREE_JSON, {node: node_catalog([(10.0, 120)])},
+                          stop_event=stop_event, flip_stop_on=3)
+    repository = InMemoryProductRepository()
+    ctx, messages = make_ctx(session, repository, stop_event=stop_event)
+
+    ScraperDisco().run(ctx)
+
+    assert window_url(node, 0) in session.urls
+    assert window_url(node, 50) not in session.urls
+    assert repository.calls == [("Disco", ALMACEN, SUB, 50)]
+    assert messages[-1] == "PROCESO DETENIDO"
+    assert "PROCESO TERMINADO" not in messages
+
+
+def test_a_pre_cancelled_run_is_inert():
+    def forbidden():
+        raise AssertionError("no run may build a browser")
+
+    session = VtexSession(TREE_JSON, {})
+    ctx, messages = make_ctx(session, InMemoryProductRepository(),
+                             stop_event=_set_event(), browser_factory=forbidden)
+
+    ScraperDisco().run(ctx)
+
+    assert session.urls == []
+    assert messages == []
+
+
+# -- 6. field mapping and validation -----------------------------------------
+
+
+def test_price_comes_from_the_offer_and_a_missing_offer_stores_zero(repository):
+    node = f"/{ALMACEN}/{SUB}"
+    catalog = {node: [(0.0, product("Sin oferta 500 gr", 900, offer=False)),
+                      (1800.5, product("Con oferta 500 gr", 901, 1800.5))]}
+    session = VtexSession(TREE_JSON, catalog)
+    repository = InMemoryProductRepository()
+    ctx, _messages = make_ctx(session, repository)
+
+    ScraperDisco().run(ctx)
+
+    stored = stored_documents(repository)
+    assert [(doc["name"], doc["price"], doc["sku"]) for doc in stored] == [
+        ("Sin oferta", 0, "900"),
+        ("Con oferta", 1800.5, "901"),
     ]
 
 
-# -- 4. no-script anchor ------------------------------------------------------
+def test_an_unknown_category_is_rejected_before_any_request():
+    session = VtexSession(TREE_JSON, {})
+    repository = InMemoryProductRepository()
+    ctx, _messages = make_ctx(session, repository, category="hogar")
+
+    with pytest.raises(InvalidCategory):
+        ScraperDisco().run(ctx)
+
+    assert session.urls == []
 
 
-def test_no_script_anchor_skips_the_page_and_the_run_continues(
-        repository, capsys):
-    driver = FakeDriver({SUB1: 61})
-    session = FakeSession({page_url(SUB1, 2): no_script_page(),
-                           page_url(SUB1, 3): jsonld_page([ITEM_A])})
-    ctx, _ = make_ctx(session, repository, driver=driver)
+def test_no_html_page_is_ever_requested(repository):
+    node = f"/{ALMACEN}/{SUB}"
+    session = VtexSession(TREE_JSON, {node: node_catalog([(10.0, 2)])})
+    repository = InMemoryProductRepository()
+    ctx, _messages = make_ctx(session, repository)
 
-    OneSubcategoryScraper().run(ctx)
+    ScraperDisco().run(ctx)
 
-    assert "No se encontró script en la página" in capsys.readouterr().out
-    # The offending page was skipped but the run continued to page 3.
-    assert session.urls == [page_url(SUB1, 2), page_url(SUB1, 3)]
-    assert repository.calls == [("Disco", SUB1, None, 1)]
+    assert all("/api/catalog_system/" in url for url in session.urls)
 
 
-# -- 5. error handling --------------------------------------------------------
-
-
-def test_unexpected_driver_errors_propagate_and_still_quit(repository):
-    """Decision 2: the legacy outer ``except Exception`` printed and
-    returned, so a broken run looked successful. The port lets unexpected
-    exceptions escape (the manager marks the run ``failed``); the driver
-    still gets quit by the context manager."""
-    driver = FakeDriver({SUB1: 61}, get_error=RuntimeError("driver exploded"))
-    ctx, _ = make_ctx(FakeSession({}), repository, driver=driver)
-
-    with pytest.raises(RuntimeError, match="driver exploded"):
-        OneSubcategoryScraper().run(ctx)
-
-    assert driver.quit_count == 1
-
-
-def test_page_level_error_is_reported_and_the_run_continues(repository,
-                                                            capsys):
-    """The legacy per-page ``try/except`` stays: the offending page is
-    printed and reported, the run moves on, the rest is still saved."""
-    driver = FakeDriver({SUB1: 61})
-    session = FakeSession({page_url(SUB1, 2): jsonld_page([ITEM_A])},
-                          errors={page_url(SUB1, 3):
-                                  RuntimeError("page 3 exploded")})
-    ctx, messages = make_ctx(session, repository, driver=driver)
-
-    OneSubcategoryScraper().run(ctx)
-
-    console = capsys.readouterr().out
-    assert "Error al cargar la pagina 3: page 3 exploded" in console
-    assert f"Error al cargar la pagina: 3" in messages
-    # Page 2's product is still saved despite page 3 failing.
-    assert repository.calls == [("Disco", SUB1, None, 1)]
-
-
+def _set_event():
+    event = threading.Event()
+    event.set()
+    return event
