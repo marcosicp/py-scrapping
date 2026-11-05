@@ -91,7 +91,7 @@ api/scrapers/errors.py   ScraperError family: UnknownScraper, InvalidCategory, A
 api/scrapers/browser.py Chrome factory: build_chrome(settings) driven by CHROMEDRIVER_PATH / CHROME_HEADLESS (D8); Selenium imported lazily
 api/scrapers/http.py    Shared HTTP session with the legacy browser User-Agent (no requests-html)
 api/scrapers/           One BaseScraper subclass per supermarket: supermami, laanonima, disco, carrefour, changomas
-tests/                  pytest suite (334 passed / 9 skipped by default; no network, no DB, no Chrome)
+tests/                  pytest suite (363 passed / 9 skipped by default; no network, no DB, no Chrome)
 adminpro/src/app/       Angular 21 source (dashboard, login, register, progress, grafica1)
 templates/scrape.html   The ONLY template a route renders (self-contained admin panel: own CSS, no third-party asset, polls /api/scrapers; registry-generated)
 docs/agent-context/     Deep dives for agents — read when you need detail
@@ -197,8 +197,16 @@ not undo (details in
 - **ChangoMás re-fetches the discovery page in its page loop**
   (`api/scrapers/changomas.py:152`) and is persisted but still not shown by
   `/supermercados` (K-12, API half open).
-- **SuperMami caps at 2 pages** (`MAX_PAGES = 2`, `api/scrapers/supermami.py:24`)
-  even though it computes `totalPages`.
+- **SuperMami is Oracle Endeca, not VTEX** and no longer caps pages
+  (`api/scrapers/supermami.py`). The category is resolved from the site menu
+  and the products come from `/super/categoria/<slug>/_/N-<id>` with
+  `No=` / `Nrpp=500`, read from the page's embedded `gtag('event',
+  'view_item_list', …)` JSON: `Nrpp` scales and there is **no offset
+  ceiling**, so `almacen`'s 3 210 products take seven requests and are
+  collected whole. The **parent is the category scope on purpose**: its 15
+  level-2 children sum 2 680 against the parent's 3 210, so descending to
+  children would lose 530 products — the opposite of Carrefour/Disco. Do not
+  re-add a page cap or a children walk.
 
 ## 7. Traps (each one costs a first-time agent 10+ minutes)
 
@@ -258,7 +266,7 @@ and `ng.applyChanges(component)` renders it. Full record:
 - Angular: karma + jasmine are configured in `adminpro/package.json` and
   `tsconfig.spec.json` exists, but there are **zero `*.spec.ts` files**.
 
-Default run: **334 passed, 9 skipped** — the 9 skips are the opt-in MongoDB
+Default run: **363 passed, 9 skipped** — the 9 skips are the opt-in MongoDB
 integration tests.
 
 Consequence: watched behavior is covered by the pytest suite, but **live

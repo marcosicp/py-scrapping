@@ -517,6 +517,20 @@ through the `hiper` payload key the dashboard already renders.
   in `api/scrapers/disco.py` (almacén totals 39 220 products); Carrefour hits
   the same `400` for `_from=2501` and dodges it by walking level-2 categories.
   Full measurement table: `odd/tasks/disco-scraper-rewrite.md` §2.
+- **Oracle Endeca behaviour (measured 2026-11-05 on www.supermami.com.ar,
+  reusable for the next Endeca site; full table in
+  `odd/tasks/supermami-scraper-rewrite.md` §2):** category pages are
+  `/super/categoria/<slug>/_/N-<id>` paged with `No=` (offset) and `Nrpp=`
+  (page size); `Nrpp` scales (`1000` answered 200) and there is **no offset
+  ceiling** (`No=3200&Nrpp=500` still answered 200), so a whole category is
+  reachable in flat windows — `almacen` totals 3 210 in seven requests at
+  `Nrpp=500`. The **parent category is a superset of its children**: its 15
+  level-2 children sum 2 680 against the parent's 3 210 (530 products belong
+  to no child), so scraping the children would silently lose them. And in
+  the menu (`/super/home`), the parent has **no `href`** — only an `onclick`
+  (`javascript:getPageCategory(...)`) — while all 263 hrefs containing
+  `supermami-almacen` are children, so the match must be an exact category
+  segment, never a substring. Implemented in `api/scrapers/supermami.py`.
 - Driver cleanup is now uniform: `ctx.browser()` quits the driver in a `finally`
   (`api/scrapers/base.py`), so the old "only ChangoMás closes its driver" leak is
   gone.

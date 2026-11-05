@@ -183,7 +183,7 @@ A scraper never imports Flask, Mongo or SocketIO.
 
 | Scraper | Technique | Persists to | Notes |
 | --- | --- | --- | --- |
-| `supermami.py` | plain HTTP + gtag `view_item_list` extraction | Mongo via `ctx.save` | no browser, no `sku`; capped at 2 pages (`MAX_PAGES = 2`, `:24`); no categories accepted |
+| `supermami.py` | plain HTTP against Oracle Endeca: the category is resolved from the site menu (`/super/home`) and paged with `No=`/`Nrpp=500`; the products come from the page's embedded `gtag('event','view_item_list', …)` JSON | Mongo via `ctx.save` | no browser; identity is `item_id` (`prod…`) stored as `sku`; no offset ceiling (`almacen` totals 3 210 in seven requests); the parent category is the scope on purpose — its 15 level-2 children sum only 2 680; accepts `almacen` |
 | `laanonima.py` | plain HTTP: the category tree is read from the page's navigation menu (`a.menu-n1` → `a.menu-n2`), then one GET per n2 node whose JSON-LD `ItemList` carries every product | Mongo per subcategory (n2 slug) | no browser; replaces the dead HiperLibertad module (`hiperlibertad.com.ar` 301s here, its VTEX API 403s); accepts `almacen` |
 | `disco.py` | plain HTTP against the VTEX catalog API: the level-2 categories are read from `/api/catalog_system/pub/category/tree/2`, each one is paged with `_from`/`_to` and the `resources: from-to/total` header | Mongo per subcategory (`categoria=<requested category>`, `subcategoria=<child slug>`) | no browser; the API rejects any window beyond item **2550** (`_from=2501` and `_to=2550` answer 400), so oversized nodes are bisected with `fq=P:[lo TO hi]` price ranges; identity is `productId`; accepts `almacen` |
 | `carrefour.py` | plain HTTP against the VTEX catalog API: the level-2 categories are read from `/api/catalog_system/pub/category/tree/2`, each one is paged with `_from`/`_to` and the `resources: from-to/total` header | Mongo per subcategory | no browser; the API rejects `_from=2501`, which is why almacén (6188) is split by subcategory (largest: 1933); `sku` is `productId`; accepts `almacen`, `desayuno-y-merienda` |
@@ -201,10 +201,12 @@ Common details:
   hardcoded: `laanonima.py` reads them from the page menu and `carrefour.py`
   from the VTEX category tree, so both follow the site.
 - **Quirks kept verbatim** by the mechanical ports: ChangoMás re-fetches the
-  discovery page; ChangoMás's empty-first-result abort ends the whole run;
-  SuperMami caps at 2 pages. Fixing any of them changes
-  collected data and must be validated against a real run first (see
-  `docs/agent-context/known-issues.md`).
+  discovery page; ChangoMás's empty-first-result abort ends the whole run.
+  Fixing any of them changes collected data and must be validated against a
+  real run first (see `docs/agent-context/known-issues.md`). SuperMami's
+  parent-only scope is also a site fact to keep: its level-2 children do not
+  partition the parent (`almacen`: 2 680 of 3 210), so a children walk loses
+  products.
 - Duplicate suppression in the remaining mechanical port is substring-based
   and O(n²) per page:
   `if not any(element['name'] in jsonitea['name'] for element in jsondata)`
@@ -221,11 +223,11 @@ Common details:
 | `name` | JSON-LD / gtag / VTEX `productName`, size suffix stripped by `name_parse` | the VTEX shells carry no JSON-LD, so `carrefour.py` reads the API |
 | `unidad` | `name_parse` output, e.g. `"500 ml"` | comma-joined when multiple matches |
 | `brand` | item brand | `""` when the source has none (`laanonima.py` JSON-LD) |
-| `sku` | item identity | `productId` for Carrefour, `art_<id>` for La Anónima, absent for SuperMami |
+| `sku` | item identity | `productId` for Carrefour, `art_<id>` for La Anónima, `item_id` for SuperMami |
 | `price` | `item.offers.lowPrice` | stored as a string |
 | `scraped_at` | UTC stamp added by `MongoProductRepository.replace_products` (`api/repositories/products.py:77`) | `datetime.now(timezone.utc)` |
 | `categoria` | the requested category (Carrefour, Disco, La Anónima, ChangoMás); legacy Disco documents stored the child subcategory slug instead | |
-| `subcategoria` | level-2/n2 child slug: La Anónima, Carrefour, Disco and ChangoMás | HiperLibertad documents stored before the rename also carry one |
+| `subcategoria` | level-2/n2 child slug: La Anónima, Carrefour, Disco and ChangoMás; the site's own leaf label (`item_category`) for SuperMami | HiperLibertad documents stored before the rename also carry one |
 
 `name_parse` (`api/helpers.py:14`) regex:
 `(\d+|X\d+)\s*(kg|kgs|g|gr|grs|ml|mls|m|cc|lt|lts)\b`, case-insensitive.

@@ -1,7 +1,7 @@
 # SuperMami scraper rewrite — Oracle Endeca, full category coverage
 
 **Branch:** `feat/supermami-scraper-rewrite` (from `main`)
-**Status:** IN PROGRESS — T1..T3 open
+**Status:** DONE (T1-T3) — live-verified; native review pending
 
 Rewrite `api/scrapers/supermami.py` with the same techniques that now work for
 Carrefour, La Anónima and Disco: resolve the category from the site itself at
@@ -148,13 +148,13 @@ Documents: `supermercado` = `self.label` ("SuperMami"), `name`/`unidad` from
   page error retry policy (500→200, 500×3, 400 no retry, network→200, stop during
   backoff), stop during paging saves what was collected, pre-cancelled run inert,
   invalid category raises `InvalidCategory`, missing price stored as 0.
-- [ ] **T2 — docs sync.** `AGENTS.md` §6 (drop the SuperMami 2-page quirk, state
+- [x] **T2 — docs sync.** `AGENTS.md` §6 (drop the SuperMami 2-page quirk, state
   the Endeca path/paging), §4 and §8 test counts; `docs/agent-context/repo-map.md`
   (scraper row, quirks, record schema `subcategoria` row);
   `docs/agent-context/runbook.md` (quirk list); `docs/agent-context/known-issues.md`
   (the `MAX_PAGES = 2` note and the new Endeca measurements); `README.md`
   (`SuperMami | Selenium` row is already false — it is plain HTTP today).
-- [ ] **T3 — live verification.** Real run of `almacen` against the local
+- [x] **T3 — live verification.** Real run of `almacen` against the local
   MongoDB: expect **3 210 documents**, no missing-count report; then `pytest`
   and the flake8 CI gate.
 
@@ -182,7 +182,31 @@ Documents: `supermercado` = `self.label` ("SuperMami"), `name`/`unidad` from
 - Live run of `almacen` against the real site and the local MongoDB: **85 s, 7 pages,
   3 210 documents, `PROCESO TERMINADO`, no missing-count report** (evidence in T3 below).
 
-_Remaining evidence (T2/T3) to be filled as those tasks close._
+**T2 (2026-11-05, `feat/supermami-scraper-rewrite`)**
+
+- `grep -rn -i "supermami" AGENTS.md README.md docs/agent-context/*.md` turned
+  up the live claims: `AGENTS.md:200` (the 2-page quirk bullet),
+  `AGENTS.md:96` (the tests count, then 334), `AGENTS.md:263` (§8 default run,
+  then 334), `repo-map.md:186` (scraper row), `repo-map.md:205` (quirks paragraph),
+  `repo-map.md:224` (`sku` row, "absent for SuperMami"), `repo-map.md:228`
+  (`subcategoria` row), `runbook.md:186` (categories list), `runbook.md:214`
+  (quirk list), `README.md:13` (`SuperMami | Selenium` row). The remaining
+  known-issues touches (`:83`, `:194`, `:238`, `:257`, `:273`, `:419`, `:459`,
+  `:473`) are historical accounts of deleted legacy code, retained verbatim —
+  not corrected.
+- The `MAX_PAGES = 2` note the task expected in `known-issues.md` did not exist
+  there (the grep showed it only in `repo-map.md:186`, `runbook.md:214` and
+  `AGENTS.md:200`); all three are fixed, and the Endeca measurement was added
+  as a new bullet under known-issues' "Minor observations (not filed)".
+- Files touched: `AGENTS.md` (§4 tests count, §6 quirk bullet, §8 default run),
+  `docs/agent-context/repo-map.md` (scraper row, quirks paragraph, `sku` and
+  `subcategoria` schema rows), `docs/agent-context/runbook.md` (categories
+  list, quirk list), `docs/agent-context/known-issues.md` (new Endeca
+  observation), `README.md` (the SuperMami row only: `HTTP + Endeca (gtag JSON)`).
+- Test count observed in this session: `.venv/bin/pytest -q` → **363 passed,
+  9 skipped** (run twice, 2.14–2.21 s). No Python source was edited.
+
+_Remaining evidence (T3) to be filled when the task closes._
 
 ## 7. Out of scope
 

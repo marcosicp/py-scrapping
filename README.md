@@ -10,7 +10,7 @@ Sistema de scraping y comparación de precios de productos de supermercados arge
 | Carrefour | API VTEX |
 | ChangoMás | Selenium (async + paginación) |
 | La Anónima | HTTP + JSON-LD |
-| SuperMami | Selenium |
+| SuperMami | HTTP + Endeca (gtag JSON) |
 
 ## Arquitectura
 

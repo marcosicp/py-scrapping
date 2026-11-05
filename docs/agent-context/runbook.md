@@ -183,9 +183,10 @@ curl -X POST http://localhost:3000/api/scrapers/disco/stop                     #
 
 A second `start` while a run is active is a clean **409 `already_running`**; an
 unknown slug is **404**, an unsupported category **400 `invalid_category`** with
-the allowed list (SuperMami and ChangoMas accept no category — any value is
-ignored). The deprecated `POST /scraping-<slug>` / `GET|POST
-/scraping-<slug>-stop` aliases do the same and return `{"success": true}`.
+the allowed list (ChangoMas accepts no category — any value is ignored;
+SuperMami accepts `almacen`). The deprecated `POST /scraping-<slug>` /
+`GET|POST /scraping-<slug>-stop` aliases do the same and return
+`{"success": true}`.
 
 Watch progress at <http://localhost:3000/scrape>: the admin page renders one
 card per registered scraper, reads its state from `GET /api/scrapers` on load
@@ -211,12 +212,14 @@ Before any of this works:
    rejects any offset window beyond item **2550** — oversized categories are
    split by price (`fq=P:[lo TO hi]`), so do not flatten the crawl or bump
    `MAX_WINDOW` (`api/scrapers/disco.py`).
-5. Known per-scraper quirks kept verbatim by the ports: SuperMami caps at
-   2 pages even though it computes `totalPages`; ChangoMás re-fetches the
-   discovery page in its page loop, aborts the whole run on an empty first
+5. Known per-scraper quirks kept verbatim by the ports: ChangoMás re-fetches
+   the discovery page in its page loop, aborts the whole run on an empty first
    result, and is persisted but **not shown by `/supermercados`** (K-12). See
    [`known-issues.md`](known-issues.md) before treating any of them as a bug to
-   fix silently.
+   fix silently. SuperMami (Oracle Endeca) pages the **parent** category flat
+   with `No=`/`Nrpp=500` — the parent is the scope on purpose, because its
+   level-2 children do not partition it (`almacen`: children sum 2 680 vs the
+   parent's 3 210), so don't "fix" it into a children walk.
 
 ### Run a scraper from the shell — `python -m api.cli`
 
