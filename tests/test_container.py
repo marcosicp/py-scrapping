@@ -186,4 +186,6 @@ def test_default_app_lists_the_registered_scrapers(client):
     assert "laanonima" in slugs
     entry = next(entry for entry in entries if entry["slug"] == "supermami")
     assert entry["state"] == "idle"
-    assert entry["categories"] == []
+    # D-8 of the SuperMami rewrite: the category is declared now, so the
+    # registry-generated API/CLI surface validates it instead of ignoring it.
+    assert entry["categories"] == ["almacen"]
