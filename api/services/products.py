@@ -16,6 +16,7 @@ from typing import Any
 
 from api.helpers import remove_duplicates_by_key
 from api.repositories.products import ProductRepository
+from api.services import matching
 
 
 class ProductService:
@@ -67,3 +68,13 @@ class ProductService:
             'mami': len(supermami),
             'hiper': len(hiperlibertad),
         }
+
+    def grouped_catalog(self) -> dict[str, Any]:
+        """Grouped catalog for ``/api/productos/agrupados`` (D-6).
+
+        Reads every document through the same repository port ``catalog``
+        uses and delegates the grouping to the matching service (T2), whose
+        §3 payload includes one row per canonical product plus one consumed-
+        document count per chain bucket.
+        """
+        return matching.group_products(self._repository.find_all())

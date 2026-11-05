@@ -51,3 +51,33 @@ def supermercados():
             'hiper': 0,
             'error': _UNEXPECTED_ERROR,
         })
+
+
+@products.route("/api/productos/agrupados")
+def productos_agrupados():
+    try:
+        return jsonify(get_services().products.grouped_catalog())
+    except RepositoryUnavailable:
+        current_app.logger.exception("Error reading from MongoDB")
+        # Fallback to empty data if database fails
+        return jsonify({
+            'productos': [],
+            'carre': 0,
+            'disco': 0,
+            'mami': 0,
+            'hiper': 0,
+            'error': _DATABASE_ERROR,
+        })
+    except Exception:
+        # A non-database defect inside the payload: not an outage, so it
+        # must not be labelled 'Database connection error' nor log one.
+        current_app.logger.exception(
+            "Unexpected error building the grouped product catalog")
+        return jsonify({
+            'productos': [],
+            'carre': 0,
+            'disco': 0,
+            'mami': 0,
+            'hiper': 0,
+            'error': _UNEXPECTED_ERROR,
+        })
