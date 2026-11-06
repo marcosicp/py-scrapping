@@ -46,8 +46,8 @@ a `node:24-alpine` frontend stage that produces `static/`, and a
 - **D3 — Docker, not a downgraded interpreter.** Pinning Render to 3.14 plus a
   hand-written npm build step would work but leaves production and the repo
   disagreeing about the interpreter. The Dockerfile is the single source of
-  truth for the deployed environment, and it is the same thing the CI image and
-  a developer can run locally.
+  truth for the deployed environment, and it is an image a developer can build
+  and run locally (CI has no docker step).
 - **D4 — keep `--workers 1 --threads 8`.** `ScraperManager` keeps run state
   in-process (single-flight per supermarket), and SocketIO runs in `threading`
   mode (T-10). More gunicorn workers would give each worker its own run state
@@ -56,12 +56,14 @@ a `node:24-alpine` frontend stage that produces `static/`, and a
   app's reason to exist; without a browser every `POST /api/scrapers/<slug>/start`
   dies with "chromedriver not found". Render has no display, so the container
   also needs `CHROME_HEADLESS=1`.
-- **D6 — a `CHROME_BINARY` setting, not a `google-chrome` symlink.** Debian's
-  chromium lives at `/usr/bin/chromium`, while Selenium looks for
-  `google-chrome` in `PATH`. Symlinking a distro binary to a Google-named path
-  is the kind of trick that silently breaks on the next base-image bump. A
-  setting keeps AGENTS.md hard rule 6 intact: the driver comes from
-  `api/scrapers/browser.py`, driven by configuration.
+- **D6 — a `CHROME_BINARY` setting instead of guessing the browser binary.**
+  Debian's chromium lives at `/usr/bin/chromium`, and without this setting the
+  binary is guessed heuristically: Selenium Manager probes candidate paths
+  (chromedriver falls back to well-known names), and a guess that does not
+  match the image fails the session with `session not created` /
+  binary-not-found. Pinning `binary_location` through `Settings.chrome_binary`
+  removes the guess and keeps AGENTS.md hard rule 6 intact: the driver comes
+  from `api/scrapers/browser.py`, driven by configuration.
 - **D7 — `render.yaml` as the deploy contract.** The failure above came from
   service settings living only in a dashboard. A blueprint makes the environment
   reviewable in the repo, and `sync: false` keeps secrets out of Git.
@@ -106,6 +108,38 @@ a `node:24-alpine` frontend stage that produces `static/`, and a
 - A live Render deploy and its `onrender.com` URL.
 - A live Atlas connection and a real scrape from a datacenter IP.
 
+## Independent verification (fix round)
+
+An independent read-only verifier reviewed the merged slice and returned
+**PASS WITH NITS**. History of its confirmed findings and the fix round that
+closed them:
+
+- **The `google-chrome` mechanic was refuted.** Four places (and the
+  Dockerfile comment) claimed Selenium "only looks for `google-chrome` in
+  PATH". Grepping selenium 4.52.0 shows zero occurrences of that token in any
+  Python file, and the vendored `selenium-manager` binary embeds many candidate
+  paths, `/usr/bin/chromium` among them. The real mechanic is heuristic:
+  Selenium Manager probes candidate paths and chromedriver falls back to
+  well-known names, and a guess that does not match the host fails with
+  `session not created` / binary-not-found. That is what the corrected wording
+  now says, in `api/config.py`, `api/scrapers/browser.py`,
+  `docs/agent-context/deploy-render.md` §4, the Dockerfile comment and D6.
+- **The lockfile commit message over-stated.** `f893ca8` said the lockfile
+  resync carried "no library version changes", but it also carries a
+  dev-only nested `picomatch 2.3.1 → 2.3.2` bump plus re-hoisted
+  `chokidar`/`readdirp` entries. No production dependency changed.
+- **Test-count drift closed.** The baseline moved 396 → 401 (the slice added
+  5 tests); AGENTS.md and `docs/agent-context/runbook.md` now say the observed
+  **401 passed / 9 skipped**.
+- **`docs/agent-context/runbook.md` contradiction closed.** §6 still claimed
+  the deploy path was undecided and "the image has never been built here",
+  which this document's own evidence refuted. §6 now states Render + Docker as
+  the chosen path, records the image build and container smoke as verified
+  (988 MB / 243 MB, all three probes 200), and keeps only the live Render
+  deploy as unverified.
+- **Still unverified after this round:** a live Render deploy and its
+  `onrender.com` URL, and a real Atlas connection — manual by design.
+
 ## Commit evidence
 
 | Commit | Work unit |
@@ -116,7 +150,7 @@ a `node:24-alpine` frontend stage that produces `static/`, and a
 
 ## Verification plan
 
-- `pytest` full suite stays green (baseline 396 passed / 9 skipped).
+- `pytest` full suite stays green (baseline 401 passed / 9 skipped).
 - `docker build -t lalistita:local .` succeeds and the frontend stage emits
   `static/index.html` into the runtime image.
 - `docker run -p 8080:8080 -e PORT=8080 lalistita:local` answers `200` at `/`
@@ -128,6 +162,7 @@ a `node:24-alpine` frontend stage that produces `static/`, and a
 ## Open risks
 
 - Render free plan is 0.1 CPU / 512 MB; Chromium will not survive a real scrape
-  there. Scraping needs at least `0.5c-512mb`, realistically `1c-2g`.
+  there. Scraping needs at least `1c-2g` (matching `deploy-render.md` §7 and
+  `render.yaml`).
 - Datacenter IPs are frequently blocked by the chains' WAFs. A container that
   runs Chrome is necessary, not sufficient, for a successful scrape from Render.

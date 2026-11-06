@@ -27,16 +27,19 @@ WORKDIR $APP_HOME
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Chromium for the scrapers. Selenium only auto-discovers a binary called
-# `google-chrome` in PATH, so the browser is pointed at Debian's
+# Chromium for the scrapers. Without CHROME_BINARY the driver guesses the
+# browser binary heuristically (Selenium Manager probes candidate paths,
+# chromedriver falls back to well-known names) and a guess that misses this
+# image fails the session, so the browser is pinned to Debian's
 # /usr/bin/chromium through the CHROME_BINARY setting
-# (api/scrapers/browser.py) instead of a symlink. This is what makes
+# (api/scrapers/browser.py). This is what makes
 # `POST /api/scrapers/<slug>/start` work in the container. It is gated by a
 # build arg: `--build-arg INSTALL_CHROMIUM=0` produces a lean image for a
 # deploy that does not scrape.
 ARG INSTALL_CHROMIUM=1
 RUN if [ "$INSTALL_CHROMIUM" = "1" ]; then \
-        apt-get update && apt-get install -y --no-install-recommends \
+        DEBIAN_FRONTEND=noninteractive apt-get update && \
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             chromium chromium-driver fonts-liberation ca-certificates && \
             rm -rf /var/lib/apt/lists/* ; \
     fi

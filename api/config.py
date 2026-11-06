@@ -20,8 +20,12 @@ be hardcoded in the scrapers (K-7):
 - `CHROME_HEADLESS` — opt-in headless mode. The default is off, preserving
   the visible browser window the legacy scrapers showed.
 - `CHROME_BINARY` — optional absolute path to the browser binary itself (for
-  example Debian's `/usr/bin/chromium`). Unset by default: Selenium then
-  auto-discovers a binary on its own.
+  example Debian's `/usr/bin/chromium`). Unset by default: the binary is then
+  guessed heuristically (Selenium Manager probes candidate paths and
+  chromedriver falls back to well-known names), and when that guess does not
+  match the host the session fails with `session not created` /
+  binary-not-found. Setting this variable pins `binary_location` and removes
+  the guess.
 
 An environment variable set to the empty string counts as unset — that is how
 blank entries in `.env` behave for these defaults.

@@ -22,8 +22,21 @@ class FakeOptions:
 
     def __init__(self) -> None:
         self.arguments: list[str] = []
-        # Mirrors ChromeOptions, whose binary_location is None until set.
-        self.binary_location = None
+        # Observed in selenium 4.52.0: ChromeOptions.binary_location defaults
+        # to "" (never None) and its setter raises TypeError for non-str
+        # values. The fake mirrors both, so a regression that assigns the
+        # wrong type or value here fails loudly instead of passing silently.
+        self._binary_location: str = ""
+
+    @property
+    def binary_location(self) -> str:
+        return self._binary_location
+
+    @binary_location.setter
+    def binary_location(self, value: str) -> None:
+        if not isinstance(value, str):
+            raise TypeError("Binary Location Must be a String")
+        self._binary_location = value
 
     def add_argument(self, argument: str) -> None:
         self.arguments.append(argument)
@@ -108,10 +121,10 @@ def test_extra_arguments_are_appended_in_order_after_headless():
 
 
 def test_default_settings_leave_the_browser_binary_untouched():
-    # No CHROME_BINARY: options.binary_location must stay None so Selenium
-    # auto-discovers a binary itself.
+    # No CHROME_BINARY: options.binary_location must stay "" — the real
+    # ChromeOptions default — so Selenium auto-discovers a binary itself.
     build_chrome(Settings())
-    assert driver_options().binary_location is None
+    assert driver_options().binary_location == ""
 
 
 def test_configured_chrome_binary_lands_in_options():

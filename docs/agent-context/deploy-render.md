@@ -98,7 +98,7 @@ Same set, whichever path put the service in place:
 | `MONGODB_DB` | `lalistitadev` | collection `productos`; the URI's db segment is ignored |
 | `CHROME_HEADLESS` | `1` | Render has no display; the scrapers must run `--headless=new` |
 | `CHROMEDRIVER_PATH` | `/usr/bin/chromedriver` | Debian's package in the image |
-| `CHROME_BINARY` | `/usr/bin/chromium` | Selenium only auto-discovers a `google-chrome` binary in PATH, so the browser is pointed here through `Settings.chrome_binary` (`api/scrapers/browser.py`) — not a symlink |
+| `CHROME_BINARY` | `/usr/bin/chromium` | Without it the driver guesses the browser binary heuristically (Selenium Manager probes candidate paths, chromedriver falls back to well-known names) and a guess that misses the image fails with `session not created`; this var pins `options.binary_location` through `Settings.chrome_binary` (`api/scrapers/browser.py`) |
 
 The compute plan is deliberately left to the dashboard.
 

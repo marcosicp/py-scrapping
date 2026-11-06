@@ -13,8 +13,10 @@ built, driven by three environment settings on ``Settings``:
   preserve today's visible-window behaviour.
 - ``CHROME_BINARY`` — when set, that binary is passed to the options as
   ``binary_location``; when unset (the default), the options stay untouched
-  and Selenium auto-discovers a binary (it only looks for ``google-chrome``
-  in PATH, so distro builds need this setting).
+  and the binary is guessed heuristically (Selenium Manager probes candidate
+  paths, ``/usr/bin/chromium`` among them, and chromedriver falls back to
+  well-known names). When the guess does not match the host, the session
+  fails with ``session not created`` / binary-not-found.
 
 Selenium is imported inside ``build_chrome`` — never at module level — so
 importing this module (for instance from ``api.container``) does not pull
@@ -41,8 +43,8 @@ def build_chrome(settings: Settings, *,
     is on, then every ``extra_arguments`` entry in order. The service uses
     ``settings.chromedriver_path`` when configured, otherwise Selenium
     Manager. The options carry ``settings.chrome_binary`` as
-    ``binary_location`` when configured, otherwise Selenium auto-discovers
-    the browser binary.
+    ``binary_location`` when configured, otherwise the binary is left to
+    Selenium's heuristic discovery.
     """
     from selenium import webdriver
     from selenium.webdriver.chrome.service import Service

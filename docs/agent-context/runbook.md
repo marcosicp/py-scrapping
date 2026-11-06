@@ -28,9 +28,9 @@ file. The scrapers that open a browser need a working local Chrome.
 | `python3` on PATH | still resolves to an older framework build because PATH order wins over `/usr/local/bin` | ⚠️ call `python3.15` explicitly |
 | `adminpro/node_modules` | absent in a fresh clone | ⛔ `npm install` required |
 | Global `ng` | Angular CLI 14.x, `Node ... (Unsupported)` | ⛔ too old for Angular 21 — use the local CLI |
-| ChromeDriver | resolved by Selenium Manager (bundled with selenium); `CHROMEDRIVER_PATH` overrides | ✅ no pinned path |
+| ChromeDriver | resolved by Selenium Manager (bundled with selenium); `CHROMEDRIVER_PATH` overrides | ✅ no pinned path locally — `render.yaml` pins `/usr/bin/chromedriver` in the container |
 | `.env` | absent (gitignored) | ⛔ `MONGODB_URI` must be provided |
-| Tests | pytest suite in `tests/` (291 passed / 9 skipped by default) | ✅ |
+| Tests | pytest suite in `tests/` (401 passed / 9 skipped by default) | ✅ |
 
 ## 1. Backend: the virtualenv
 
@@ -75,14 +75,15 @@ MONGODB_TEST_URI=mongodb://localhost:27017/ .venv/bin/python -m pytest tests/tes
 ```
 
 ✅ VERIFIED: `pytest` collects the suite in `tests/` and exits 0 —
-**291 passed, 9 skipped** by default. The 9 skips are the opt-in MongoDB
+**401 passed, 9 skipped** by default. The 9 skips are the opt-in MongoDB
 integration tests below. No default test touches the network, Chrome or a real
 database — the Mongo fixtures point at an unroutable URI
 (`mongodb://127.0.0.1:1/…`), so an accidental connection fails fast instead of
 reaching any server. The `flake8` gate used by CI is
 `flake8 . --exclude .venv,adminpro,static,node_modules --select=E9,F63,F7,F82 --count`.
 Settings (`SECRET_KEY`, `MONGODB_URI`, `MONGODB_DB`, `CHROMEDRIVER_PATH`,
-`CHROME_HEADLESS`) are resolved in `api/config.py` (`Settings.from_env`);
+`CHROME_HEADLESS`, `CHROME_BINARY`) are resolved in `api/config.py`
+(`Settings.from_env`);
 `app.py` consumes them via `create_app(settings)`.
 
 ## 2. Environment variables
@@ -104,6 +105,7 @@ PORT=3000
 | `PORT` | `3000` | `python app.py` reads it in `__main__`; WSGI hosts inject it |
 | `CHROMEDRIVER_PATH` | unset → Selenium Manager picks a matching driver (needs network on first use) | read by `Settings.from_env`; honored by the single Chrome factory `api/scrapers/browser.py`, which every browser-using scraper reaches through `ctx.browser()` |
 | `CHROME_HEADLESS` | off | opt-in headless: `1`, `true`, `yes`, `on` (case-insensitive, surrounding whitespace ignored) add `--headless=new`; default off preserves the visible browser window |
+| `CHROME_BINARY` | unset → the driver guesses the browser binary heuristically (`session not created` when the guess misses); `/usr/bin/chromium` in the image | pins `options.binary_location` on the Chrome options (`api/scrapers/browser.py`) |
 
 The URI's own database segment is still ignored — `MONGODB_DB` wins. Collection:
 `productos`.
@@ -244,21 +246,32 @@ CLI requests a cooperative stop before exiting), `3` scraper-control error
 The `/scrape` monitor page is generated from the same registry: one card
 per registered scraper, no hand-written HTML per supermarket.
 
-## 6. Deploy — four contradictory stories, none chosen
+## 6. Deploy — Render with the Docker runtime (the chosen path)
+
+**Render + the repo `Dockerfile` is the chosen deploy path**, codified in
+`render.yaml` (`runtime: docker`). The deploy runbook — image build, env vars,
+Atlas setup, verification steps — lives in
+[`deploy-render.md`](deploy-render.md).
+
+| Fact | Status |
+| --- | --- |
+| Image build (`docker build -t lalistita:verify .`) | ✅ VERIFIED on 2026-11-06 — **988 MB** default, **243 MB** with `--build-arg INSTALL_CHROMIUM=0` |
+| Container smoke (`PORT=8080`, no reachable Mongo) | ✅ VERIFIED — `GET /`, `GET /scrape` and `GET /api/scrapers` all answered **200** |
+| Live Render deploy | ⛔ not yet verified — the only remaining open step (details in `deploy-render.md`) |
+
+The four legacy stories below are history, not an open question; Docker won.
+The WSGI blockers that used to sit in front of any hosted deploy are fixed
+(K-1/K-2: `create_app` wires sockets and Mongo for every entry point, verified
+under gunicorn), and `main.py` gives the Dockerfile the entry point it always
+pointed at.
 
 | Path | Files | Status |
 | --- | --- | --- |
-| Docker | `Dockerfile` | ⚠️ **entry point now exists**: `main.py` provides `main:app` and was verified under gunicorn. Still unverified end to end — the image itself has never been built here (daemon not running). The frontend bundle is produced by a `node:24-alpine` stage. |
+| Docker (**chosen**) | `Dockerfile` + `render.yaml` | ✅ chosen; `runtime: docker`, `main:app` entry point verified under gunicorn, image build + container smoke verified (2026-11-06) |
 | Heroku-style | `Procfile` → `web: python app.py` | ⚠️ runs the Werkzeug dev server with `debug=True`; uses whatever `PORT` the platform injects |
 | Gunicorn (orphan) | `gunicorn_config.py` (`0.0.0.0:3000`, 2 workers) | ⛔ referenced by nothing |
 | App Engine | `app.yaml` (`runtime: python315`) | ⛔ no entrypoint declared |
 | Cloud Foundry | `manifest.yml` (128 MB, service `crud`) | ⛔ memory far below what Chrome needs; leftover |
-
-Before any hosted deploy can work, pick one of the four stories and retire the
-rest: the WSGI blockers K-1/K-2 are fixed (`create_app` wires sockets and Mongo
-for every entry point, verified under gunicorn), and `main.py` gives the
-Dockerfile the entry point it always pointed at. What remains unverified is the
-image build itself.
 
 ## 7. CI
 
@@ -268,7 +281,7 @@ image build itself.
 2. `flake8 . --select=E9,F63,F7,F82` (real gate) then a `--exit-zero` style pass
 3. `pytest`
 
-✅ The suite is green: 291 passed, 9 skipped (the opt-in MongoDB integration
+✅ The suite is green: 401 passed, 9 skipped (the opt-in MongoDB integration
 tests) on this checkout. The first green run on GitHub Actions was not observed
 here (K-6).
 
