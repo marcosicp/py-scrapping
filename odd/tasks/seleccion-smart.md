@@ -1,7 +1,23 @@
 # Selección smart — canonical product rows with per-chain price columns
 
 **Branch:** `feat/seleccion-smart` (from `main`)
-**Status:** IN PROGRESS (T1-T5 pending)
+**Status:** IN PROGRESS (T1-T4 done; one open defect in T4; T5 pending)
+
+## Review
+
+- T1 (`78078bc`): lineage `review-780de32cfa49dba5` (medium, 1 lens
+  `review-reliability`, 5 files / 262 lines) — START created, first capture
+  forecasted (1 model run, `pi_host_relay`) and acknowledged, but the relay
+  failed three times with a transient **429 overloaded** from the model
+  server (no mutation performed). The lineage stays open in `reviewing`;
+  resume with a bound STATUS and resubmit the exact reoffered binding.
+  Retried after T2: the relay still returns 429 (4 attempts). T2 (`e0b75c0`)
+  and T3 (`b3f60c5`) reviews are not started yet — they queue behind the
+  same server saturation; start them once the relay recovers.
+- Docs candidate (`AGENTS.md` + `docs/agent-context/runbook.md` + this doc):
+  lineage `review-655736f638cb11c2` (medium, 1 lens `review-reliability`, 3
+  files / 101 lines) — **approved**, authority burned
+  (`gentle-ai.review-acknowledged/v1`). T4's own commit is still unreviewed.
 
 Today a search like "aceite girasol natura 900" returns one loose row per
 supermarket and the user adds each one individually. This feature shows a
@@ -121,12 +137,12 @@ tie-break convention).
 
 ## 4. Tasks
 
-- [ ] **T1 — VTEX EAN capture.** `api/scrapers/disco.py` and
+- [x] **T1 — VTEX EAN capture.** DONE in `78078bc` (evidence §5). `api/scrapers/disco.py` and
   `api/scrapers/carrefour.py` read `items[0].ean` into a new `ean` document
   field (`""` when absent). Test-first: VTEX fixtures gain `ean`, the
   document-shape tests expect it (RED → GREEN). SuperMami, La Anónima and
   ChangoMás are NOT touched.
-- [ ] **T2 — matching service.** New `api/services/matching.py`:
+- [x] **T2 — matching service.** DONE in `e0b75c0` (evidence §5). New `api/services/matching.py`:
   normalization (name tokens, presentation per D-8, brand), layer-1 EAN
   grouping, layer-2 conservative canonical-key grouping, grouped output per
   §3. Test-first with synthetic fixtures covering: EAN exact match,
@@ -134,11 +150,13 @@ tie-break convention).
   (`900 cc` ≡ `900 ml`, `1 kg` ≡ `1000 g`), unit-less bare number,
   brand rule (D-9), false-positive guards (different brand / different
   presentation / extra token ⇒ no match).
-- [ ] **T3 — grouped endpoint.** `GET /api/productos/agrupados` in the
+- [x] **T3 — grouped endpoint.** DONE in `b3f60c5` (evidence §5). `GET /api/productos/agrupados` in the
   products blueprint over the matching service; per-chain counts; error
   behavior mirroring the existing catalog endpoint. Test-first at the
   HTTP layer (same style as `tests/test_products_api.py`).
-- [ ] **T4 — master grid.** The dashboard search view becomes the grouped
+- [x] **T4 — master grid.** DONE in `6b97d82` `feat(ui): grouped master grid
+  with per-chain price columns` (3 files, +62/−52; evidence §5). One open
+  defect, recorded below. The dashboard search view becomes the grouped
   grid: one row per canonical product, price column per chain; selection
   adds each present offer to its chain list (name+price of that offer),
   deselection removes them; the quick filter targets the master grid; the
@@ -150,7 +168,55 @@ tie-break convention).
 
 ## 5. Verification evidence
 
-_To be filled as tasks close (observed outputs only)._
+**OPEN DEFECT in T4 (found by UI verification, not fixed).** Selecting the
+four-offer `Aceite de girasol Natura 900 cc` row adds the item **only to the
+Carrefour list** (index 0 of the four small lists), not to disco/mami/hiper;
+toggle-off removes it cleanly and `window.onerror` stayed empty.
+`addItemToList` (`dashboard.component.ts`) branches in the order
+carre→disco→mami→hiper, so a silent early exit after the first branch is the
+prime suspect (undefined `itemsDisco`/`itemsMami`/`itemsHiper`, or only grid 1
+re-binding). Next steps are **static-first**: re-read `addItemToList`, the four
+`[rowData]` bindings and `onGridReady1..4`; then exactly one hypothesis-driven
+browser round, per the protocol in `AGENTS.md` §8. Also pre-existing and
+cosmetic: `cellRender.ts` toggles `data.selected` and calls `addItemToList`, so
+the checkbox can desync from `data.selected` until the grid refreshes.
+
+**T4 — `6b97d82`** — `npm run build` green (9.8 s on re-run, two pre-existing
+stylesheet warnings for `/assets/css/style.css` and `default-dark.css`).
+Re-running the build on the branch head reproduced the **same chunk hash**
+`main-SW2CI6UX.js` as the bundle already served by Flask, so `/` on :3000 was
+serving HEAD, not a stale build. Live payload check:
+`GET /api/productos/agrupados` → 200, 5 063 545 bytes, `carre=6187,
+disco=4704, hiper=3011, mami=3210`.
+
+**T2 — `e0b75c0` `feat(services): add cross-supermarket matching service`**
+— new `api/services/matching.py` (320 lines, pure function, stdlib only):
+layer-1 EAN groups, layer-2 strict canonical key + D-2 ambiguity guard
+(loose groups join exactly one strict group or stay solo; loose↔loose
+never merges). RED: `ModuleNotFoundError`. GREEN: 21 new tests (EAN exact,
+word order/stopwords, `900 cc`≡`900 ml`, `1 kg`≡`1000 g`, bare number,
+brand rule, all false-positive guards, ambiguity guard, solo rows,
+deterministic order); full suite **391 passed / 9 skipped**; flake8 gate
+**0**. Parent read the whole module before commit. Worker judgment calls
+recorded in the doc: `match` is `ean`/`key` only for ≥2-member groups
+(singleton with EAN is `solo` but keeps the EAN-stable id); docs without
+any presentation only group with each other; pack quantities (`X2`) and
+unknown units are not parsed; per-chain duplicate offers: first wins.
+
+**T3 — `b3f60c5` `feat(api): expose the grouped catalog at
+/api/productos/agrupados`** — `ProductService.grouped_catalog()` (same
+repository port as `catalog()`) + blueprint route mirroring the
+`/supermercados` two-branch error fallback, adapted to
+`productos`/counts. RED: 5 failed (404). GREEN: 5 new HTTP tests (§3
+shape, EAN + key + solo in one payload, both error branches, empty repo);
+full suite **396 passed / 9 skipped**; flake8 gate **0**.
+
+**T1 — `78078bc` `feat(scrapers): capture EAN from VTEX items in Disco and
+Carrefour`** — RED: `pytest tests/test_scraper_disco.py
+tests/test_scraper_carrefour.py` → 4 failed, 45 passed (missing `ean`).
+GREEN: both files 49 passed; full suite **370 passed / 9 skipped**; flake8 CI
+gate **0**; hygiene grep clean. Parent spot check re-ran both files
+(49 passed) and the gate (0) on the committed diff.
 
 ## 6. Out of scope
 
