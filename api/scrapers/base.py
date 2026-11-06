@@ -66,18 +66,24 @@ class ScrapeContext:
     # -- persistence --------------------------------------------------------
 
     def save(self, products: Iterable[Any], *, categoria: str | None = None,
-             subcategoria: str | None = None) -> int:
+             subcategoria: str | None = None,
+             scope: str | None = None) -> int:
         """Replace the ``supermercado`` slice with ``products``.
 
         Mirrors the legacy ``save_to_mongodb`` behaviour: a failed save is
         reported and the scrape continues (returns 0, never raises).
+
+        ``scope`` overrides only the operator-visible message; the persisted
+        slice is still defined by ``categoria``/``subcategoria``. A scraper
+        that keeps the category slice but names its label in reports uses it.
         """
         products = list(products)
         if not products:
             return 0
 
-        scope = subcategoria if subcategoria is not None else (
-            categoria if categoria is not None else self._label)
+        message_scope = scope if scope is not None else (
+            subcategoria if subcategoria is not None else (
+                categoria if categoria is not None else self._label))
         try:
             count = self._repository.replace_products(
                 self._label, products, categoria=categoria,
@@ -85,12 +91,13 @@ class ScrapeContext:
         except Exception:
             logger.exception(
                 "Failed to save %s products for '%s'",
-                len(products), scope)
-            self.report(f"Error al guardar {scope} en base de datos")
+                len(products), message_scope)
+            self.report(f"Error al guardar {message_scope} en base de datos")
             return 0
 
         self.saved += count
-        self.report(f"Guardados {count} productos de {scope} en base de datos")
+        self.report(
+            f"Guardados {count} productos de {message_scope} en base de datos")
         return count
 
     # -- infrastructure seams -------------------------------------------------

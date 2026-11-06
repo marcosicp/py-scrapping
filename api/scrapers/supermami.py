@@ -128,6 +128,7 @@ class ScraperSuperMami(BaseScraper):
         category = self.validate_category(ctx.category)
         categories = (category,) if category is not None else self.categories
 
+        collected = 0
         for categoria in categories:
             if ctx.should_stop():
                 break
@@ -136,10 +137,15 @@ class ScraperSuperMami(BaseScraper):
 
             documents = self._collect(ctx, path, categoria)
             if documents:
-                ctx.save(documents, categoria=categoria)
+                # Legacy parity: the save message names the scraper label.
+                ctx.save(documents, categoria=categoria, scope=self.label)
+                collected += len(documents)
 
-        ctx.report("PROCESO DETENIDO" if ctx.should_stop()
-                   else "PROCESO TERMINADO")
+        if ctx.should_stop():
+            ctx.report("PROCESO DETENIDO")
+        else:
+            # Legacy parity: the closing status names the collected count.
+            ctx.report(f"PROCESO TERMINADO CON {collected} productos")
 
     # -- menu discovery ---------------------------------------------------------
 

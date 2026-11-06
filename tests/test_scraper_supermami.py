@@ -323,8 +323,8 @@ def test_full_run_pages_the_whole_category_and_saves_once(repository,
         "página 1/3",
         "página 2/3",
         "página 3/3",
-        "Guardados 1200 productos de almacen en base de datos",
-        "PROCESO TERMINADO",
+        "Guardados 1200 productos de SuperMami en base de datos",
+        "PROCESO TERMINADO CON 1200 productos",
     ]
     assert non_backoff_sleeps(fast_sleep) == []  # only the page pacing
 
@@ -353,7 +353,7 @@ def test_the_category_path_comes_from_the_menu_not_the_code(repository):
         MENU_URL,
         page_url(0, path="/super/categoria/supermami-almacen/_/N-zz9zz9z")]
     assert repository.calls == []
-    assert messages[-1] == "PROCESO TERMINADO"
+    assert messages[-1] == "PROCESO TERMINADO CON 0 productos"
 
 
 def test_the_resolved_path_is_paged_with_the_menu_endeca_id(repository):
@@ -496,7 +496,7 @@ def test_children_before_the_parent_still_resolve_the_parent(repository):
                             page_url(1000)]
     assert any("Total de productos en almacen: 1200" in message
                for message in messages)
-    assert messages[-1] == "PROCESO TERMINADO"
+    assert messages[-1] == "PROCESO TERMINADO CON 1200 productos"
 
 
 def test_a_child_similar_slug_never_resolves_the_category(repository):
@@ -571,7 +571,7 @@ def test_a_decoy_de_strong_before_the_resultado_never_binds_the_total(
     assert any("Total de productos en almacen: 701" in message
                for message in messages)
     assert not any("faltantes" in message for message in messages)
-    assert messages[-1] == "PROCESO TERMINADO"
+    assert messages[-1] == "PROCESO TERMINADO CON 701 productos"
 
 
 def test_a_page_without_the_resultado_sentence_reports_and_fails(repository,
@@ -618,7 +618,7 @@ def test_an_empty_window_inside_the_total_ends_the_walk(repository):
     assert repository.calls == [("SuperMami", ALMACEN, None, 1)]
     assert any("999 productos faltantes" in message
                for message in messages)
-    assert messages[-1] == "PROCESO TERMINADO"
+    assert messages[-1] == "PROCESO TERMINADO CON 1 productos"
 
 
 def test_a_pool_larger_than_page_size_pages_beyond_the_first_window(
@@ -722,7 +722,7 @@ def test_a_transient_500_is_retried_once_and_the_page_succeeds(repository,
     assert session.urls.count(page_url(0)) == 2
     assert non_backoff_sleeps(fast_sleep) == [2]
     assert repository.calls == [("SuperMami", ALMACEN, None, PAGE_TOTAL)]
-    assert messages[-1] == "PROCESO TERMINADO"
+    assert messages[-1] == "PROCESO TERMINADO CON 1200 productos"
 
 
 def test_three_500s_exhaust_the_retries_and_fail_the_run(repository,
