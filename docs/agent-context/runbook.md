@@ -279,7 +279,7 @@ watched behavior, but live scraping and the SPA are verified manually.
 
 | Goal | How to confirm |
 | --- | --- |
-| Backend boots | `python app.py` serves :3000; or `python -c "from main import app; print(len(list(app.url_map.iter_rules())))"` → `18` |
+| Backend boots | `python app.py` serves :3000; or `python -c "from main import app; print(len(list(app.url_map.iter_rules())))"` → `19` |
 | API alive | `curl -s localhost:3000/supermercados \| head -c 200` returns JSON with `todos` |
 | Data present | `mongo`/Atlas: `use lalistitadev; db.productos.countDocuments()` |
 | Scraper progressed | `/scrape` receives `scraping-message-<slug>` events; `GET /api/scrapers/<slug>` reports the state |

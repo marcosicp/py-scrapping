@@ -12,8 +12,8 @@ is [`AGENTS.md`](../../AGENTS.md); this file is the detail behind it.
 HTTP layer      api/blueprints/{frontend,products,scrapers,legacy}.py
                 thin views; errors → JSON; read services from app.extensions
    │
-Services        api/services/{products,scraping}.py
-                ProductService.catalog() / ScraperManager (runs, stops, status)
+Services        api/services/{matching,products,scraping}.py
+                group_products() / ProductService.catalog()+grouped_catalog() / ScraperManager
    │
 Ports           api/repositories/products.py (ProductRepository)
                 api/scrapers/{base,registry,errors}.py (scraper contract)
@@ -111,6 +111,7 @@ aliases, all thin HTTP shells over services.
 | Method | Path | Handler | Real behavior |
 | --- | --- | --- | --- |
 | GET | `/supermercados` | `products.supermercados` | `ProductService.catalog()` through the `ProductRepository` (Mongo `lalistitadev.productos`); any exception → empty payload + `error` key, HTTP 200 |
+| GET | `/api/productos/agrupados` | `products.productos_agrupados` | `ProductService.grouped_catalog()` over the same port, grouped by `api/services/matching.py`; same fallback shape with an empty `productos` list and zeroed counts, HTTP 200 |
 
 ### `api/blueprints/scrapers.py` — scraper control (`/api/scrapers`)
 
@@ -169,6 +170,39 @@ products never appear. Dedupe is `remove_duplicates_by_key(list, 'name')` —
 first occurrence wins (`api/helpers.py:3-8`). On any exception the blueprint
 returns an empty payload plus an `error` key rather than failing loudly
 (`api/blueprints/products.py`).
+
+### `/api/productos/agrupados` contract
+
+One row per canonical product, with one offer per chain that has it. The
+counts are **consumed documents per chain bucket**, not row counts:
+
+```json
+{
+  "carre": 6187, "disco": 4704, "mami": 3210, "hiper": 3011,
+  "productos": [
+    { "brand": "Cañuelas", "id": "f959dbcdfd404cc5", "match": "key",
+      "name": "Aceite de girasol Cañuelas", "unidad": "900 cc",
+      "offers": { "carre": { "name": "Aceite de girasol Cañuelas", "price": 4399.0 },
+                  "disco": { "name": "Aceite De Girasol Cañuelas", "price": 4700.0 },
+                  "hiper": { "name": "Aceite de Girasol Cañuelas x .", "price": 4600 },
+                  "mami":  { "name": "ACEITE DE GIRASOL CAÑUELAS X .", "price": 3269.0 } } }
+  ]
+}
+```
+
+(That row is a live sample, not a fixture: 26 rows carried all four offers on
+2026-11-06. Note the prices are not all numbers — a legacy document can carry a
+string or integer price.)
+
+`id` is `sha1[:16]` of `ean:<ean>` when the EAN is known, otherwise of
+`key:<tokens>|<qty>|<family>|<brand>`. `match` is `ean`/`key` only for groups
+of two or more members; a singleton is `solo` even when it carries an EAN.
+`offers` is keyed exactly like the counts (`carre`/`disco`/`mami`/`hiper`,
+first document per chain wins) and ChangoMás has no bucket (K-12). Grouping
+is `api/services/matching.py::group_products()`: EAN groups first, then a
+strict canonical key, and a loose group joins at most one strict group —
+loose-vs-loose never merges (D-2). On any exception the blueprint answers 200
+with `productos: []`, zeroed counts and an `error` key.
 
 ## 5. Scrapers — `api/scrapers/`
 
@@ -292,11 +326,12 @@ code against `pymongo` and is imported by nothing.
 | `api/config.py` | `Settings` (frozen dataclass) from the environment |
 | `api/container.py` | `Services` composition root (`app.extensions['lalistita']`) |
 | `api/blueprints/frontend.py` | `/` SPA root + `/scrape` registry-generated monitor page |
-| `api/blueprints/products.py` | `/supermercados` HTTP shell + fallback |
+| `api/blueprints/products.py` | `/supermercados` + `/api/productos/agrupados` HTTP shells + fallbacks |
 | `api/blueprints/scrapers.py` | `/api/scrapers` control API |
 | `api/blueprints/legacy.py` | registry-generated `/scraping-<slug>` aliases |
 | `api/cli.py` | `python -m api.cli list\|run` — scraper runner without Flask |
-| `api/services/products.py` | `ProductService.catalog()` — grouping/dedupe/sort/counts |
+| `api/services/matching.py` | `group_products()` — canonical rows: EAN layer, strict-key layer, per-chain offers, counts |
+| `api/services/products.py` | `ProductService.catalog()` — grouping/dedupe/sort/counts; `grouped_catalog()` — the same port through the matching service |
 | `api/services/scraping.py` | `ScraperManager` — runs, stop, status snapshots |
 | `api/sockets.py` | `socketio` singleton, `configure_sockets()`, `SocketIOReporter` |
 | `api/helpers.py` | `remove_duplicates_by_key()`, `name_parse()` |

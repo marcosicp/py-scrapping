@@ -78,9 +78,10 @@ app.py                  create_app() factory: CORS, SECRET_KEY, sockets, Mongo, 
 main.py                 WSGI entry point — `gunicorn main:app` uses this
 api/config.py           Settings (frozen dataclass) resolved from SECRET_KEY/MONGODB_*/CHROMEDRIVER_PATH/CHROME_HEADLESS
 api/container.py        Services composition root: init_services/get_services (app.extensions['lalistita'])
-api/blueprints/         frontend.py (`/`, `/scrape` — the monitor page is registry-generated) + products.py (`/supermercados`) + scrapers.py (`/api/scrapers` control API) + legacy.py (registry-generated `/scraping-<slug>` aliases); HTTP layer only
+api/blueprints/         frontend.py (`/`, `/scrape` — the monitor page is registry-generated) + products.py (`/supermercados`, `/api/productos/agrupados`) + scrapers.py (`/api/scrapers` control API) + legacy.py (registry-generated `/scraping-<slug>` aliases); HTTP layer only
 api/cli.py              `python -m api.cli` scraper runner: `list` + `run <slug>`, no Flask/gunicorn
-api/services/           products.py — ProductService.catalog(): grouping/dedupe/count logic
+api/services/           products.py — ProductService.catalog() grouping/dedupe/count logic, and grouped_catalog() for the canonical rows
+                        matching.py — group_products(): EAN first, then a strict canonical key, one row per canonical product with per-chain offers
                         scraping.py — ScraperManager + RunStatus/RunState (per-supermarket runs: threads, single-flight, cooperative stop)
 api/sockets.py          SocketIO singleton + SocketIOReporter (scraper progress publisher)
 api/helpers.py          remove_duplicates_by_key(), name_parse() → {name, unidad}
@@ -91,8 +92,8 @@ api/scrapers/errors.py   ScraperError family: UnknownScraper, InvalidCategory, A
 api/scrapers/browser.py Chrome factory: build_chrome(settings) driven by CHROMEDRIVER_PATH / CHROME_HEADLESS (D8); Selenium imported lazily
 api/scrapers/http.py    Shared HTTP session with the legacy browser User-Agent (no requests-html)
 api/scrapers/           One BaseScraper subclass per supermarket: supermami, laanonima, disco, carrefour, changomas
-tests/                  pytest suite (363 passed / 9 skipped by default; no network, no DB, no Chrome)
-adminpro/src/app/       Angular 21 source (dashboard, login, register, progress, grafica1)
+tests/                  pytest suite (396 passed / 9 skipped by default; no network, no DB, no Chrome)
+adminpro/src/app/       Angular 21 source (dashboard with the grouped master grid, login, register, progress, grafica1)
 templates/scrape.html   The ONLY template a route renders (self-contained admin panel: own CSS, no third-party asset, polls /api/scrapers; registry-generated)
 docs/agent-context/     Deep dives for agents — read when you need detail
 odd/tasks/              ODD feature documents
@@ -266,7 +267,7 @@ and `ng.applyChanges(component)` renders it. Full record:
 - Angular: karma + jasmine are configured in `adminpro/package.json` and
   `tsconfig.spec.json` exists, but there are **zero `*.spec.ts` files**.
 
-Default run: **363 passed, 9 skipped** — the 9 skips are the opt-in MongoDB
+Default run: **396 passed, 9 skipped** — the 9 skips are the opt-in MongoDB
 integration tests.
 
 Consequence: watched behavior is covered by the pytest suite, but **live

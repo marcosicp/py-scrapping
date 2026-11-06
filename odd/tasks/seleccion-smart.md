@@ -1,7 +1,7 @@
 # Selección smart — canonical product rows with per-chain price columns
 
 **Branch:** `feat/seleccion-smart` (from `main`)
-**Status:** IN PROGRESS (T1-T4 done; one open defect in T4; T5 pending)
+**Status:** T1-T5 DONE. Merged to local `main`. One advisory follow-up is tracked in §7.
 
 ## Review
 
@@ -17,7 +17,17 @@
 - Docs candidate (`AGENTS.md` + `docs/agent-context/runbook.md` + this doc):
   lineage `review-655736f638cb11c2` (medium, 1 lens `review-reliability`, 3
   files / 101 lines) — **approved**, authority burned
-  (`gentle-ai.review-acknowledged/v1`). T4's own commit is still unreviewed.
+  (`gentle-ai.review-acknowledged/v1`).
+- Whole backlog (`base-diff add44ca..HEAD`, 22 files / 2 985 lines): lineage
+  `review-bd0ee6c2631c75d1` — reviewer + refuter produced two **deterministic,
+  introduced** findings (R3-001 BLOCKER: unguarded multi-chain selection;
+  R3-002 CRITICAL: SuperMami operator messages). Correction plan of 74 diff
+  lines accepted; both fixed in `00ce0dc` and `9637b43`. The corrected
+  candidate required `review recover` with `disposition=scope_changed`
+  (the correction added `api/scrapers/base.py` to the scope).
+- `review-3368f50769e37912` (successor, 22 files / 3 021 lines) — **approved**,
+  authority burned. Two advisory WARNINGs, informational, no correction
+  offered: `api/services/matching.py:162-165`, `api/scrapers/supermami.py:162-169`.
 
 Today a search like "aceite girasol natura 900" returns one loose row per
 supermarket and the user adds each one individually. This feature shows a
@@ -155,31 +165,39 @@ tie-break convention).
   behavior mirroring the existing catalog endpoint. Test-first at the
   HTTP layer (same style as `tests/test_products_api.py`).
 - [x] **T4 — master grid.** DONE in `6b97d82` `feat(ui): grouped master grid
-  with per-chain price columns` (3 files, +62/−52; evidence §5). One open
-  defect, recorded below. The dashboard search view becomes the grouped
+  with per-chain price columns` (3 files, +62/−52; evidence §5). Its open
+  defect was closed by the review correction `00ce0dc` (evidence §5). The dashboard search view becomes the grouped
   grid: one row per canonical product, price column per chain; selection
   adds each present offer to its chain list (name+price of that offer),
   deselection removes them; the quick filter targets the master grid; the
   service calls `/api/productos/agrupados`. No persistence (D-7). Manual
   verification (`ng serve`/build + browser) — `adminpro` has zero specs.
-- [ ] **T5 — docs sync.** `AGENTS.md` (§4 layout: matching service + new
-  endpoint), `docs/agent-context/repo-map.md`, feature doc close-out with
-  verification evidence.
+- [x] **T5 — docs sync.** DONE: `AGENTS.md` (§4 layout: matching service, the
+  grouped endpoint, dashboard master grid; §8 suite count 396),
+  `docs/agent-context/repo-map.md` (service/blueprint rows plus the
+  `/api/productos/agrupados` contract) and the runbook route count (19).
 
 ## 5. Verification evidence
 
-**OPEN DEFECT in T4 (found by UI verification, not fixed).** Selecting the
-four-offer `Aceite de girasol Natura 900 cc` row adds the item **only to the
-Carrefour list** (index 0 of the four small lists), not to disco/mami/hiper;
-toggle-off removes it cleanly and `window.onerror` stayed empty.
-`addItemToList` (`dashboard.component.ts`) branches in the order
-carre→disco→mami→hiper, so a silent early exit after the first branch is the
-prime suspect (undefined `itemsDisco`/`itemsMami`/`itemsHiper`, or only grid 1
-re-binding). Next steps are **static-first**: re-read `addItemToList`, the four
-`[rowData]` bindings and `onGridReady1..4`; then exactly one hypothesis-driven
-browser round, per the protocol in `AGENTS.md` §8. Also pre-existing and
-cosmetic: `cellRender.ts` toggles `data.selected` and calls `addItemToList`, so
-the checkbox can desync from `data.selected` until the grid refreshes.
+**R3-001 fix — `00ce0dc` `fix(ui): never dereference an undefined chain list
+when selecting a row`** — `addRemoveOffer` defaults a missing list to `[]` and
+`totalRow` only calls `setPinnedBottomRowData` when the API exposes it, so no
+chain branch can throw mid-selection (the observed shape of the defect: only
+the Carrefour list received the item). Build green; the runtime confirmation
+is the browser round described in §6. **The original defect record, kept as
+history:** selecting the four-offer `Aceite de girasol Natura 900 cc` row added
+the item only to the Carrefour list while `window.onerror` stayed empty, and
+`addItemToList` branched carre→disco→mami→hiper.
+
+**R3-002 fix — `9637b43` `fix(scrapers): restore SuperMami's operator-visible
+save and total messages`** — `ScrapeContext.save` gained an optional `scope`
+that overrides only the message; the persisted slice still comes from
+`categoria`/`subcategoria`, so documents keep their `categoria` field and
+`replace_products` keeps the same slice. SuperMami passes `scope=self.label`
+and closes with `PROCESO TERMINADO CON <n> productos`. Rejected alternative:
+dropping `categoria=` restored the message but removed `categoria` from the
+stored documents (10 tests failed on the document shape). Verification: pytest
+**396 passed / 9 skipped**, flake8 gate **0**.
 
 **T4 — `6b97d82`** — `npm run build` green (9.8 s on re-run, two pre-existing
 stylesheet warnings for `/assets/css/style.css` and `default-dark.css`).
@@ -227,3 +245,17 @@ gate **0**; hygiene grep clean. Parent spot check re-ran both files
 - Re-scraping production data to backfill `ean` — happens on the next
   ordinary scrape run (owner's operation, D-4).
 - Fuzzy/scored matching beyond the conservative rules (D-2).
+
+## 7. Follow-ups
+
+- **Advisory WARNINGs from the approved review** (`review-3368f50769e37912`),
+  informational, no correction was offered for them:
+  `api/services/matching.py:162-165` and `api/scrapers/supermami.py:162-169`.
+  The provider did not expose the claim text in the closure, so read those
+  lines before acting on them.
+- **Cosmetic, pre-existing:** `cellRender.ts` toggles `data.selected` and calls
+  `addItemToList`, so a checkbox can visually desync from `data.selected` until
+  the grid refreshes.
+- **Confirmation round:** the fixed selection path was verified by tests and a
+  build, not yet by a browser round; one hypothesis-driven round per
+  `AGENTS.md` §8 is still due.
