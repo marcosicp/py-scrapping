@@ -18,7 +18,7 @@ export class AppService {
   getExams(): Observable<any> {
     return this.http
       // .get(`https://p-cd22.onrender.com/supermercados`)
-      .get(`http://127.0.0.1:3000/supermercados`)
+      .get(`http://127.0.0.1:3000/api/productos/agrupados`)
       
   }
 }

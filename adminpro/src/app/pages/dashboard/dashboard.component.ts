@@ -21,6 +21,7 @@ export class DashboardComponent implements OnInit {
   rowDataClicked1 = {};
   public rowSelection: 'single' | 'multiple' = 'multiple';
   // Each Column Definition results in one Column.
+  // -- Master grid: one canonical row per product, one price column per chain
   public columnDefs: ColDef[] = [
     {
       headerName: '',
@@ -38,20 +39,19 @@ export class DashboardComponent implements OnInit {
     },
     {
       field: 'name',
-      headerName: 'Nombre',
+      headerName: 'Producto',
       sortable: true,
       filter: true,
       suppressSizeToFit: true,
       flex: 2,
     },
-
     {
-      field: 'sku',
-      headerName: 'SKU',
+      field: 'unidad',
+      headerName: 'Presentación',
       sortable: true,
       filter: true,
       suppressSizeToFit: true,
-      flex: 2,
+      flex: 1,
     },
     {
       field: 'brand',
@@ -59,34 +59,50 @@ export class DashboardComponent implements OnInit {
       sortable: true,
       filter: true,
       suppressSizeToFit: true,
-      // cellRenderer: (param: any) =>{ return '$' + param.value},
       flex: 1,
     },
     {
-      field: 'unidad',
-      headerName: 'Medida',
-      sortable: true,
-      filter: true,
-      suppressSizeToFit: true,
-      // cellRenderer: (param: any) =>{ return '$' + param.value},
-      flex: 1,
-    },
-    {
-      field: 'price',
-      headerName: 'Precio',
+      field: 'offers.carre.price',
+      headerName: 'Carrefour',
       sortable: true,
       filter: true,
       suppressSizeToFit: true,
       cellRenderer: (param: any) => {
-        return '$' + param.value;
+        return param.value == null ? '' : '$' + param.value;
       },
       flex: 1,
     },
     {
-      field: 'supermercado',
+      field: 'offers.disco.price',
+      headerName: 'Disco',
       sortable: true,
       filter: true,
       suppressSizeToFit: true,
+      cellRenderer: (param: any) => {
+        return param.value == null ? '' : '$' + param.value;
+      },
+      flex: 1,
+    },
+    {
+      field: 'offers.mami.price',
+      headerName: 'SuperMami',
+      sortable: true,
+      filter: true,
+      suppressSizeToFit: true,
+      cellRenderer: (param: any) => {
+        return param.value == null ? '' : '$' + param.value;
+      },
+      flex: 1,
+    },
+    {
+      field: 'offers.hiper.price',
+      headerName: 'La Anónima',
+      sortable: true,
+      filter: true,
+      suppressSizeToFit: true,
+      cellRenderer: (param: any) => {
+        return param.value == null ? '' : '$' + param.value;
+      },
       flex: 1,
     },
   ];
@@ -180,46 +196,40 @@ export class DashboardComponent implements OnInit {
     api.setPinnedBottomRowData([result]);
   }
 
+  // -- D-1: selecting a canonical row adds EVERY present offer to its own
+  // chain list ({name, price} of that offer); deselecting removes them.
   addItemToList(data: any) {
-    switch (data.supermercado) {
-      case 'SuperMami':
-        this.itemsMami = this.addRemoveItemByName(data, this.itemsMami!);
-        // new agGrid.Grid(gridDiv, gridOptions);
-        this.totalRow(this.gridApi1, this.itemsMami);
-        break;
-      case 'Disco':
-        this.itemsDisco = this.addRemoveItemByName(data, this.itemsDisco!);
-        this.totalRow(this.gridApi3, this.itemsDisco);
-        break;
+    const offers = data.offers || {};
 
-      case 'Carrefour':
-        this.itemsCarre = this.addRemoveItemByName(data, this.itemsCarre!);
-        this.totalRow(this.gridApi4, this.itemsCarre);
-        break;
-
-      case 'Hiperlibertad':
-      case 'HiperLibertad':
-      // La Anónima replaced HiperLibertad; documents stored under either name
-      // share the same comparison panel.
-      case 'La Anónima':
-        this.itemsHiper = this.addRemoveItemByName(data, this.itemsHiper!);
-        this.totalRow(this.gridApi2, this.itemsHiper);
-        break;
-      default:
-        break;
+    // -- Carrefour
+    if (offers.carre) {
+      this.itemsCarre = this.addRemoveOffer(offers.carre, data.selected, this.itemsCarre!);
+      this.totalRow(this.gridApi4, this.itemsCarre);
+    }
+    // -- Disco
+    if (offers.disco) {
+      this.itemsDisco = this.addRemoveOffer(offers.disco, data.selected, this.itemsDisco!);
+      this.totalRow(this.gridApi3, this.itemsDisco);
+    }
+    // -- SuperMami
+    if (offers.mami) {
+      this.itemsMami = this.addRemoveOffer(offers.mami, data.selected, this.itemsMami!);
+      this.totalRow(this.gridApi1, this.itemsMami);
+    }
+    // -- La Anónima
+    if (offers.hiper) {
+      this.itemsHiper = this.addRemoveOffer(offers.hiper, data.selected, this.itemsHiper!);
+      this.totalRow(this.gridApi2, this.itemsHiper);
     }
   }
-  addRemoveItemByName(data: any, items: any[]): any[] {
-    var index = items?.findIndex((item) => item.name === data.name);
-
-    if (index === -1) {
-      // El elemento no se encontró, entonces lo agregamos
-      items = items?.concat([data]);
-    } else {
-      // El elemento se encontró, entonces lo eliminamos
-      items = items?.filter((item, i) => i !== index);
+  addRemoveOffer(offer: any, selected: any, items: any[]): any[] {
+    if (selected) {
+      // Se agrega solo si el nombre no está ya en la lista
+      return items.some((item) => item.name === offer.name)
+        ? items
+        : items.concat([{ name: offer.name, price: offer.price }]);
     }
-
-    return items;
+    // Se elimina por nombre
+    return items.filter((item) => item.name !== offer.name);
   }
 }
