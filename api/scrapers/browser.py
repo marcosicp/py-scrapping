@@ -3,7 +3,7 @@
 The legacy scrapers each hardcode their own driver construction with a pinned
 ``chromedriver-141`` bin-path (K-7), which stops matching the installed Chrome
 on every browser update. This module is the single place a Chrome driver is
-built, driven by two environment settings on ``Settings``:
+built, driven by three environment settings on ``Settings``:
 
 - ``CHROMEDRIVER_PATH`` — when set, that binary is passed to ``Service``;
   when unset (the default), ``Service()`` has no path and Selenium Manager
@@ -11,6 +11,10 @@ built, driven by two environment settings on ``Settings``:
   use).
 - ``CHROME_HEADLESS`` — opt-in headless mode; the default stays OFF to
   preserve today's visible-window behaviour.
+- ``CHROME_BINARY`` — when set, that binary is passed to the options as
+  ``binary_location``; when unset (the default), the options stay untouched
+  and Selenium auto-discovers a binary (it only looks for ``google-chrome``
+  in PATH, so distro builds need this setting).
 
 Selenium is imported inside ``build_chrome`` — never at module level — so
 importing this module (for instance from ``api.container``) does not pull
@@ -36,7 +40,9 @@ def build_chrome(settings: Settings, *,
     legacy options), then ``--headless=new`` when ``settings.chrome_headless``
     is on, then every ``extra_arguments`` entry in order. The service uses
     ``settings.chromedriver_path`` when configured, otherwise Selenium
-    Manager.
+    Manager. The options carry ``settings.chrome_binary`` as
+    ``binary_location`` when configured, otherwise Selenium auto-discovers
+    the browser binary.
     """
     from selenium import webdriver
     from selenium.webdriver.chrome.service import Service
@@ -44,6 +50,8 @@ def build_chrome(settings: Settings, *,
     options = webdriver.ChromeOptions()
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
+    if settings.chrome_binary:
+        options.binary_location = settings.chrome_binary
     if settings.chrome_headless:
         options.add_argument('--headless=new')
     for argument in extra_arguments:

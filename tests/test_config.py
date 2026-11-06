@@ -77,6 +77,23 @@ def test_from_env_falsy_headless_values(raw):
     assert Settings.from_env({"CHROME_HEADLESS": raw}).chrome_headless is False
 
 
+def test_chrome_binary_defaults_to_none():
+    # No CHROME_BINARY: the browser binary is Selenium's business (it looks
+    # for a chrome binary in PATH and Selenium Manager can handle it).
+    assert Settings().chrome_binary is None
+    assert Settings.from_env({}).chrome_binary is None
+
+
+def test_from_env_reads_chrome_binary():
+    settings = Settings.from_env({"CHROME_BINARY": "/usr/bin/chromium"})
+    assert settings.chrome_binary == "/usr/bin/chromium"
+
+
+def test_from_env_empty_chrome_binary_counts_as_unset():
+    settings = Settings.from_env({"CHROME_BINARY": ""})
+    assert settings.chrome_binary is None
+
+
 def test_settings_is_frozen():
     settings = Settings()
     try:

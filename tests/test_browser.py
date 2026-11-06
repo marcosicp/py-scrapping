@@ -22,6 +22,8 @@ class FakeOptions:
 
     def __init__(self) -> None:
         self.arguments: list[str] = []
+        # Mirrors ChromeOptions, whose binary_location is None until set.
+        self.binary_location = None
 
     def add_argument(self, argument: str) -> None:
         self.arguments.append(argument)
@@ -103,6 +105,18 @@ def test_extra_arguments_are_appended_in_order_after_headless():
         "--lang=es-AR",
         "--window-size=1280,800",
     ]
+
+
+def test_default_settings_leave_the_browser_binary_untouched():
+    # No CHROME_BINARY: options.binary_location must stay None so Selenium
+    # auto-discovers a binary itself.
+    build_chrome(Settings())
+    assert driver_options().binary_location is None
+
+
+def test_configured_chrome_binary_lands_in_options():
+    build_chrome(Settings(chrome_binary="/usr/bin/chromium"))
+    assert driver_options().binary_location == "/usr/bin/chromium"
 
 
 def test_importing_the_module_does_not_import_selenium():

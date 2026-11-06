@@ -19,6 +19,9 @@ be hardcoded in the scrapers (K-7):
   installed Chrome.
 - `CHROME_HEADLESS` — opt-in headless mode. The default is off, preserving
   the visible browser window the legacy scrapers showed.
+- `CHROME_BINARY` — optional absolute path to the browser binary itself (for
+  example Debian's `/usr/bin/chromium`). Unset by default: Selenium then
+  auto-discovers a binary on its own.
 
 An environment variable set to the empty string counts as unset — that is how
 blank entries in `.env` behave for these defaults.
@@ -41,6 +44,7 @@ _MONGO_URI_ENV = "MONGODB_URI"
 _MONGO_DB_ENV = "MONGODB_DB"
 _CHROMEDRIVER_PATH_ENV = "CHROMEDRIVER_PATH"
 _CHROME_HEADLESS_ENV = "CHROME_HEADLESS"
+_CHROME_BINARY_ENV = "CHROME_BINARY"
 
 # Truthy spellings accepted for CHROME_HEADLESS (case-insensitive, stripped).
 _HEADLESS_TRUE = {"1", "true", "yes", "on"}
@@ -55,6 +59,7 @@ class Settings:
     mongodb_db: str = DEFAULT_MONGO_DB
     chromedriver_path: str | None = None
     chrome_headless: bool = False
+    chrome_binary: str | None = None
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Settings":
@@ -70,4 +75,5 @@ class Settings:
             chromedriver_path=source.get(_CHROMEDRIVER_PATH_ENV) or None,
             chrome_headless=(source.get(_CHROME_HEADLESS_ENV) or "")
             .strip().lower() in _HEADLESS_TRUE,
+            chrome_binary=source.get(_CHROME_BINARY_ENV) or None,
         )

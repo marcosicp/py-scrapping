@@ -27,10 +27,32 @@ WORKDIR $APP_HOME
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Chromium for the scrapers. Selenium only auto-discovers a binary called
+# `google-chrome` in PATH, so the browser is pointed at Debian's
+# /usr/bin/chromium through the CHROME_BINARY setting
+# (api/scrapers/browser.py) instead of a symlink. This is what makes
+# `POST /api/scrapers/<slug>/start` work in the container. It is gated by a
+# build arg: `--build-arg INSTALL_CHROMIUM=0` produces a lean image for a
+# deploy that does not scrape.
+ARG INSTALL_CHROMIUM=1
+RUN if [ "$INSTALL_CHROMIUM" = "1" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends \
+            chromium chromium-driver fonts-liberation ca-certificates && \
+            rm -rf /var/lib/apt/lists/* ; \
+    fi
+
+# Render injects PORT, but a local `docker run` does not — a default keeps
+# `--bind :$PORT` from expanding to an empty port.
+ENV PORT=10000
+EXPOSE 10000
+
 COPY . ./
 # Bring in the bundle built by the frontend stage.
 COPY --from=frontend /static ./static
 
-# NOTE: this CMD still targets a module that does not exist (there is no main.py).
-# Known issue K-5 — fixing it requires the WSGI application factory from K-1/K-2.
+# `main.py` exists and exposes `main:app` — the same entry point
+# `gunicorn main:app` runs locally. The process model must stay
+# `--workers 1 --threads 8`: ScraperManager keeps scrape-run state in-process
+# and SocketIO runs in `threading` async mode, so extra workers would fork
+# both the run state and the realtime clients.
 CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 main:app
