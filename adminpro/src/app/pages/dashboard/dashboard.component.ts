@@ -188,12 +188,16 @@ export class DashboardComponent implements OnInit {
     var result = { name: 'Total', price: 0 };
     const calcTotalCols = ['price'];
     calcTotalCols.forEach((params) => {
-      listaSuper.forEach((line: { [x: string]: any }) => {
+      (listaSuper ?? []).forEach((line: { [x: string]: any }) => {
         result.price = Number(result.price) + Number(line[params]);
       });
     });
 
-    api.setPinnedBottomRowData([result]);
+    // -- R3-001: a grid that has not fired gridReady yet (or was never
+    // rendered) must not abort the selection path; the array still updates.
+    if (api && typeof api.setPinnedBottomRowData === 'function') {
+      api.setPinnedBottomRowData([result]);
+    }
   }
 
   // -- D-1: selecting a canonical row adds EVERY present offer to its own
@@ -203,33 +207,36 @@ export class DashboardComponent implements OnInit {
 
     // -- Carrefour
     if (offers.carre) {
-      this.itemsCarre = this.addRemoveOffer(offers.carre, data.selected, this.itemsCarre!);
+      this.itemsCarre = this.addRemoveOffer(offers.carre, data.selected, this.itemsCarre);
       this.totalRow(this.gridApi4, this.itemsCarre);
     }
     // -- Disco
     if (offers.disco) {
-      this.itemsDisco = this.addRemoveOffer(offers.disco, data.selected, this.itemsDisco!);
+      this.itemsDisco = this.addRemoveOffer(offers.disco, data.selected, this.itemsDisco);
       this.totalRow(this.gridApi3, this.itemsDisco);
     }
     // -- SuperMami
     if (offers.mami) {
-      this.itemsMami = this.addRemoveOffer(offers.mami, data.selected, this.itemsMami!);
+      this.itemsMami = this.addRemoveOffer(offers.mami, data.selected, this.itemsMami);
       this.totalRow(this.gridApi1, this.itemsMami);
     }
     // -- La Anónima
     if (offers.hiper) {
-      this.itemsHiper = this.addRemoveOffer(offers.hiper, data.selected, this.itemsHiper!);
+      this.itemsHiper = this.addRemoveOffer(offers.hiper, data.selected, this.itemsHiper);
       this.totalRow(this.gridApi2, this.itemsHiper);
     }
   }
-  addRemoveOffer(offer: any, selected: any, items: any[]): any[] {
+  addRemoveOffer(offer: any, selected: any, items: any[] | undefined): any[] {
+    // -- R3-001: never dereference an undefined list; a chain list that was
+    // never initialized starts empty instead of throwing mid-selection.
+    const list = items ?? [];
     if (selected) {
       // Se agrega solo si el nombre no está ya en la lista
-      return items.some((item) => item.name === offer.name)
-        ? items
-        : items.concat([{ name: offer.name, price: offer.price }]);
+      return list.some((item) => item.name === offer.name)
+        ? list
+        : list.concat([{ name: offer.name, price: offer.price }]);
     }
     // Se elimina por nombre
-    return items.filter((item) => item.name !== offer.name);
+    return list.filter((item) => item.name !== offer.name);
   }
 }
