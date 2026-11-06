@@ -275,6 +275,28 @@ driver and a real database, none of which any test exercises. When you change
 behavior, state exactly how you verified it (which test, which endpoint, which
 log line, which UI path) and never assert a result you did not observe.
 
+### UI verification — one hypothesis, one browser round
+
+The SPA has no automated signal, so a UI change is verified only in a browser,
+which is the most expensive evidence this repo has. Learned the hard way:
+
+- **Read before you click.** The renderer (`cellRender.ts`), the component, the
+template and the endpoint payload (`curl`) explain the DOM better than clicking
+does.
+- **One falsifiable hypothesis per round**, with the single selector that proves
+or kills it. Batch every assertion into the same browser open and reuse the page
+between rounds instead of restarting it.
+- **No exploratory loops.** If a round neither confirms nor kills the
+hypothesis, go back to static reading (`grep` the bindings, re-read the
+payload) — a new round needs a new hypothesis supported by evidence.
+- **Bounded evidence**: counts, booleans, short text. No full DOM dumps, no
+screenshots when a selector count answers the question.
+- **Record the round** — hypothesis, observation, conclusion — in the feature
+document under `odd/tasks/`, so the next session does not pay for it again.
+
+Full protocol and prerequisites:
+[`docs/agent-context/runbook.md`](docs/agent-context/runbook.md) §8.
+
 ## 9. Conventions
 
 - Backend code, comments, commit messages, and these docs: **English**. Existing
@@ -293,6 +315,7 @@ log line, which UI path) and never assert a result you did not observe.
 | Request flow, every endpoint, data schema, scraper internals | [`docs/agent-context/repo-map.md`](docs/agent-context/repo-map.md) |
 | How to actually install, run, build, deploy — with per-command status | [`docs/agent-context/runbook.md`](docs/agent-context/runbook.md) |
 | Every defect found, with severity and causality | [`docs/agent-context/known-issues.md`](docs/agent-context/known-issues.md) |
+| How to verify a UI change without burning browser rounds | [`docs/agent-context/runbook.md`](docs/agent-context/runbook.md) §8 |
 | Work in progress for this doc set | [`odd/tasks/agent-context-bootstrap.md`](odd/tasks/agent-context-bootstrap.md) |
 
 ## 11. Maintaining this file

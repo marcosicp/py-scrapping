@@ -286,6 +286,35 @@ watched behavior, but live scraping and the SPA are verified manually.
 | Frontend renders | `npx ng build` first, then `GET /` → 200; without a build it must answer **503** with the build command |
 | Bundle is not versioned | `git ls-files static/` → empty, and `git status` stays clean after a build |
 
+### UI verification protocol — one hypothesis, one round
+
+A browser is the only signal the SPA has, and the most expensive evidence this
+repo can produce. Six rules keep it affordable (summary in
+[`AGENTS.md`](../../AGENTS.md) §8):
+
+1. **Static reading first.** Before any browser: the component
+   (`adminpro/src/app/pages/dashboard/dashboard.component.ts`), the renderer
+   (`cellRender.ts`), the template, the service, and the payload itself
+   (`curl -s localhost:3000/api/...`). The hypothesis comes from those reads.
+2. **State it as a falsifiable observable**, e.g. "clicking row 1's checkbox
+   puts one product in each of the four small grids (4 rows total)", plus the
+   one selector that proves or kills it.
+3. **One round = one browser open**, every assertion batched: console errors,
+   the target selector's state, and one count per affected list. Reuse the same
+   page between rounds; do not restart the browser per check.
+4. **No exploratory loops.** A round that neither confirms nor kills the
+   hypothesis sends you back to static reading — never into a second
+   exploratory round.
+5. **Bounded output.** Counts, booleans, short text. No full DOM dumps, and no
+   screenshots when a selector count answers the question.
+6. **Record the round** — hypothesis, observation, conclusion — in the feature
+   document under `odd/tasks/`.
+
+Prerequisites: backend on :3000 with the real database, a built bundle (`ng
+build`) or `ng serve`, and the real route (`/#/dashboard`). A UI that renders
+layout with no data before touching anything is trap **T-11** in `AGENTS.md`,
+not a data problem.
+
 ---
 
 ## Security note — why this file avoids exact version numbers
