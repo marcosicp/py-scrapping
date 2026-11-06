@@ -227,10 +227,23 @@ coherent (K-5). Still contradicting it: `Procfile` runs `python app.py` with
 `app.yaml` (App Engine) and `manifest.yml` (Cloud Foundry, 128 MB — too small
 for Chrome) are leftovers.
 
-**T-5 · Hardcoded secrets and hosts.** `DEFAULT_SECRET_KEY = 'secret!'`
-(`api/config.py`) is the fallback for `SECRET_KEY`. `adminpro/src/app/service/app.service.ts:21` hardcodes
-`http://127.0.0.1:3000/supermercados` — there is no `environments/` directory, so
-the production API base URL cannot be configured per build.
+**T-5 · Secret handling.** `DEFAULT_SECRET_KEY = 'secret!'` (`api/config.py`)
+is the fallback for `SECRET_KEY`: a deploy that forgets the variable signs
+sessions with a public constant. Set it in `.env` locally and in the host's env
+vars otherwise (rotating it for real is K-13). `.env` is gitignored, **and**
+excluded in `.dockerignore` — keep both true, because the Dockerfile ends with
+`COPY . ./` and a local `docker build` would otherwise bake secrets into an
+image layer; the same applies to any new `*.env*` file you add.
+
+The other half of this trap is closed, and the shape it was fixed in is the
+rule: `adminpro/src/app/service/app.service.ts` used to hardcode
+`http://127.0.0.1:3000/supermercados`, which no remote host can serve — the
+browser resolves loopback to the *viewer*, so Chrome's Private Network Access
+blocked the hop with `net::ERR_FAILED` plus a CORS log line while the deploy was
+green. API paths in this SPA stay **relative** (`/api/productos/agrupados`):
+Flask serves the SPA and owns `/api`, so a relative path is same-origin on
+localhost, Render and Coolify from one single build. Do not reintroduce a base
+URL — there is no `environments/` directory and none is needed.
 
 **T-7 · `*.json` is globally gitignored** (rule 2 above). Highest-frequency
 self-inflicted mistake in this repo.
@@ -282,26 +295,35 @@ driver and a real database, none of which any test exercises. When you change
 behavior, state exactly how you verified it (which test, which endpoint, which
 log line, which UI path) and never assert a result you did not observe.
 
-### UI verification — one hypothesis, one browser round
+### UI verification — agents do not open browsers
 
-The SPA has no automated signal, so a UI change is verified only in a browser,
-which is the most expensive evidence this repo has. Learned the hard way:
+**Agent sessions in this repository never run browser-based tests.** No Selenium
+smoke test, no headless Chrome page load, no Playwright/ego-browser, no browser
+subagent — not as a check, not to diagnose a failing one, not "just one page".
+It is a standing owner constraint (token budget), and the earlier rounds that
+tried to be disciplined about it still cost a session's worth of tokens. The
+manual browser check belongs to the owner: agent-side verification stops right
+before the browser and hands over an exact URL plus what to look at.
 
-- **Read before you click.** The renderer (`cellRender.ts`), the component, the
-template and the endpoint payload (`curl`) explain the DOM better than clicking
-does.
-- **One falsifiable hypothesis per round**, with the single selector that proves
-or kills it. Batch every assertion into the same browser open and reuse the page
-between rounds instead of restarting it.
-- **No exploratory loops.** If a round neither confirms nor kills the
-hypothesis, go back to static reading (`grep` the bindings, re-read the
-payload) — a new round needs a new hypothesis supported by evidence.
-- **Bounded evidence**: counts, booleans, short text. No full DOM dumps, no
-screenshots when a selector count answers the question.
-- **Record the round** — hypothesis, observation, conclusion — in the feature
-document under `odd/tasks/`, so the next session does not pay for it again.
+What replaces it, cheapest first:
 
-Full protocol and prerequisites:
+- **Read the path end to end**: component, template, renderer
+  (`cellRender.ts`) and the service's URL. Most "UI bugs" are visible here — the
+  Render `net::ERR_FAILED` in §7 T-5 was one wrong string, not a rendering
+  defect.
+- **`curl` the payload the SPA consumes** and read its shape. A 200 with an
+  empty collection looks identical to a broken deploy in a screenshot.
+- **`grep` the built bundle** when the question is which URL the shipped app
+  uses: `grep -c "127.0.0.1" static/*.js` is a definitive, browser-free answer.
+- **`docker build` + `curl` against the container** covers everything the server
+  side can get wrong (`/`, `/scrape`, `/api/scrapers`,
+  `/api/productos/agrupados`) — see
+  [`odd/tasks/local-docker-prod-parity.md`](odd/tasks/local-docker-prod-parity.md)
+  for the check list that was actually run.
+- **Then record the owner's verdict** in the feature document under `odd/tasks/`,
+  because his round is the only UI evidence this repo gets.
+
+Stack prerequisites for the owner's round:
 [`docs/agent-context/runbook.md`](docs/agent-context/runbook.md) §8.
 
 ## 9. Conventions
@@ -322,7 +344,7 @@ Full protocol and prerequisites:
 | Request flow, every endpoint, data schema, scraper internals | [`docs/agent-context/repo-map.md`](docs/agent-context/repo-map.md) |
 | How to actually install, run, build, deploy — with per-command status | [`docs/agent-context/runbook.md`](docs/agent-context/runbook.md) |
 | Every defect found, with severity and causality | [`docs/agent-context/known-issues.md`](docs/agent-context/known-issues.md) |
-| How to verify a UI change without burning browser rounds | [`docs/agent-context/runbook.md`](docs/agent-context/runbook.md) §8 |
+| How to verify a UI change without a browser (§8), and the stack the owner's manual round needs | [`docs/agent-context/runbook.md`](docs/agent-context/runbook.md) §8 |
 | Deploying to Render (Docker runtime), why the native Python runtime fails, and how to verify a deploy | [`docs/agent-context/deploy-render.md`](docs/agent-context/deploy-render.md) |
 | Work in progress for this doc set | [`odd/tasks/agent-context-bootstrap.md`](odd/tasks/agent-context-bootstrap.md) |
 
