@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | in progress — implementation and local verification done, awaiting the owner's commit decision and the Render/Atlas steps |
+| Status | done — implemented, verified locally, committed and merged to `main` |
 | Owner | el Gentleman (parent orchestrator) |
 | Branch | `feat/render-docker-deploy` |
 | Created | 2026-11-06 |
@@ -105,6 +105,14 @@ a `node:24-alpine` frontend stage that produces `static/`, and a
 
 - A live Render deploy and its `onrender.com` URL.
 - A live Atlas connection and a real scrape from a datacenter IP.
+
+## Commit evidence
+
+| Commit | Work unit |
+| --- | --- |
+| `540f5d3` | `feat(container)` — Dockerfile (chromium, PORT default, CMD rationale), `CHROME_BINARY` setting, tests |
+| `f893ca8` | `fix(build)` — `adminpro/package-lock.json` resynced with the image's npm |
+| `0f38ebc` | `chore(deploy)` — `render.yaml`, `docs/agent-context/deploy-render.md`, AGENTS.md, this document |
 
 ## Verification plan
 
