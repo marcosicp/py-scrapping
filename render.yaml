@@ -1,0 +1,34 @@
+# Render Blueprint — the deploy contract for LaListita.
+#
+# The Dockerfile — not Render's native Python runtime — owns the interpreter:
+# Render's native runtime cannot install Python 3.15 (the failure that started
+# this: `pymongo==4.19.0 Requires-Python >=3.11`, pip ceiling 4.18.3) and it
+# never builds the Angular bundle, so `/` would answer 503. The compute plan is
+# intentionally left to the dashboard; scraping needs at least `1c-2g` because
+# Chromium does not fit in the free plan (0.1 CPU / 512 MB).
+services:
+  - type: web
+    name: lalistita
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /
+    autoDeployTrigger: commit
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      # Prompted in the dashboard on first deploy; never stored in Git.
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DB
+        value: lalistitadev
+      # Render has no display: the scrapers must run Chromium headless.
+      - key: CHROME_HEADLESS
+        value: "1"
+      # The Docker image ships Debian's chromium at /usr/bin/chromium with its
+      # driver at /usr/bin/chromedriver.
+      - key: CHROMEDRIVER_PATH
+        value: /usr/bin/chromedriver
+      - key: CHROME_BINARY
+        value: /usr/bin/chromium

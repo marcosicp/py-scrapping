@@ -69,7 +69,7 @@ Browser ──► Flask (app.py, port 3000)
 | Scraping | selenium 4.52.0 (Selenium Manager resolves the driver), beautifulsoup4 4.15.0, lxml 6.1.3; `requests-html`/`webdriver-manager` **removed** (K-18) | — |
 | Frontend | **Angular 21.2.x**, NgModule-based, Material 21.x, ag-grid 32.3.9, TypeScript 5.9 | README says Angular 16 |
 | Server | gunicorn 26.2.0 | — |
-| Deploy | four contradicting stories (§7, D-6) | README says Docker + Cloud Run |
+| Deploy | **Render, `runtime: docker`** — `render.yaml` + the repo `Dockerfile` (`docs/agent-context/deploy-render.md`); four legacy stories survive (§7, T-3) | README says Docker + Cloud Run |
 
 ## 4. Layout — what is alive and what is dead
 
@@ -214,12 +214,18 @@ not undo (details in
 **T-1 · `adminpro/node_modules` is absent.** `ng serve`/`ng build` fail until
 `npm install` runs inside `adminpro/`.
 
-**T-3 · Deploy stories contradict each other.** `Dockerfile` CMD runs
-`gunicorn ... main:app` and `main.py` now exists, so the image entry point is
-coherent (K-5). `Procfile` still runs `python app.py` with `debug=True` — a
-dev server in production. `gunicorn_config.py` is orphaned. `app.yaml`
-(App Engine) and `manifest.yml` (Cloud Foundry, 128 MB — too small for Chrome)
-are leftovers.
+**T-3 · Deploy stories contradict each other.** The chosen path is Render with
+`runtime: docker`, codified in `render.yaml`
+([`docs/agent-context/deploy-render.md`](docs/agent-context/deploy-render.md)).
+Render's **native Python runtime cannot deploy this repo**: it cannot install
+Python 3.15 (the symptom is pip refusing `pymongo==4.19.0` with
+`Requires-Python >=3.11` and stopping at `4.18.3`) and it never builds the
+Angular bundle, so `/` answers 503. `Dockerfile` CMD runs
+`gunicorn ... main:app` and `main.py` exists, so the image entry point is
+coherent (K-5). Still contradicting it: `Procfile` runs `python app.py` with
+`debug=True` — a dev server in production; `gunicorn_config.py` is orphaned;
+`app.yaml` (App Engine) and `manifest.yml` (Cloud Foundry, 128 MB — too small
+for Chrome) are leftovers.
 
 **T-5 · Hardcoded secrets and hosts.** `DEFAULT_SECRET_KEY = 'secret!'`
 (`api/config.py`) is the fallback for `SECRET_KEY`. `adminpro/src/app/service/app.service.ts:21` hardcodes
@@ -317,6 +323,7 @@ Full protocol and prerequisites:
 | How to actually install, run, build, deploy — with per-command status | [`docs/agent-context/runbook.md`](docs/agent-context/runbook.md) |
 | Every defect found, with severity and causality | [`docs/agent-context/known-issues.md`](docs/agent-context/known-issues.md) |
 | How to verify a UI change without burning browser rounds | [`docs/agent-context/runbook.md`](docs/agent-context/runbook.md) §8 |
+| Deploying to Render (Docker runtime), why the native Python runtime fails, and how to verify a deploy | [`docs/agent-context/deploy-render.md`](docs/agent-context/deploy-render.md) |
 | Work in progress for this doc set | [`odd/tasks/agent-context-bootstrap.md`](odd/tasks/agent-context-bootstrap.md) |
 
 ## 11. Maintaining this file
