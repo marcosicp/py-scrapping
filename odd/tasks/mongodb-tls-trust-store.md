@@ -107,12 +107,34 @@ recognises `tlsCAFile`, `tls_ca_file` and `ssl_ca_certs`, case-insensitively.
 D-18's "always wins" is corrected accordingly: the environment setting wins over
 certifi, not over the URI.
 
+**`R3-001` and `R3-002` (second lineage `review-819b8c9507aeb858`, both
+CRITICAL, inferential, upheld by the refuter).** The corrected candidate took two
+more findings, and both produced a **more conservative** rule:
+
+- **R3-001** — injecting a TLS option into a non-TLS URI. The claim as written
+  ("PyMongo raises `ConfigurationError`") **did not reproduce**: on pymongo 4.19
+  `MongoClient("mongodb://localhost:27017/", tlsCAFile=…)` constructs fine, the
+  option is accepted and ignored. The concern still stands — a TLS option on a
+  non-TLS URI is at best meaningless — so the rule is now "no TLS URI, no TLS
+  option", and `MONGODB_TLS_CA_FILE` can no longer change how a `mongodb://`
+  connection is opened. A URI needs `?tls=true` to use it.
+- **R3-002** — forcing certifi replaced the **host** trust store, so a deploy
+  that trusts a private CA installed at the OS level would have regressed. Now
+  certifi is a fallback used only when the interpreter has no usable store
+  (`host_trust_store_available()`: `SSL_CERT_FILE` pointing at an existing file,
+  an existing default `cafile`, or a non-empty default `capath`).
+
+Final order: **no TLS URI → nothing; URI-named bundle → nothing;
+`MONGODB_TLS_CA_FILE` → that path; host store present → nothing; otherwise
+certifi.** The original defect (this Mac's empty store) is still fixed, and no
+other host changes behaviour.
+
 ## 6. Verification
 
 | Check | Result |
 | --- | --- |
 | `pytest tests/test_mongo.py` before the implementation | **RED** `ModuleNotFoundError: No module named 'api.mongo'` |
-| `pytest` after the correction | **431 passed, 9 skipped** in 3.05 s (was 405 before this feature) |
+| `pytest` after both corrections | **434 passed, 9 skipped** in 3.10 s (was 405 before this feature) |
 | flake8 CI gate | 0 |
 | **end-to-end against the real cluster** | `create_app()` + `GET /api/productos/agrupados` → **200**, **15 311** rows, counts `carre 6187 / disco 4720 / hiper 3036 / mami 3251`, 2.6 s — the exact path that raised `ServerSelectionTimeoutError` before |
 | correction size | 108 diff lines (api/mongo.py 31+/9−, tests/test_mongo.py 34+/1−, this document 30+/3−), inside the frozen budget of 157 |

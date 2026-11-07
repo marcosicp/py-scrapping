@@ -12,12 +12,20 @@ uses those defaults while `requests` carries its own `certifi` bundle — the
 asymmetry that made Atlas fail locally while scraping worked.
 """
 
+from types import SimpleNamespace
+
 import certifi
 import pytest
 from pymongo import MongoClient
 
 from api.config import Settings
-from api.mongo import build_client, client_kwargs, uri_tls_ca_file, uses_tls
+from api.mongo import (
+    build_client,
+    client_kwargs,
+    host_trust_store_available,
+    uri_tls_ca_file,
+    uses_tls,
+)
 
 
 @pytest.mark.parametrize("uri", [
@@ -42,17 +50,28 @@ def test_uses_tls_is_false_without_a_tls_request(uri):
     assert uses_tls(uri) is False
 
 
-def test_client_kwargs_inject_certifi_for_a_tls_uri():
+def test_client_kwargs_inject_certifi_for_a_tls_uri(monkeypatch):
+    # -- an interpreter without a host store (this Mac's python.org 3.15)
+    monkeypatch.setattr("api.mongo.host_trust_store_available", lambda: False)
     kwargs = client_kwargs(Settings(mongodb_uri="mongodb+srv://u:p@host/db"))
     assert kwargs == {"connect": False, "tlsCAFile": certifi.where()}
 
 
-def test_client_kwargs_leave_a_plain_uri_untouched():
+def test_a_host_trust_store_is_preferred_over_certifi(monkeypatch):
+    # -- R3-002: a deployment whose OS store carries a private CA keeps using it
+    monkeypatch.setattr("api.mongo.host_trust_store_available", lambda: True)
+    kwargs = client_kwargs(Settings(mongodb_uri="mongodb+srv://u:p@host/db"))
+    assert kwargs == {"connect": False}
+
+
+def test_client_kwargs_leave_a_plain_uri_untouched(monkeypatch):
+    monkeypatch.setattr("api.mongo.host_trust_store_available", lambda: False)
     kwargs = client_kwargs(Settings(mongodb_uri="mongodb://localhost:27017/"))
     assert kwargs == {"connect": False}
 
 
-def test_explicit_ca_file_overrides_certifi():
+def test_explicit_ca_file_overrides_certifi(monkeypatch):
+    monkeypatch.setattr("api.mongo.host_trust_store_available", lambda: True)
     settings = Settings(
         mongodb_uri="mongodb+srv://u:p@host/db",
         mongodb_tls_ca_file="/private/etc/private-ca.pem",
@@ -60,13 +79,29 @@ def test_explicit_ca_file_overrides_certifi():
     assert client_kwargs(settings)["tlsCAFile"] == "/private/etc/private-ca.pem"
 
 
-def test_explicit_ca_file_applies_even_without_a_tls_uri():
-    # -- an operator who names a bundle made a decision; honour it as-is
+def test_a_plain_uri_never_gets_a_ca_option(monkeypatch):
+    # -- R3-001: a TLS option on a non-TLS URI is at best meaningless, so the
+    # setting cannot silently change how a mongodb:// connection is opened
+    monkeypatch.setattr("api.mongo.host_trust_store_available", lambda: False)
     settings = Settings(
         mongodb_uri="mongodb://localhost:27017/",
         mongodb_tls_ca_file="/private/etc/private-ca.pem",
     )
-    assert client_kwargs(settings)["tlsCAFile"] == "/private/etc/private-ca.pem"
+    assert client_kwargs(settings) == {"connect": False}
+
+
+def test_host_trust_store_is_absent_without_a_bundle(monkeypatch):
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
+    monkeypatch.setattr(
+        "api.mongo.ssl.get_default_verify_paths",
+        lambda: SimpleNamespace(cafile=None, capath=None),
+    )
+    assert host_trust_store_available() is False
+
+
+def test_host_trust_store_is_present_when_the_bundle_exists(monkeypatch):
+    monkeypatch.setenv("SSL_CERT_FILE", certifi.where())
+    assert host_trust_store_available() is True
 
 
 def test_build_client_returns_a_lazy_client():

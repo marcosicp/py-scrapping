@@ -9,12 +9,12 @@ never shows the symptom because it carries ``certifi`` itself, which is exactly
 why scraping worked while the database did not (see
 ``odd/tasks/mongodb-tls-trust-store.md``).
 
-The client therefore owns its bundle: certifi's for any TLS URI, or
-``MONGODB_TLS_CA_FILE`` when an operator pins a private CA. Host behaviour stops
-mattering: local, Docker and Render verify against the same roots. A URI that
-names its own bundle (``tlsCAFile``, ``tls_ca_file``, ``ssl_ca_certs``) is left
-alone: injecting a second one would override or shadow the operator's choice, so
-the precedence is URI, then ``MONGODB_TLS_CA_FILE``, then certifi (R3-001).
+The client therefore owns its bundle: certifi's when the interpreter has no
+host store, or ``MONGODB_TLS_CA_FILE`` when an operator pins a private CA. Host
+behaviour stops mattering for the broken-interpreter case while a host that
+already trusts a private CA keeps its store (R3-002); a URI that names its own
+bundle (``tlsCAFile``, ``tls_ca_file``, ``ssl_ca_certs``) is left alone; and a
+non-TLS URI never receives a TLS option (R3-001).
 
 Keeping one construction site also keeps ``connect=False`` in one place: building
 the client must not open a socket, and the unroutable test URIs rely on it.
@@ -22,6 +22,8 @@ the client must not open a socket, and the unroutable test URIs rely on it.
 
 from __future__ import annotations
 
+import os
+import ssl
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
@@ -66,21 +68,45 @@ def uses_tls(uri: str) -> bool:
     return False
 
 
-def client_kwargs(settings: Settings) -> dict[str, Any]:
-    """Keyword arguments for `MongoClient`, TLS trust included (D-17/D-18).
+def host_trust_store_available() -> bool:
+    """True when the interpreter has a usable default CA store (R3-002).
 
-    Precedence (R3-001): the URI's own bundle first, then a named
-    `MONGODB_TLS_CA_FILE`, then certifi for a TLS URI. A URI that already pins a
-    bundle gets no injected option at all — pymongo reads the URI's value, so a
-    second one would at best be dead code and at worst shadow the operator's
-    choice. `mongodb://localhost:27017/` keeps its old wiring untouched.
+    A deployment whose OS store carries a private CA must keep using it;
+    certifi is only a fallback for interpreters that have nothing (a python.org
+    build before `Install Certificates.command`, this repo's local case).
+    """
+    from_env = os.environ.get("SSL_CERT_FILE")
+    if from_env and os.path.exists(from_env):
+        return True
+    paths = ssl.get_default_verify_paths()
+    if paths.cafile and os.path.exists(paths.cafile):
+        return True
+    return bool(paths.capath and os.path.isdir(paths.capath)
+                and os.listdir(paths.capath))
+
+
+def client_kwargs(settings: Settings) -> dict[str, Any]:
+    """Keyword arguments for `MongoClient`, TLS trust included.
+
+    Rules, in order (R3-001 and R3-002 are the review findings that shaped
+    them):
+
+    1. A non-TLS URI gets no TLS option at all. Measured on pymongo 4.19: such
+       an option is accepted and ignored rather than rejected, but injecting it
+       would still suggest TLS where there is none.
+    2. A URI that names its own bundle keeps it; injecting a second one would at
+       best be dead code and at worst shadow the operator's choice.
+    3. `MONGODB_TLS_CA_FILE` pins a bundle explicitly.
+    4. Otherwise certifi's bundle is used **only** when the interpreter has no
+       host store; a host that already trusts a private CA is left alone.
     """
     kwargs: dict[str, Any] = {"connect": False}
-    if uri_tls_ca_file(settings.mongodb_uri):
+    uri = settings.mongodb_uri
+    if not uses_tls(uri) or uri_tls_ca_file(uri):
         return kwargs
     if settings.mongodb_tls_ca_file:
         kwargs["tlsCAFile"] = settings.mongodb_tls_ca_file
-    elif uses_tls(settings.mongodb_uri):
+    elif not host_trust_store_available():
         kwargs["tlsCAFile"] = certifi.where()
     return kwargs
 
