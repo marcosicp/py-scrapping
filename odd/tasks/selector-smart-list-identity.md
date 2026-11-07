@@ -88,20 +88,17 @@ understated totals. A scraper defect (its own follow-up), not a selector defect.
 
 ## 3. Tasks
 
-- [ ] **T1 — reconcile EAN and layer-2 groups.** `api/services/matching.py`:
-  merge a key group into its unique same-signature EAN group; keep ambiguous
-  signatures separate. Test-first in `tests/test_matching.py`.
-- [ ] **T2 — key chain lists by row id.** `adminpro/src/app/pages/dashboard/`:
-  extract the toggle into a pure `selection.ts` module (id-keyed) and wire
-  `dashboard.component.ts` to it. Verification without a browser: compile the
-  module with the project `tsc` and run a Node assertion harness in `/tmp`
-  (RED before, GREEN after) plus `npm run build`.
-- [ ] **T3 — docs sync.** `docs/agent-context/repo-map.md` (grouping paragraph)
-  and this document's evidence section.
+- [x] **T1 — reconcile EAN and layer-2 groups.** DONE in `80a6b67`
+  (`fix(services): reconcile ean and layer-2 groups for the same product`).
+- [x] **T2 — key chain lists by row id.** DONE in `20d2e1e`
+  (`fix(ui): key chain list selection by canonical row id`).
+- [x] **T3 — docs sync.** `docs/agent-context/repo-map.md` (grouping
+  paragraph), `AGENTS.md` + `docs/agent-context/runbook.md` (suite count
+  401 → 405) and this document's evidence section.
 
 ## 4. Verification
 
-See §6 below (filled as tasks close).
+See §6 below.
 
 ## 5. Out of scope
 
@@ -110,3 +107,60 @@ See §6 below (filled as tasks close).
 - List persistence and the pre-existing checkbox/`data.selected` cosmetic
   desync recorded in `seleccion-smart.md` §7.
 - Any browser-based verification (`AGENTS.md` §8 — the owner's manual round).
+
+---
+
+## 6. Verification evidence
+
+**T1 — `80a6b67`** — four new tests in `tests/test_matching.py`, RED first
+(`assert 2 == 1` on the four-chain Cañuelas case), GREEN after the
+reconciliation pass: suite **405 passed / 9 skipped**, flake8 CI gate **0**.
+The other three new tests (ambiguous signature, different presentation,
+loose-vs-strict) pass before the change too — they pin the fail-open behavior
+the fix must not weaken. Live replay over `lalistitadev.productos` (17 194
+documents): rows **15 595 → 15 311**, 288 documents absorbed, the owner's
+filter now returns **5 rows** instead of 7 and both Cañuelas oils carry all
+four offers:
+
+```
+ean | Aceite de girasol Cañuelas | 900 cc   | carre 4399  disco 4700  mami 3269  hiper 4500
+ean | Aceite de girasol Cañuelas | 1.5 lts  | carre 6985  disco 7450  mami 5299  hiper 7650
+solo | ACEITE DE GIRASOL CAÑUELAS X . | 5 LT  | mami 17500
+solo | Aceite en aerosol Cañuelas de girasol | 187 cc | carre 4399
+solo | Aceite mezcla Cañuelas girasol y oliva 15 l |   | carre 0.0  (the $0 defect)
+```
+
+**T2 — `20d2e1e`** — `selection.ts` (Angular-free, id-keyed) plus the
+component wiring; `addRemoveOffer` is gone. Browser-free verification because
+`adminpro` has zero specs and karma would need Chrome (`AGENTS.md` §8):
+
+```
+npx tsc src/app/pages/dashboard/selection.ts --outDir /tmp/selcheck \
+  --module es2022 --target es2022 --strict --skipLibCheck
+node /tmp/verify_selection.mjs
+```
+
+RED before the module existed (`ERR_MODULE_NOT_FOUND`), RED with the legacy
+name-keyed logic copied verbatim (`AssertionError: both presentations must
+reach the list — 1 !== 2`), GREEN after the fix (`selection logic OK`). The
+harness also pins no-double-add, deselect-one-keeps-sibling,
+deselect-absent-id, and the `{id, name, price}` entry shape. `npm run build`
+green (8.8 s, chunk `main-THIXW7Z5.js`, only the two pre-existing stylesheet
+warnings); `static/` stays gitignored.
+
+**What the owner's round has to confirm** (agent-side verification stops
+before the browser): `./dev.sh` or `python app.py`, open `/` → dashboard,
+filter `aceite girasol cañu`, tick all five rows, and expect
+**Carrefour 4 · Disco 2 · SuperMami 3 · La Anónima 2** entries; untick only
+the 900 ML row and expect SuperMami 2 / La Anónima 1 remaining.
+
+## 7. Follow-ups
+
+- **Carrefour `price = 0.0` on 1 477 documents** (2026-11-07), 1477 of 6187,
+  samples: `Vinagre de alcohol San Ignacio botella`, `Aceite de oliva extra
+  virgen Malagueña botella`. Produces `$0` list lines and understated totals.
+  Scraper defect, its own task.
+- **Presentation in the chain lists (D-13)**: with id-keyed entries two
+  same-name offers are correct but visually ambiguous. Deferred by the owner.
+- **Checkbox/`data.selected` cosmetic desync** inherited from
+  `seleccion-smart.md` §7, unchanged by this fix.
