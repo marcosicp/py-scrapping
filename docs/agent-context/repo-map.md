@@ -305,9 +305,21 @@ code against `pymongo` and is imported by nothing.
   (`ag-grid-community/styles/ag-grid.css`, `.../ag-theme-alpine.css`); the
   equivalent `unpkg.com` `<link>` tags in `adminpro/src/index.html:25-26` are
   commented out — leave them that way.
-- HTTP: `service/app.service.ts` — a single `getExams()` method that GETs
-  `http://127.0.0.1:3000/supermercados`. **No `environments/` directory exists**,
-  so the API base URL is a literal and cannot vary per build.
+- Dashboard layout: one master grid of canonical rows (columns Nombre,
+  Presentación, Marca and one price column per chain) plus **four chain lists**
+  at the top: Carrefour, Disco, La Anónima (`hiper`) and SuperMami (`mami`).
+  Each chain list renders Nombre · **Presentación** · Precio from
+  `pages/dashboard/selection.ts` entries `{id, name, presentation, price}`, and
+  the line under each grid is that list's total (`chainTotal()`), never a
+  pinned ag-grid row: one route to the number, verifiable without a browser.
+  The presentation of a chain entry is the canonical row's `unidad` — a chain's
+  own name does not carry the size (SuperMami stores every Cañuelas
+  presentation as `ACEITE DE GIRASOL CAÑUELAS X .`).
+- HTTP: `service/app.service.ts` — a single `getExams()` method that GETs the
+  **relative** `/api/productos/agrupados` (same origin: Flask serves the SPA and
+  owns `/api`, see `AGENTS.md` §7 T-5). **No `environments/` directory exists**,
+  and a hardcoded host must not come back: a loopback URL resolves to the
+  viewer's machine.
 - Real-time: the Angular app does **not** use SocketIO. Only
   `templates/scrape.html` does.
 

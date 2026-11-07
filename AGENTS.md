@@ -287,7 +287,12 @@ and `ng.applyChanges(component)` renders it. Full record:
   database that the fixture creates and drops (and refuses to drop anything
   whose name does not start with `lalistita_test_`).
 - Angular: karma + jasmine are configured in `adminpro/package.json` and
-  `tsconfig.spec.json` exists, but there are **zero `*.spec.ts` files**.
+  `tsconfig.spec.json` exists, but there are **zero `*.spec.ts` files**. The one
+  browser-free Angular check is `cd adminpro && npm run verify:selection`
+  (`scripts/verify-selection.mjs`): it imports `selection.ts` through Node's
+  TypeScript type stripping and asserts the chain-list toggle, the per-list
+  totals and the `es-AR` money format. It needs no Chrome, no karma and no
+  network.
 
 Default run: **405 passed, 9 skipped** — the 9 skips are the opt-in MongoDB
 integration tests.

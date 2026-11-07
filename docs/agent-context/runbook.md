@@ -157,11 +157,14 @@ cd adminpro
 npm install
 npx ng serve            # → http://localhost:4200
 npx ng build            # → writes into ../static
+npm run verify:selection # browser-free check of the chain-list toggle + totals
 ```
 
 📖 INFERRED. `package.json` also exposes `npm start` (`ng serve --o`) and
 `npm run build` (`ng build`), which resolve to the local CLI correctly once
-`node_modules` exists.
+`node_modules` exists. `npm run verify:selection` runs
+`node scripts/verify-selection.mjs`, which imports `selection.ts` through
+Node's TypeScript type stripping: no Chrome, no karma, no bundle rebuild.
 
 The Angular service uses a same-origin `/api/productos/agrupados` URL. The
 development proxy in `adminpro/proxy.conf.json` forwards `/api/**` to Flask on
