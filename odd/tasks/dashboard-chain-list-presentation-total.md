@@ -133,7 +133,20 @@ the Carrefour total, so the real deficiency is in the price, not in the sum.
 6. Untick the `900 cc` row: Carrefour 3 · `$11.384,00`, Disco 1 · `$7.450,00`,
    SuperMami 2 · `$22.799,00`, La Anónima 1 · `$7.650,00`.
 
-## 6. Follow-ups
+## 6. Commits and review
+
+| commit | content |
+| --- | --- |
+| `e7bc60b` | `feat(ui)`: presentation + totals in the chain lists (`selection.ts`, component, template, in-repo check, npm script) |
+| `1d0db76` | `docs(odd)`: this document + `AGENTS.md` §8, `repo-map.md`, `runbook.md` |
+
+Native RDD review of the candidate (`15d1790..HEAD`, 9 files, 420 changed
+lines, tier **medium**, lens `review-reliability`): lineage
+**`review-2aebc6ac1cfea9fd`** — **approved**, then acknowledged and burned
+(`gentle-ai.review-acknowledged/v1`). Delivery stays under ordinary repository
+policy: nothing was pushed.
+
+## 7. Follow-ups
 
 - **Carrefour `price = 0.0`** (1 477 documents, scraper defect) now also
   understates the list totals; it is a separate task, not this one.
