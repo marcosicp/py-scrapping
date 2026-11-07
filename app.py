@@ -15,11 +15,11 @@ import os
 from dotenv import load_dotenv
 from flask import Flask
 from flask_cors import CORS
-from pymongo import MongoClient
 
 from api.blueprints import register_blueprints
 from api.config import Settings
 from api.container import init_services
+from api.mongo import build_client
 from api.repositories.products import MongoProductRepository, ProductRepository
 from api.sockets import SocketIOReporter, configure_sockets
 
@@ -41,11 +41,16 @@ def _init_mongo(app: Flask, settings: Settings) -> Flask:
 
     The database name was previously set to "lalistita" here while every consumer
     read `lalistitadev`; the set value was therefore dead and misleading (K-3).
+
+    The client is built by `api/mongo.py::build_client`, which owns the TLS
+    trust store: pymongo validates with the interpreter defaults, and a
+    python.org interpreter has none until `Install Certificates.command` runs
+    (`odd/tasks/mongodb-tls-trust-store.md`).
     """
     # connect=False defers the background server monitors to the first real
     # operation, so building the app never starts a connection attempt (this is
     # also what keeps the unroutable test URI inert).
-    app.mongodb_client = MongoClient(settings.mongodb_uri, connect=False)
+    app.mongodb_client = build_client(settings)
     app.database = app.mongodb_client[settings.mongodb_db]
     return app
 

@@ -26,6 +26,10 @@ be hardcoded in the scrapers (K-7):
   match the host the session fails with `session not created` /
   binary-not-found. Setting this variable pins `binary_location` and removes
   the guess.
+- `MONGODB_TLS_CA_FILE` — optional absolute path to the CA bundle used to
+  verify a TLS MongoDB connection. Unset by default: TLS URIs then use
+  certifi's bundle (`api/mongo.py`, D-17), which is what makes a python.org
+  interpreter with an empty OpenSSL store work against Atlas.
 
 An environment variable set to the empty string counts as unset — that is how
 blank entries in `.env` behave for these defaults.
@@ -46,6 +50,7 @@ DEFAULT_MONGO_DB = "lalistitadev"
 _SECRET_KEY_ENV = "SECRET_KEY"
 _MONGO_URI_ENV = "MONGODB_URI"
 _MONGO_DB_ENV = "MONGODB_DB"
+_MONGO_TLS_CA_FILE_ENV = "MONGODB_TLS_CA_FILE"
 _CHROMEDRIVER_PATH_ENV = "CHROMEDRIVER_PATH"
 _CHROME_HEADLESS_ENV = "CHROME_HEADLESS"
 _CHROME_BINARY_ENV = "CHROME_BINARY"
@@ -61,6 +66,7 @@ class Settings:
     secret_key: str = DEFAULT_SECRET_KEY
     mongodb_uri: str = DEFAULT_MONGO_URI
     mongodb_db: str = DEFAULT_MONGO_DB
+    mongodb_tls_ca_file: str | None = None
     chromedriver_path: str | None = None
     chrome_headless: bool = False
     chrome_binary: str | None = None
@@ -76,6 +82,7 @@ class Settings:
             secret_key=source.get(_SECRET_KEY_ENV) or DEFAULT_SECRET_KEY,
             mongodb_uri=source.get(_MONGO_URI_ENV) or DEFAULT_MONGO_URI,
             mongodb_db=source.get(_MONGO_DB_ENV) or DEFAULT_MONGO_DB,
+            mongodb_tls_ca_file=source.get(_MONGO_TLS_CA_FILE_ENV) or None,
             chromedriver_path=source.get(_CHROMEDRIVER_PATH_ENV) or None,
             chrome_headless=(source.get(_CHROME_HEADLESS_ENV) or "")
             .strip().lower() in _HEADLESS_TRUE,

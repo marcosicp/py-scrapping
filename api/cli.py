@@ -13,7 +13,7 @@ Exit codes: 0 succeeded, 1 failed, 2 stopped, 3 scraper-control error
 (unknown slug, invalid category or already running).
 
 The module stays thin: no scraping logic, no Flask import, no
-``current_app``. ``MongoClient``, ``ScraperManager`` and
+``current_app``. ``build_client``, ``ScraperManager`` and
 ``default_registry`` are read from module attributes, which is the seam
 the tests monkeypatch to stay offline.
 """
@@ -26,6 +26,7 @@ import sys
 from pymongo import MongoClient
 
 from api.config import Settings
+from api.mongo import build_client
 from api.repositories.products import MongoProductRepository
 from api.scrapers.errors import ScraperError
 from api.scrapers.registry import ScraperRegistry, default_registry
@@ -55,10 +56,11 @@ def build_manager(settings: Settings) -> ScraperManager:
     """The real wiring: Mongo-backed repository over the default registry.
 
     ``connect=False`` defers the server handshake to the first operation,
-    so building the client never blocks startup.
+    so building the client never blocks startup. The TLS trust store comes
+    from `api/mongo.py::build_client`, the same rule Flask uses (D-19).
     """
     registry: ScraperRegistry = default_registry()
-    client = MongoClient(settings.mongodb_uri, connect=False)
+    client = build_client(settings)
     repository = MongoProductRepository(client[settings.mongodb_db])
     return ScraperManager(registry, repository, reporter=ConsoleReporter())
 

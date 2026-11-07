@@ -77,7 +77,12 @@ def status_for(state: RunState, *, saved: int = 0, message: str | None = None,
 def fake_env(monkeypatch):
     """Swap the CLI's Mongo client, registry and manager for fakes."""
     FakeMongoClient.instances = []
-    monkeypatch.setattr(cli, "MongoClient", FakeMongoClient)
+    # -- the CLI builds its client through api.mongo.build_client (D-19), so the
+    # seam to replace is the factory, not pymongo's MongoClient
+    monkeypatch.setattr(
+        cli, "build_client",
+        lambda settings: FakeMongoClient(settings.mongodb_uri, connect=False),
+    )
     registry = ScraperRegistry([
         make_scraper("disco", "Disco", lambda ctx: None),
         make_scraper("carrefour", "Carrefour", lambda ctx: None),

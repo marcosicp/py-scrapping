@@ -89,6 +89,21 @@ def test_from_env_reads_chrome_binary():
     assert settings.chrome_binary == "/usr/bin/chromium"
 
 
+def test_tls_ca_file_defaults_to_none():
+    # Unset means "use certifi's bundle for TLS URIs" (api/mongo.py, D-17).
+    assert Settings().mongodb_tls_ca_file is None
+    assert Settings.from_env({}).mongodb_tls_ca_file is None
+
+
+def test_from_env_reads_tls_ca_file():
+    settings = Settings.from_env({"MONGODB_TLS_CA_FILE": "/private/etc/ca.pem"})
+    assert settings.mongodb_tls_ca_file == "/private/etc/ca.pem"
+
+
+def test_from_env_empty_tls_ca_file_counts_as_unset():
+    assert Settings.from_env({"MONGODB_TLS_CA_FILE": ""}).mongodb_tls_ca_file is None
+
+
 def test_from_env_empty_chrome_binary_counts_as_unset():
     settings = Settings.from_env({"CHROME_BINARY": ""})
     assert settings.chrome_binary is None
