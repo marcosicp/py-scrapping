@@ -4,6 +4,7 @@ import { ColDef, GridApi, GridReadyEvent } from 'ag-grid-community';
 import { Observable } from 'rxjs';
 import { AppService } from 'src/app/service/app.service';
 import { TotalValueRenderer } from './cellRender';
+import { ChainEntry, toggleOffer } from './selection';
 
 @Component({
   selector: 'app-dashboard',
@@ -14,10 +15,10 @@ import { TotalValueRenderer } from './cellRender';
 export class DashboardComponent implements OnInit {
   items?: any;
   noRowsTemplate = '¡Agrega tus productos!';
-  itemsCarre?: any[] = [];
-  itemsDisco?: any[] = [];
-  itemsMami?: any[] = [];
-  itemsHiper?: any[] = [];
+  itemsCarre?: ChainEntry[] = [];
+  itemsDisco?: ChainEntry[] = [];
+  itemsMami?: ChainEntry[] = [];
+  itemsHiper?: ChainEntry[] = [];
   rowDataClicked1 = {};
   public rowSelection: 'single' | 'multiple' = 'multiple';
   // Each Column Definition results in one Column.
@@ -200,43 +201,34 @@ export class DashboardComponent implements OnInit {
     }
   }
 
-  // -- D-1: selecting a canonical row adds EVERY present offer to its own
-  // chain list ({name, price} of that offer); deselecting removes them.
+  // -- D-1/D-10: selecting a canonical row adds EVERY present offer to its own
+  // chain list ({id, name, price} of that offer); deselecting removes them.
+  // The entry identity is the canonical row id, never the offer name: one
+  // chain can show two presentations under the same name (SuperMami stores
+  // every Cañuelas presentation as "ACEITE DE GIRASOL CAÑUELAS X .").
   addItemToList(data: any) {
     const offers = data.offers || {};
+    const rowId: string = data.id;
 
     // -- Carrefour
     if (offers.carre) {
-      this.itemsCarre = this.addRemoveOffer(offers.carre, data.selected, this.itemsCarre);
+      this.itemsCarre = toggleOffer(rowId, offers.carre, data.selected, this.itemsCarre);
       this.totalRow(this.gridApi4, this.itemsCarre);
     }
     // -- Disco
     if (offers.disco) {
-      this.itemsDisco = this.addRemoveOffer(offers.disco, data.selected, this.itemsDisco);
+      this.itemsDisco = toggleOffer(rowId, offers.disco, data.selected, this.itemsDisco);
       this.totalRow(this.gridApi3, this.itemsDisco);
     }
     // -- SuperMami
     if (offers.mami) {
-      this.itemsMami = this.addRemoveOffer(offers.mami, data.selected, this.itemsMami);
+      this.itemsMami = toggleOffer(rowId, offers.mami, data.selected, this.itemsMami);
       this.totalRow(this.gridApi1, this.itemsMami);
     }
     // -- La Anónima
     if (offers.hiper) {
-      this.itemsHiper = this.addRemoveOffer(offers.hiper, data.selected, this.itemsHiper);
+      this.itemsHiper = toggleOffer(rowId, offers.hiper, data.selected, this.itemsHiper);
       this.totalRow(this.gridApi2, this.itemsHiper);
     }
-  }
-  addRemoveOffer(offer: any, selected: any, items: any[] | undefined): any[] {
-    // -- R3-001: never dereference an undefined list; a chain list that was
-    // never initialized starts empty instead of throwing mid-selection.
-    const list = items ?? [];
-    if (selected) {
-      // Se agrega solo si el nombre no está ya en la lista
-      return list.some((item) => item.name === offer.name)
-        ? list
-        : list.concat([{ name: offer.name, price: offer.price }]);
-    }
-    // Se elimina por nombre
-    return list.filter((item) => item.name !== offer.name);
   }
 }
