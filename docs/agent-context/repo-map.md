@@ -346,6 +346,7 @@ code against `pymongo` and is imported by nothing.
 | `api/blueprints/scrapers.py` | `/api/scrapers` control API |
 | `api/blueprints/legacy.py` | registry-generated `/scraping-<slug>` aliases |
 | `api/cli.py` | `python -m api.cli list\|run` — scraper runner without Flask |
+| `api/mongo.py` | `build_client(settings)` — the one `MongoClient` construction site, with the TLS trust store (`certifi` for TLS URIs, `MONGODB_TLS_CA_FILE` override) and `connect=False` |
 | `api/services/matching.py` | `group_products()` — canonical rows: EAN layer, strict-key layer, per-chain offers, counts |
 | `api/services/products.py` | `ProductService.catalog()` — grouping/dedupe/sort/counts; `grouped_catalog()` — the same port through the matching service |
 | `api/services/scraping.py` | `ScraperManager` — runs, stop, status snapshots |

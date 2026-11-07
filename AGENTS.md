@@ -276,6 +276,21 @@ mode) `window.ng.getComponent(el).items` is populated while the DOM stays empty,
 and `ng.applyChanges(component)` renders it. Full record:
 `odd/tasks/angular-21-change-detection.md`.
 
+**T-12 · A python.org Python on macOS has an empty CA trust store, so only
+pymongo-like TLS fails.** `Install Certificates.command` was never run for the
+installed 3.15, so `ssl.get_default_verify_paths()` reports no cafile and
+`/Library/Frameworks/Python.framework/Versions/3.15/etc/openssl/` is empty. Every
+TLS handshake that uses the interpreter defaults then dies with
+`CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate` — Atlas does,
+scraping does not, because `requests` carries its own `certifi` bundle. The app
+no longer depends on the host: `api/mongo.py::build_client` injects
+`tlsCAFile=certifi.where()` for any TLS URI (`mongodb+srv://`, `tls=true`,
+`ssl=true`) and honours `MONGODB_TLS_CA_FILE` when an operator pins a private CA.
+Do not "fix" this by removing the option, disabling verification (`tlsAllowInvalidCertificates`)
+or exporting `SSL_CERT_FILE` in `.env` — the first two reintroduce the bug and
+the third depends on the machine. Full record:
+`odd/tasks/mongodb-tls-trust-store.md`.
+
 ## 8. Testing reality
 
 - Python: a pytest suite lives in `tests/`. Install the dev toolchain and run
@@ -294,7 +309,7 @@ and `ng.applyChanges(component)` renders it. Full record:
   totals and the `es-AR` money format. It needs no Chrome, no karma and no
   network.
 
-Default run: **405 passed, 9 skipped** — the 9 skips are the opt-in MongoDB
+Default run: **423 passed, 9 skipped** — the 9 skips are the opt-in MongoDB
 integration tests.
 
 Consequence: watched behavior is covered by the pytest suite, but **live

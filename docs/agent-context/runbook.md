@@ -81,9 +81,9 @@ database — the Mongo fixtures point at an unroutable URI
 (`mongodb://127.0.0.1:1/…`), so an accidental connection fails fast instead of
 reaching any server. The `flake8` gate used by CI is
 `flake8 . --exclude .venv,adminpro,static,node_modules --select=E9,F63,F7,F82 --count`.
-Settings (`SECRET_KEY`, `MONGODB_URI`, `MONGODB_DB`, `CHROMEDRIVER_PATH`,
-`CHROME_HEADLESS`, `CHROME_BINARY`) are resolved in `api/config.py`
-(`Settings.from_env`);
+Settings (`SECRET_KEY`, `MONGODB_URI`, `MONGODB_DB`, `MONGODB_TLS_CA_FILE`,
+`CHROMEDRIVER_PATH`, `CHROME_HEADLESS`, `CHROME_BINARY`) are resolved in
+`api/config.py` (`Settings.from_env`);
 `app.py` consumes them via `create_app(settings)`.
 
 ## 2. Environment variables
@@ -100,6 +100,7 @@ PORT=3000
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `MONGODB_URI` | `mongodb://localhost:27017/` | read by `Settings.from_env` → `_init_mongo`; the client is always created |
+| `MONGODB_TLS_CA_FILE` | unset → certifi's bundle for any TLS URI (`mongodb+srv://`, `tls=true`, `ssl=true`) | absolute path to the CA bundle used to verify Mongo TLS; set it only to pin a private CA. Needed because a python.org interpreter can have an empty OpenSSL store (`AGENTS.md` §7 T-12, `api/mongo.py`) |
 | `MONGODB_DB` | `lalistitadev` | previously hardcoded and, worse, hardcoded to the wrong name (K-3) |
 | `SECRET_KEY` | `secret!` | legacy default kept; rotating it for real is K-13 |
 | `PORT` | `3000` | `python app.py` reads it in `__main__`; WSGI hosts inject it |
