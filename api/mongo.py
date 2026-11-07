@@ -11,7 +11,10 @@ why scraping worked while the database did not (see
 
 The client therefore owns its bundle: certifi's for any TLS URI, or
 ``MONGODB_TLS_CA_FILE`` when an operator pins a private CA. Host behaviour stops
-mattering: local, Docker and Render verify against the same roots.
+mattering: local, Docker and Render verify against the same roots. A URI that
+names its own bundle (``tlsCAFile``, ``tls_ca_file``, ``ssl_ca_certs``) is left
+alone: injecting a second one would override or shadow the operator's choice, so
+the precedence is URI, then ``MONGODB_TLS_CA_FILE``, then certifi (R3-001).
 
 Keeping one construction site also keeps ``connect=False`` in one place: building
 the client must not open a socket, and the unroutable test URIs rely on it.
@@ -31,15 +34,31 @@ from api.config import Settings
 _TLS_SCHEME = "mongodb+srv"
 _TLS_QUERY_KEYS = ("tls", "ssl")
 _TLS_TRUE = {"true", "1"}
+# -- query spellings pymongo accepts for a CA bundle; a URI carrying one wins
+_CA_QUERY_KEYS = ("tlscafile", "tls_ca_file", "ssl_ca_certs")
+
+
+def _query(uri: str) -> dict[str, list[str]]:
+    """Lower-cased query parameters, so ?TLS=True and ?tls=true agree."""
+    return {key.lower(): values
+            for key, values in parse_qs(urlsplit(uri).query).items()}
+
+
+def uri_tls_ca_file(uri: str) -> str | None:
+    """CA bundle the URI itself names, if any (`tlsCAFile` and its aliases)."""
+    query = _query(uri)
+    for key in _CA_QUERY_KEYS:
+        values = query.get(key)
+        if values and values[-1].strip():
+            return values[-1].strip()
+    return None
 
 
 def uses_tls(uri: str) -> bool:
     """True when `uri` asks the driver for TLS (`+srv`, `tls=true`, `ssl=true`)."""
-    parts = urlsplit(uri)
-    if parts.scheme.lower() == _TLS_SCHEME:
+    if urlsplit(uri).scheme.lower() == _TLS_SCHEME:
         return True
-    # -- keys are matched case-insensitively: ?TLS=True is the same request
-    query = {key.lower(): values for key, values in parse_qs(parts.query).items()}
+    query = _query(uri)
     for key in _TLS_QUERY_KEYS:
         for value in query.get(key, []):
             if value.strip().lower() in _TLS_TRUE:
@@ -50,12 +69,15 @@ def uses_tls(uri: str) -> bool:
 def client_kwargs(settings: Settings) -> dict[str, Any]:
     """Keyword arguments for `MongoClient`, TLS trust included (D-17/D-18).
 
-    A named `MONGODB_TLS_CA_FILE` always wins, even without a TLS URI: an
-    operator who points at a bundle made an explicit decision. Otherwise only a
-    TLS URI gets certifi's bundle, so `mongodb://localhost:27017/` keeps its old
-    wiring untouched.
+    Precedence (R3-001): the URI's own bundle first, then a named
+    `MONGODB_TLS_CA_FILE`, then certifi for a TLS URI. A URI that already pins a
+    bundle gets no injected option at all — pymongo reads the URI's value, so a
+    second one would at best be dead code and at worst shadow the operator's
+    choice. `mongodb://localhost:27017/` keeps its old wiring untouched.
     """
     kwargs: dict[str, Any] = {"connect": False}
+    if uri_tls_ca_file(settings.mongodb_uri):
+        return kwargs
     if settings.mongodb_tls_ca_file:
         kwargs["tlsCAFile"] = settings.mongodb_tls_ca_file
     elif uses_tls(settings.mongodb_uri):

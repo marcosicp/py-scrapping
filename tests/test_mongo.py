@@ -17,7 +17,7 @@ import pytest
 from pymongo import MongoClient
 
 from api.config import Settings
-from api.mongo import build_client, client_kwargs, uses_tls
+from api.mongo import build_client, client_kwargs, uri_tls_ca_file, uses_tls
 
 
 @pytest.mark.parametrize("uri", [
@@ -73,3 +73,36 @@ def test_build_client_returns_a_lazy_client():
     # -- the unroutable host proves nothing connects at build time
     client = build_client(Settings(mongodb_uri="mongodb+srv://u:p@host.invalid/db"))
     assert isinstance(client, MongoClient)
+
+
+@pytest.mark.parametrize("uri", [
+    "mongodb+srv://u:p@host/db?tlsCAFile=/private/private-ca.pem",
+    "mongodb+srv://u:p@host/db?tls_ca_file=/private/private-ca.pem",
+    "mongodb://host:27017/db?ssl_ca_certs=/private/private-ca.pem",
+    "mongodb+srv://u:p@host/db?TLSCAFILE=/private/private-ca.pem",
+])
+def test_uri_tls_ca_file_reads_every_alias(uri):
+    assert uri_tls_ca_file(uri) == "/private/private-ca.pem"
+
+
+def test_uri_tls_ca_file_is_none_without_a_bundle():
+    assert uri_tls_ca_file("mongodb+srv://u:p@host/db") is None
+    assert uri_tls_ca_file("mongodb://localhost:27017/") is None
+
+
+@pytest.mark.parametrize("uri", [
+    "mongodb+srv://u:p@host/db?tlsCAFile=/private/private-ca.pem",
+    "mongodb://host:27017/db?ssl_ca_certs=/private/private-ca.pem",
+])
+def test_a_uri_ca_file_is_never_overridden(uri):
+    # -- R3-001: pymongo reads the URI's bundle, so injecting certifi there is
+    # dead code at best and shadowing the operator's choice at worst
+    assert client_kwargs(Settings(mongodb_uri=uri)) == {"connect": False}
+
+
+def test_a_uri_ca_file_beats_the_environment_setting():
+    settings = Settings(
+        mongodb_uri="mongodb+srv://u:p@host/db?tlsCAFile=/private/private-ca.pem",
+        mongodb_tls_ca_file="/private/etc/other-ca.pem",
+    )
+    assert client_kwargs(settings) == {"connect": False}

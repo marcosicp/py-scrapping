@@ -81,19 +81,46 @@ depend on the host.
       the new seam (`cli.build_client`).
 - [x] T5 — verification, docs sync and native review.
 
-## 4. Verification
+## 5. Review and correction
+
+Native RDD review of the candidate (`c766ac9..HEAD`, 11 files, 314 changed
+lines, tier **medium**, lens `review-reliability`): lineage
+**`review-91305c7dc2fa73cd`**. The reviewer raised one CRITICAL finding and the
+provider refuter upheld it, so the candidate entered one bounded correction.
+
+**`R3-001` (reliability, CRITICAL, `api/mongo.py:58-62`, deterministic, introduced
+by this change).** `client_kwargs` injected `tlsCAFile=certifi.where()`
+unconditionally for TLS URIs, so a `MONGODB_URI` that already names its own
+bundle (`?tlsCAFile=…`, `?ssl_ca_certs=…`) would have that choice overridden or
+shadowed.
+
+Measured while fixing: pymongo *does* read the URI's value — a
+`?tlsCAFile=/private/private-ca.pem` with a certifi keyword still opens
+`/private/private-ca.pem` (`FileNotFoundError` at construction). Injecting a
+second bundle is therefore dead code at best and shadowing at worst, and the
+correction makes the precedence explicit and testable:
+
+**URI's own bundle → `MONGODB_TLS_CA_FILE` → certifi (TLS URIs only) → nothing.**
+
+A URI that pins a bundle now gets **no** injected option; `uri_tls_ca_file()`
+recognises `tlsCAFile`, `tls_ca_file` and `ssl_ca_certs`, case-insensitively.
+D-18's "always wins" is corrected accordingly: the environment setting wins over
+certifi, not over the URI.
+
+## 6. Verification
 
 | Check | Result |
 | --- | --- |
 | `pytest tests/test_mongo.py` before the implementation | **RED** `ModuleNotFoundError: No module named 'api.mongo'` |
-| `pytest` | **423 passed, 9 skipped** in 2.97 s (was 405: +15 `uses_tls`/`client_kwargs` cases, +3 `Settings` cases) |
+| `pytest` after the correction | **431 passed, 9 skipped** in 3.05 s (was 405 before this feature) |
 | flake8 CI gate | 0 |
 | **end-to-end against the real cluster** | `create_app()` + `GET /api/productos/agrupados` → **200**, **15 311** rows, counts `carre 6187 / disco 4720 / hiper 3036 / mami 3251`, 2.6 s — the exact path that raised `ServerSelectionTimeoutError` before |
+| correction size | 108 diff lines (api/mongo.py 31+/9−, tests/test_mongo.py 34+/1−, this document 30+/3−), inside the frozen budget of 157 |
 
 The end-to-end row is the point: it exercises Flask's own wiring, not a probe
 script, against `cluster0.fosxvtw.mongodb.net`.
 
-## 5. Follow-ups
+## 7. Follow-ups
 
 - The owner may still want `Install Certificates.command` for the *rest* of that
   interpreter's TLS (curl-like tools inside Python); the application no longer
