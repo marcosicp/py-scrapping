@@ -154,8 +154,22 @@ filter `aceite girasol cañu`, tick all five rows, and expect
 **Carrefour 4 · Disco 2 · SuperMami 3 · La Anónima 2** entries; untick only
 the 900 ML row and expect SuperMami 2 / La Anónima 1 remaining.
 
+**Native review — lineage `review-cf61d65d3205f0ee`** — candidate
+`main..HEAD` (8 files / 382 changed lines incl. this document), tier
+**medium**, one lens `review-reliability`. START created it directly (no
+consent envelope was returned). The capture forecast one host-relayed model
+run and it ran: **approved**, one advisory WARNING, no correction offered,
+no finding blocked. Authority burned (`gentle-ai.review-acknowledged/v1`,
+revision `sha256:d42f6209…`). The advisory is recorded as a follow-up below;
+delivery (push, PR, merge) stays an owner decision.
+
 ## 7. Follow-ups
 
+- **Review advisory `R3-SELECTION-TEST`** (WARNING, informational,
+  `selection.ts:35-53`): the toggle has no test inside the repository — the
+  Node harness that proved RED→GREEN lives in `/tmp` by design, because
+  `adminpro` has no spec runner that avoids Chrome. Committing a repo-side
+  check would need a documented non-browser TS test entry point.
 - **Carrefour `price = 0.0` on 1 477 documents** (2026-11-07), 1477 of 6187,
   samples: `Vinagre de alcohol San Ignacio botella`, `Aceite de oliva extra
   virgen Malagueña botella`. Produces `$0` list lines and understated totals.
