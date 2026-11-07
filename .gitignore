@@ -58,6 +58,7 @@ instance/
 !package-lock.json
 !angular.json
 !tsconfig.json
+!adminpro/proxy.conf.json
 
 # Angular (frontend)
 adminpro/node_modules/

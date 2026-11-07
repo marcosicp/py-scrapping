@@ -136,6 +136,9 @@ cd adminpro && npm ci && npm run build && cd ..
 # Run (needs .env with MONGODB_URI)
 python app.py                       # http://localhost:3000  (also /scrape)
 
+# Run backend + Angular debug servers together; stop both with Ctrl+C
+./dev.sh                            # Flask :3000, Angular :4200
+
 # Production-shaped entry point — this is what the Docker image runs
 gunicorn --bind 127.0.0.1:8124 --workers 1 main:app
 

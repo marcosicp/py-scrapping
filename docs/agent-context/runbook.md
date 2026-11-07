@@ -119,6 +119,13 @@ source .venv/bin/activate
 python app.py
 ```
 
+To start the backend and Angular dev server together, run `./dev.sh` from the
+repository root. It serves Flask with the interactive debugger at
+<http://localhost:3000> and Angular at <http://localhost:4200>; `/api/**`
+requests from Angular are proxied to Flask. Press Ctrl+C to stop both. The
+backend uses `--no-reload` so stopping the runner also stops it cleanly; restart
+the runner after backend code changes.
+
 Production-shaped, and exactly what the image runs:
 
 ```bash
@@ -156,10 +163,9 @@ npx ng build            # → writes into ../static
 `npm run build` (`ng build`), which resolve to the local CLI correctly once
 `node_modules` exists.
 
-**Dev-server caveat:** `adminpro/src/app/service/app.service.ts:21` hardcodes
-`http://127.0.0.1:3000/supermercados`. There is no `environments/` directory, so
-the API base URL is not configurable. `ng serve` on :4200 therefore depends on
-the Flask backend running on :3000, and relies on the blanket `CORS(app)`.
+The Angular service uses a same-origin `/api/productos/agrupados` URL. The
+development proxy in `adminpro/proxy.conf.json` forwards `/api/**` to Flask on
+port 3000, so the SPA works from :4200 without changing its production API URL.
 
 ### Build consequences — read before running `ng build`
 
