@@ -6,6 +6,8 @@ presentation, D-9 brand rule), the grouped payload shape, per-bucket counts
 and deterministic ordering. Pure tests: no network, no DB, no Chrome.
 """
 
+import hashlib
+
 from api.services.matching import group_products
 
 
@@ -293,3 +295,83 @@ def test_changomas_ignored_out_of_scope():
 def test_empty_input():
     assert group_products([]) == {
         "productos": [], "carre": 0, "disco": 0, "mami": 0, "hiper": 0}
+
+
+# -- Layer 1 / layer 2 reconciliation (D-11, D-12) -------------------------
+#
+# Only Disco and Carrefour persist ``ean`` (seleccion-smart T1), so the same
+# physical product reaches layer 1 through those chains and layer 2 through
+# SuperMami / La Anónima. Without reconciliation it is emitted as two rows and
+# the UI can only fill half of its per-chain lists.
+
+
+def _hashed(key: str) -> str:
+    return hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
+
+
+def test_ean_group_absorbs_the_same_product_without_ean():
+    payload = group_products([
+        _doc(supermercado="carrefour", name="Aceite de girasol Cañuelas",
+             unidad="900 cc", brand="Cañuelas", price=4399,
+             ean="7792180001641"),
+        _doc(supermercado="disco", name="Aceite De Girasol Cañuelas",
+             unidad="900 cc", brand="Cañuelas", price=4700,
+             ean="7792180001641"),
+        _doc(supermercado="supermami", name="ACEITE DE GIRASOL CAÑUELAS X .",
+             unidad="900 ML", brand="CAÑUELAS", price=3269.0),
+        _doc(supermercado="la anónima", name="Aceite de Girasol Cañuelas x .",
+             unidad="900 ML", brand="", price=4500),
+    ])
+    assert len(payload["productos"]) == 1
+    row = payload["productos"][0]
+    # -- D-12: the merged row keeps the EAN identity and label
+    assert row["match"] == "ean"
+    assert row["id"] == _hashed("ean:7792180001641")
+    assert set(row["offers"]) == {"carre", "disco", "mami", "hiper"}
+    assert {chain: offer["price"] for chain, offer in row["offers"].items()} == {
+        "carre": 4399, "disco": 4700, "mami": 3269.0, "hiper": 4500}
+    # -- counts stay consumed-document counts, not row counts
+    assert (payload["carre"], payload["disco"],
+            payload["mami"], payload["hiper"]) == (1, 1, 1, 1)
+
+
+def test_ambiguous_ean_signature_keeps_the_layer2_group_separate():
+    # -- two EAN groups share the canonical signature: the third document has
+    # two candidates and stays on its own row (D-11 fail-open).
+    payload = group_products([
+        _doc(supermercado="carrefour", name="Aceite de girasol Natura 900 cc",
+             unidad="900 cc", brand="Natura", ean="111"),
+        _doc(supermercado="disco", name="Aceite de girasol Natura 900 ml",
+             unidad="900 ml", brand="Natura", ean="222"),
+        _doc(supermercado="supermami", name="ACEITE GIRASOL NATURA X 900",
+             unidad="", brand="NATURA"),
+    ])
+    assert len(payload["productos"]) == 3
+    assert sorted(row["match"] for row in payload["productos"]) == [
+        "solo", "solo", "solo"]
+    assert {frozenset(row["offers"]) for row in payload["productos"]} == {
+        frozenset(["carre"]), frozenset(["disco"]), frozenset(["mami"])}
+
+
+def test_ean_group_with_a_different_presentation_is_not_absorbed():
+    payload = group_products([
+        _doc(supermercado="carrefour", name="Aceite de girasol Natura 900 cc",
+             unidad="900 cc", brand="Natura", ean="111"),
+        _doc(supermercado="supermami", name="ACEITE GIRASOL NATURA X 1500",
+             unidad="1.5 LT", brand="NATURA"),
+    ])
+    assert len(payload["productos"]) == 2
+    assert all(row["match"] == "solo" for row in payload["productos"])
+
+
+def test_loose_layer2_group_never_absorbs_into_a_strict_ean_group():
+    # -- a document without brand or presentation resolution keeps its own
+    # row even when a strict EAN group has the same tokens (D-11).
+    payload = group_products([
+        _doc(supermercado="carrefour", name="Aceite de girasol Natura 900 cc",
+             unidad="900 cc", brand="Natura", ean="111"),
+        _doc(supermercado="hiperlibertad", name="Aceite de girasol natura",
+             unidad="900 cc", brand=""),
+    ])
+    assert len(payload["productos"]) == 2
+    assert all(row["match"] == "solo" for row in payload["productos"])

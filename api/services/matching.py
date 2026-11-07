@@ -211,6 +211,11 @@ def _joins_strict(loose: _Group, strict: _Group) -> bool:
                 and loose.brand != strict.brand)
 
 
+def _signature(group: _Group) -> tuple:
+    """Canonical signature of a group: its layer-2 key parts (D-11)."""
+    return (group.tokens, group.qty, group.family, group.brand)
+
+
 def _layer2_key(group: _Group) -> str:
     """Canonical layer-2 winning key (§3): tokens|quantity|family|brand."""
     tokens, qty, family, brand = group.tokens, group.qty, group.family, group.brand
@@ -304,6 +309,25 @@ def group_products(docs: list[dict]) -> dict:
             if _joins_strict(group, strict_g)]
         if len(candidates) == 1:
             candidates[0].members.extend(group.members)
+            absorbed.add(id(group))
+
+    # -- Layer 1 / layer 2 reconciliation (D-11, D-12): only Disco and
+    # Carrefour persist ``ean`` (seleccion-smart T1), so one physical product
+    # reaches layer 1 through them and layer 2 through the other chains. A key
+    # group whose canonical signature is exactly an EAN group's joins it, but
+    # only when that signature picks exactly one EAN group — anything
+    # ambiguous stays on its own row, the same fail-open bias as D-2. Merged
+    # EAN members come first, so ``_row``'s first-offer-per-chain rule keeps
+    # the EAN-backed document on a chain reached through both layers.
+    eans_by_signature: dict[tuple, list[str]] = defaultdict(list)
+    for ean, group in ean_groups.items():
+        eans_by_signature[_signature(group)].append(ean)
+    for group in key_groups.values():
+        if id(group) in absorbed:
+            continue
+        candidates = eans_by_signature.get(_signature(group), [])
+        if len(candidates) == 1:
+            ean_groups[candidates[0]].members.extend(group.members)
             absorbed.add(id(group))
 
     rows = []
