@@ -7,7 +7,8 @@
     "build": "ng build",
     "build:prod": "ng build --configuration production",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test"
+    "test": "ng test",
+    "verify:selection": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/verify-selection.mjs"
   },
   "private": true,
   "dependencies": {
