@@ -133,6 +133,10 @@ class ScraperDisco(BaseScraper):
                 break
             ctx.report(f"Scrapeando categoria: {categoria}")
             subcategorias = self._discover_subcategories(ctx, categoria)
+            if not subcategorias:
+                ctx.report(f"Sin subcategorías que recorrer en {categoria}; "
+                           f"se continúa con la siguiente")
+                continue
 
             ctx.report(f"Subcategorías encontradas en {categoria}: "
                        f"{len(subcategorias)}")
@@ -180,10 +184,14 @@ class ScraperDisco(BaseScraper):
                                 ) -> list[tuple[str, str, str]]:
         """``(slug, label, search path)`` of the requested category's children.
 
-        Both resolution failures are fatal (R3-002): returning ``[]`` would
-        end the run as a success with zero products, so a renamed or removed
-        site path would look healthy. The empty-node report differs from the
-        missing-node one so the operator can tell them apart.
+        A category MISSING from the tree is fatal (R3-002): returning ``[]``
+        there would end the run as a success with zero products, so a renamed
+        or removed site path would look healthy.
+
+        A category that resolves but has no usable children is reported and
+        returns ``[]``: the caller skips it and keeps walking the remaining
+        categories. Failing the whole run there would be a regression, because
+        one legitimately empty category would block every other one.
         """
         tree = self._fetch_tree(ctx)
 
@@ -206,11 +214,8 @@ class ScraperDisco(BaseScraper):
             subcategories.append((slug, child.get("name") or slug,
                                   f"{categoria}/{slug}"))
         if not subcategories:
-            ctx.report(f"La categoría {categoria} existe en el árbol pero "
-                       f"no tiene subcategorías utilizables")
-            raise RuntimeError(
-                f"the category {categoria} has no usable subcategories in "
-                f"the category tree")
+            ctx.report(f"La categoría {categoria} existe en el árbol pero no "
+                       f"tiene subcategorías utilizables")
         return subcategories
 
     @staticmethod

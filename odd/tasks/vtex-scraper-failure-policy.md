@@ -1,6 +1,6 @@
 # Feature: VTEX scrapers — fatal page failures and fatal discovery
 
-STATUS: DONE — one commit on `main`
+STATUS: DONE — `fea32df` plus the D3 correction below, on `main`
 Owner request: "arreglemos R3-001 y R3-002".
 
 Closes the two follow-ups recorded at the end of
@@ -60,10 +60,20 @@ declared category that cannot be resolved is fatal: report and raise. The
 duplication is the reason the same defect exists three times, and fixing two
 would leave the third silently collecting nothing.
 
-**D3 — A resolved category with no usable children is fatal too.** It has the
-same harm: the run collects nothing for a declared category and reports
-success. Both conditions raise, with different messages so the operator can tell
-a renamed path from an empty node.
+**D3 — A resolved category with no usable children is reported and
+skipped.** — REVISED after review; the original wording made it fatal.
+
+The first version argued that an empty node has "the same harm" as a missing one
+and raised for both. The native review rejected that as scope creep and called
+it CRITICAL: R3-002 only required a **missing** category to fail, the baseline
+skipped an empty one and continued with the remaining categories, and failing
+the whole run means one legitimately empty category blocks every other one — a
+real regression for `carrefour.py`, which declares two categories.
+
+Restored behaviour: the empty node is reported (`Sin subcategorías que recorrer
+en <categoria>; se continúa con la siguiente`) and the loop moves on. Only the
+missing node raises. The lesson is worth keeping: "same class of harm" is not a
+mandate to widen a finding beyond what it asked for.
 
 **D4 — Dead branches are deleted, not left unreachable.** With `_fetch_tree`
 already raising on every failure, `if tree is None: return []` cannot run; with
@@ -88,6 +98,25 @@ class-level shape. Real, unrelated, and left alone.
       discovery, dead branches removed, three pinning tests inverted.
 - [x] T3 — Verification and the doc lines this invalidates.
 
+## Review correction (D3)
+
+`review-e0e9ea2396c6128c` (tier medium, one lens, 7 files / 395 lines) raised one
+CRITICAL, deterministic, introduced finding against this candidate:
+
+> The candidate makes a resolved category with no usable children fatal in all
+> three VTEX scrapers, aborting the whole run. The baseline skipped such a
+> category and continued scraping the remaining categories; R3-002 only required
+> a missing category to fail. One empty category now prevents other categories
+> from being scraped.
+
+Corrected as described in D3. The three tests that pinned the overreach
+(`test_a_tree_node_without_usable_children_fails_the_run`, one per module) are
+inverted to
+`test_a_tree_node_without_usable_children_is_skipped_not_fatal`, which asserts
+the run completes, saves nothing, reports the skip and reaches
+`PROCESO TERMINADO`. A missing category still raises, and each module keeps that
+test.
+
 ## Verification observed
 
 `python -m pytest -q` → **459 passed, 9 skipped** (454 before). flake8 CI gate
@@ -106,6 +135,12 @@ class-level shape. Real, unrelated, and left alone.
 - The parametrised regression test covers network error, non-2xx and invalid
   JSON mid-paging and asserts the run raises, nothing is saved and no
   `PROCESO TERMINADO` is reported.
+
+After the D3 correction: `python -m pytest -q` → **459 passed, 9 skipped**,
+flake8 gate `0`, and the three `_discover_subcategories` bodies are still
+byte-identical (same md5). `grep -c "is not in the category tree"` → 1 in each
+scraper (missing stays fatal); `grep -c "no usable subcategories"` → 0 in each
+(the empty node no longer raises).
 
 Not verified: a live scrape. The failure paths need a real network fault to
 exercise end to end and no test touches the network by design.

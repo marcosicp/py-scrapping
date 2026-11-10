@@ -212,25 +212,25 @@ def test_a_category_missing_from_the_tree_fails_the_run(repository):
     assert not any("PROCESO TERMINADO" in message for message in messages)
 
 
-def test_a_tree_node_without_usable_children_fails_the_run(repository):
-    """'almacen' resolves in the tree but yields no usable children: the
-    run must fail too (R3-002), with a report distinguishable from the
-    missing-node one so the operator can tell an empty node from a renamed
-    path."""
+def test_a_tree_node_without_usable_children_is_skipped_not_fatal(repository):
+    """Baseline behaviour, restored: a category that RESOLVES but has no
+    usable children is reported and skipped. Making it fatal (only a missing
+    category is, R3-002) would let one legitimately empty category block every
+    other one in the same run."""
     tree = json.loads(json.dumps(TREE_JSON))
     for node in tree:
         if node.get("url", "").rstrip("/").endswith("/almacen"):
             node["children"] = []
     session = FakeSession([FakeResponse(200, tree)])
-    ctx, messages = make_ctx(session, repository)
+    ctx, messages = make_ctx(session, repository, category="almacen")
 
-    with pytest.raises(RuntimeError):
-        ScraperCarrefour().run(ctx)
+    ScraperCarrefour().run(ctx)
 
     assert repository.calls == []
     assert session.urls == [TREE_URL]
-    assert any("no tiene subcategorías" in message for message in messages)
-    assert not any("PROCESO TERMINADO" in message for message in messages)
+    assert any("Sin subcategorías que recorrer" in message
+               for message in messages)
+    assert any("PROCESO TERMINADO" in message for message in messages)
 
 
 # -- 2. happy path ----------------------------------------------------------
