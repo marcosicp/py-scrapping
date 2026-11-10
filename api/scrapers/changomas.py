@@ -1,209 +1,270 @@
-"""ChangoMas scraper, ported to the scraper contract (T11) — the K-12 fix.
+"""ChangoMás scraper: the VTEX catalog API (replaces the browser/json-LD path).
 
-A mechanical port of the original browser-driven module (deleted
-in T14): the discovery visit, the section discovery from the
-``categoryList-container__items`` / ``categoryItem`` anchors, the section
-URL prefix, the scroll, the ``vtex-search-result-3-x-totalProducts--layout``
-total read (which the original never uses), the ``gallery-layout-container``
-result read, the empty-results abort, the 2-page-capped page loop, the
-json-LD extraction over the re-fetched discovery page, the substring dedupe
-guard, the per-section name sort and every print are kept verbatim.
+Measured on 2026-11-10: ``masonline.com.ar`` is a VTEX store
+(``x-vtex-renderer: render@8``),
+``/api/catalog_system/pub/products/search/almacen?_from=0&_to=49`` answers 206
+with ``resources: 0-49/4099`` and the full product objects as JSON — almacén
+holds 4099 products. As in Carrefour and Disco, ``_from=2501`` answers 400, so
+a flat paged crawl of almacén could not reach its tail.
 
-**The K-12 fix:** the original implementation ended each section with
-``open('.changomas/almacen/<file>.json', 'w')`` + ``json.dump`` — a silent
-data black hole: ``.changomas/`` is gitignored and nothing ever reaches
-MongoDB or the API. The port persists through the repository instead
-(``ctx.save`` → ``ProductRepository.replace_products``) and clears the
-accumulated list right after saving, exactly like the original cleared after
-writing. ``/supermercados`` still ignores the ``ChangoMas`` group until the
-dashboard gains one — that API half of K-12 stays a separate follow-up.
+The run therefore walks the level-two categories read at run time from
+``/api/catalog_system/pub/category/tree/2`` (200, 19 top-level nodes): the
+nine children of ``almacen`` partition the parent exactly
+(4099 in total, the largest holding 1544 — comfortably below the ceiling), so
+**no price bisection** is needed and each child is crawled flat.
 
-Documented decisions (each commented and tested in
-``tests/test_scraper_changomas.py``):
-
-1. The ``if results.__len__() == 0: return`` abort ends the WHOLE run, kept
-   verbatim: no further sections, no save, no final report.
-2. The page loop re-fetches the DISCOVERY page (not the section page)
-   before parsing the json-LD — the original quirk kept verbatim; fixing it
-   would silently change the collected data.
-3. The never-executed ``arender(sleep=8)`` call is deleted, not replaced: it
-   was never awaited, so it never ran (K-18).
-4. Unexpected errors propagate instead of being swallowed. The original
-   outer ``except Exception`` printed and returned, so a broken run looked
-   successful. The ported run lets them escape — the scraper manager marks
-   the run ``failed`` (the same decision 2 the other ports took). The
-   per-page ``try/except`` (print, continue) is kept.
-
-Plumbing: the original ``async def`` had no ``await`` inside, so it becomes
-a plain sync ``run(ctx)``; progress reports go through ``ctx.report``, page
-fetches through ``ctx.http.get``, waits through ``ctx.sleep``, the stop
-check through ``ctx.should_stop()`` and the driver comes from
-``ctx.browser()``. ``label`` is the accent-free ``"ChangoMas"`` — the same
-ASCII-safe value the original stored under ``supermercado``, matching the
-other ports.
+The previous module drove Chrome against a hardcoded curated cluster
+(``/3454?map=productClusterIds``) and never read ``/almacen`` at all: it
+scraped a different (smaller) catalog and re-fetched the discovery page inside
+its page loop. All of that is gone: no browser is used anywhere, the
+requested-category path and the every-category path are plain GETs, and the
+child list is discovered from the live tree, so a new subcategory is picked up
+without touching this module.
 """
 
 from __future__ import annotations
 
-import json
+from urllib.parse import urlsplit
 
-from bs4 import BeautifulSoup
-
+from api.helpers import name_parse
 from api.scrapers.base import BaseScraper, ScrapeContext
 
-DISCOVERY_URL = "https://www.masonline.com.ar/3454?map=productClusterIds"
+BASE_URL = "https://www.masonline.com.ar"
+TREE_URL = f"{BASE_URL}/api/catalog_system/pub/category/tree/2"
+SEARCH_URL = f"{BASE_URL}/api/catalog_system/pub/products/search"
 
-# The legacy section URL prefix: the visited URL is prefix + <section href
-# after ".ar/">, so the section slug rides in the VTEX ``query`` parameter.
-SECTION_URL_PREFIX = (
-    "https://www.masonline.com.ar/268?initialMap=productClusterIds"
-    "&initialQuery=268&map=category-1,productclusternames"
-    "&query=/desayuno-y-golosinas/mas-online---almacen")
-
-SCROLL_SCRIPT = "window.scrollTo(0, document.body.scrollHeight/2);"
+PAGE_SIZE = 50
+PAGE_SLEEP_SECONDS = 1
 
 
-def _selenium_waits():
-    """Import Selenium lazily so the module imports without it (tests swap
-    this helper out for fakes; the driver itself arrives from ctx.browser())."""
-    from selenium.webdriver.common.by import By
-    from selenium.webdriver.support import expected_conditions as EC
-    from selenium.webdriver.support.ui import WebDriverWait
-    return WebDriverWait, EC, By
+def _path_of(url: str) -> str:
+    """The URL path without its trailing slash, e.g. ``/almacen/snacks``."""
+    return urlsplit(url or "").path.rstrip("/")
+
+
+def _slug_of(url: str) -> str:
+    """The last path segment of a category URL, e.g. ``snacks``."""
+    return _path_of(url).rsplit("/", 1)[-1]
 
 
 class ScraperChangoMas(BaseScraper):
-    """Scrapes ChangoMas's almacen sections through a Chrome driver + json-LD.
-
-    ``categories`` is empty: the legacy route's ``categoria`` parameter was
-    never used, so any category value is accepted and ignored (the same
-    treatment SuperMami got).
-    """
+    """Scrapes ChangoMás's categories through the VTEX catalog API."""
 
     slug = "changomas"
     label = "ChangoMas"
-    categories = ()
+    categories = ("almacen",)
+
+    def __init__(self) -> None:
+        # -- the tree cache is per-instance, never a class attribute: a
+        # -- class-level cache survives across runs in one process.
+        self._tree = None
 
     def run(self, ctx: ScrapeContext) -> None:
         # A stop requested before the run touches the network keeps it inert
-        # (the shared pre-cancelled contract guard; the legacy built the
-        # driver first and only stopped inside the page loop).
+        # (the shared pre-cancelled contract guard).
         if ctx.should_stop():
             return
-        # No legacy outer try/except here (decision 4): unexpected errors
-        # propagate so the manager marks the run failed instead of letting
-        # a broken run look successful.
-        WebDriverWait, EC, By = _selenium_waits()
-        jsondata = []
-        secciones_ = []
-        with ctx.browser() as driver:
-            driver.maximize_window()
-            driver.implicitly_wait(50)
-            ctx.report("Inicio scrap")
+        # -- Fetched once per run: reset so a reused instance starts clean.
+        self._tree = None
 
-            driver.get(DISCOVERY_URL)
-            ctx.sleep(5)
-            seccionesReq = WebDriverWait(driver, 15).until(
-                EC.visibility_of_all_elements_located(
-                    (By.CLASS_NAME, "categoryList-container__items")))
+        category = self.validate_category(ctx.category)
+        categories = (category,) if category is not None else self.categories
 
-            secciones = seccionesReq[0].find_elements(
-                By.CLASS_NAME, "categoryItem")
+        for categoria in categories:
+            if ctx.should_stop():
+                break
+            ctx.report(f"Scrapeando categoria: {categoria}")
+            subcategorias = self._discover_subcategories(ctx, categoria)
+            if not subcategorias:
+                ctx.report(f"No se encontraron subcategorías de {categoria} "
+                           f"en el árbol de categorías")
+                continue
 
-            for seccion in secciones:
-                href_ = seccion.get_attribute('href').split(".ar/")[1]
-                secciones_.append(href_)
+            ctx.report(f"Subcategorías encontradas en {categoria}: "
+                       f"{len(subcategorias)}")
+            for slug, label, path in subcategorias:
+                if ctx.should_stop():
+                    break
+                ctx.report(f"Subcategoría: {label}")
+                documents = self._scrape_subcategory(ctx, categoria, slug, path)
+                if documents:
+                    ctx.save(documents, categoria=categoria,
+                             subcategoria=slug)
 
-            print("secciones " + str(secciones.__len__()))
+        ctx.report("PROCESO DETENIDO" if ctx.should_stop()
+                   else "PROCESO TERMINADO")
 
-            for seccion in secciones_:
-                # SCRAP DE SECCION
-                driver.get(SECTION_URL_PREFIX + seccion)
-                driver.execute_script(SCROLL_SCRIPT)
-                ctx.sleep(5)
+    # -- category tree -------------------------------------------------------
 
-                # LEO EL TOTAL DE LA SECCION (the legacy reads it and never
-                # uses it — quirk kept verbatim).
-                total = int(driver.find_element(
-                    By.CLASS_NAME,
-                    "vtex-search-result-3-x-totalProducts--layout"
-                ).text.split(" ")[0])
+    def _fetch_tree(self, ctx: ScrapeContext):
+        """The catalog tree, fetched at most once per run.
 
-                todos = WebDriverWait(driver, 15).until(
-                    EC.visibility_of_all_elements_located(
-                        (By.ID, "gallery-layout-container")))
-                results = todos[0].find_elements(By.XPATH, "*")
+        A discovery outage is fatal on purpose (R3-001, same reasoning as the
+        other VTEX scrapers): reporting it as "no subcategories" would end the
+        run as a success with zero products and leave a stale slice in the
+        database.
+        """
+        if self._tree is not None:
+            return self._tree
+        try:
+            response = ctx.http.get(TREE_URL, timeout=30)
+        except Exception as exc:
+            ctx.report(f"Error de red al leer el árbol de categorías: {exc}")
+            raise
+        if response.status_code != 200:
+            ctx.report(f"Error {response.status_code} al leer el árbol de "
+                       f"categorías")
+            raise RuntimeError(
+                f"the category tree answered {response.status_code}")
+        try:
+            self._tree = response.json()
+        except Exception as exc:
+            ctx.report(f"Árbol de categorías inválido: {exc}")
+            raise RuntimeError("the category tree is not valid JSON") from exc
+        return self._tree
 
-                # Legacy abort kept verbatim: an empty first result read ends
-                # the WHOLE run — no further sections, no save, no report.
-                if (results.__len__() == 0):
-                    return
+    def _discover_subcategories(self, ctx: ScrapeContext, categoria: str
+                                ) -> list[tuple[str, str, str]]:
+        """``(slug, label, search path)`` of the requested category's children."""
+        tree = self._fetch_tree(ctx)
+        if tree is None:
+            return []
 
-                for i in range(2, 3):
-                    if ctx.should_stop():
-                        break
+        node = self._category_node(tree, categoria)
+        if node is None:
+            return []
 
-                    try:
-                        print('scraping data from ChangoMas - ' +
-                              seccion + ' pagina: ' + str(i))
-                        # Legacy quirk kept verbatim (decision 2): the page
-                        # loop re-fetches the DISCOVERY page, not the section
-                        # page, before parsing the json-LD.
-                        url = DISCOVERY_URL  # -- set url
-                        response = ctx.http.get(url)
-                        # -- get data and parse
-                        soup = BeautifulSoup(response.text, 'html.parser')
+        subcategories: list[tuple[str, str, str]] = []
+        seen: set[str] = set()
+        for child in node.get("children") or []:
+            if not isinstance(child, dict):
+                continue
+            slug = _slug_of(child.get("url") or "")
+            if not slug or slug in seen:
+                continue
+            seen.add(slug)
+            subcategories.append((slug, child.get("name") or slug,
+                                  f"{categoria}/{slug}"))
+        return subcategories
 
-                        anchors = soup.find_all(
-                            'div', class_='flex flex-column min-vh-100 w-100')
-                        if (len(anchors) > 0):
-                            if (anchors[0].next.name != 'script'):
-                                flag = False
-                                break
-                            # for a in anchors:
-                            item = anchors[0].next.contents[0]
-                            jsonitem = json.loads(item)
+    @staticmethod
+    def _category_node(nodes, categoria: str):
+        """The tree node whose path is exactly ``/<categoria>``, or None."""
+        expected = f"/{categoria}"
+        for node in nodes or []:
+            if not isinstance(node, dict):
+                continue
+            if _path_of(node.get("url") or "") == expected:
+                return node
+            found = ScraperChangoMas._category_node(node.get("children"),
+                                                    categoria)
+            if found is not None:
+                return found
+        return None
 
-                            for jsonitemi in jsonitem["itemListElement"]:
-                                try:
-                                    if ("name" in jsonitemi["item"]):
-                                        jsonitea = {
-                                            "supermercado": "ChangoMas",
-                                            "name":
-                                                jsonitemi["item"]["name"],
-                                            "price":
-                                                jsonitemi["item"]["offers"][
-                                                    "lowPrice"]}
-                                        if not any(
-                                                element['name'] in
-                                                jsonitea['name']
-                                                for element in jsondata):
-                                            print('Chirp')
-                                            jsondata.append(jsonitea)
-                                        attempt = 0
-                                except Exception:
-                                    print("Oops!  That was no valid number."
-                                          "  Try again...")
-                                    continue
-                        else:
-                            continue
+    # -- collection ----------------------------------------------------------
 
-                    except Exception:
-                        continue
+    def _scrape_subcategory(self, ctx: ScrapeContext, categoria: str,
+                            subcategoria: str, path: str) -> list[dict]:
+        """Every product of one level-two category, paged by ``resources``."""
+        documents: list[dict] = []
+        seen: set[str] = set()
+        start = 0
 
-                # The K-12 fix: the legacy dumped
-                # ``.changomas/almacen/<fileName>.json`` here and cleared the
-                # list after writing; the port persists through the
-                # repository (clearing after saving is the faithful
-                # equivalent) and nothing touches the filesystem.
-                jsondata.sort(key=lambda x: x["name"])
-                fileName = seccion.split("/")[1]
-                ctx.save(jsondata, categoria="almacen",
-                         subcategoria=fileName)
-                jsondata.clear()
+        while not ctx.should_stop():
+            url = (f"{SEARCH_URL}/{path}"
+                   f"?_from={start}&_to={start + PAGE_SIZE - 1}")
+            try:
+                response = ctx.http.get(url, timeout=30)
+            except Exception as exc:
+                ctx.report(f"Error de red en {subcategoria}: {exc}")
+                break
+            if response.status_code not in (200, 206):
+                ctx.report(f"Error {response.status_code} en {subcategoria}")
+                break
 
-            ctx.report("PROCESO TERMINADO CON " +
-                       str(jsondata.__len__()) + " productos")
+            try:
+                items = response.json() or []
+            except Exception as exc:
+                ctx.report(f"Respuesta inválida en {subcategoria}: {exc}")
+                break
+            if not items:
+                break
 
-            print("Proceso changomas termino OK, con " +
-                  str(jsondata.__len__()) + " productos")
+            for item in items:
+                document = self._to_document(item)
+                if document is None:
+                    continue
+                identity = document["sku"] or document["name"]
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                documents.append(document)
+
+            start += PAGE_SIZE
+            total = self._total_from(response)
+            if total is not None and start >= total:
+                break
+            if ctx.sleep(PAGE_SLEEP_SECONDS):
+                break
+
+        return documents
+
+    @staticmethod
+    def _total_from(response) -> int | None:
+        """The catalog total from the ``resources: from-to/total`` header."""
+        headers = getattr(response, "headers", None)
+        if headers is None:
+            return None
+        raw = None
+        if hasattr(headers, "get"):
+            raw = headers.get("resources") or headers.get("Resources")
+        if not raw:
+            return None
+        try:
+            return int(str(raw).rsplit("/", 1)[-1])
+        except (TypeError, ValueError):
+            return None
+
+    def _to_document(self, item: dict) -> dict | None:
+        """One stored product document, or None when it has no name."""
+        name = item.get("productName")
+        if not isinstance(name, str) or not name.strip():
+            return None
+
+        parsed = name_parse(name)
+        return {
+            "supermercado": self.label,
+            "name": parsed["name"],
+            "unidad": parsed["unidad"],
+            "brand": item.get("brand") or "",
+            # VTEX search results carry no ``sku`` key; the product id is the
+            # stable identity and the one embedded in the product URL.
+            "sku": str(item.get("productId") or ""),
+            "price": self._price_of(item),
+            # The item's EAN barcode as a string, "" when absent or null.
+            "ean": self._ean_of(item),
+        }
+
+    @staticmethod
+    def _price_of(item: dict):
+        """``items[0].sellers[0].commertialOffer.Price``, or 0 when absent."""
+        items = item.get("items") or []
+        if not items or not isinstance(items[0], dict):
+            return 0
+        sellers = items[0].get("sellers") or []
+        if not sellers or not isinstance(sellers[0], dict):
+            return 0
+        offer = sellers[0].get("commertialOffer") or {}
+        price = offer.get("Price") if isinstance(offer, dict) else None
+        if isinstance(price, bool) or not isinstance(price, (int, float)):
+            return 0
+        return price
+
+    @staticmethod
+    def _ean_of(item: dict) -> str:
+        """``items[0].ean`` as a string, or "" when absent or null."""
+        items = item.get("items") or []
+        ean = items[0].get("ean") if items and isinstance(items[0], dict) \
+            else None
+        return str(ean) if ean else ""
