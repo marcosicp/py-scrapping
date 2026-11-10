@@ -367,7 +367,7 @@ def test_a_tree_node_without_usable_children_is_skipped_not_fatal():
 
     assert session.urls == [TREE_URL]
     assert repository.calls == []
-    assert any("Sin subcategorías que recorrer" in message
+    assert any("No se encontraron subcategorías" in message
                for message in messages)
     assert any("PROCESO TERMINADO" in message for message in messages)
 

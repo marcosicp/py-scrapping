@@ -117,6 +117,26 @@ the run completes, saves nothing, reports the skip and reaches
 `PROCESO TERMINADO`. A missing category still raises, and each module keeps that
 test.
 
+## Correction after the second review (R3-1)
+
+The fresh lineage for the D3 correction
+(`review-6a71a145c39d12a1`) raised one CRITICAL, deterministic, introduced
+finding — again about overreach, this time in operator-facing output:
+
+> The empty-category path changes the existing user-visible message from the
+> baseline `No se encontraron subcategorías de ...` to `Sin subcategorías que
+> recorrer ...` and also adds a new `La categoría ... existe ...` report in
+> `_discover_subcategories`; R3-002 only required a missing category to fail,
+> so these output changes are unrequested.
+
+Corrected: both messages are back to the baseline wording, and the helper no
+longer reports anything on the empty-node path — the caller owns that report,
+exactly as before. The missing-node raise stays.
+
+The same lesson as D3, one level down: **a finding licenses the smallest change
+that closes it, not a rewrite of the surrounding prose.** Inventing better
+messages was not asked for and is a real cost for anyone reading logs.
+
 ## Verification observed
 
 `python -m pytest -q` → **459 passed, 9 skipped** (454 before). flake8 CI gate
@@ -135,6 +155,10 @@ test.
 - The parametrised regression test covers network error, non-2xx and invalid
   JSON mid-paging and asserts the run raises, nothing is saved and no
   `PROCESO TERMINADO` is reported.
+
+After the R3-1 correction: baseline wording present once per scraper, the
+invented strings gone (`grep -c` → 0 in each), the missing-node raise intact,
+and the three helpers still byte-identical (same md5).
 
 After the D3 correction: `python -m pytest -q` → **459 passed, 9 skipped**,
 flake8 gate `0`, and the three `_discover_subcategories` bodies are still

@@ -76,8 +76,8 @@ class ScraperChangoMas(BaseScraper):
             ctx.report(f"Scrapeando categoria: {categoria}")
             subcategorias = self._discover_subcategories(ctx, categoria)
             if not subcategorias:
-                ctx.report(f"Sin subcategorías que recorrer en {categoria}; "
-                           f"se continúa con la siguiente")
+                ctx.report(f"No se encontraron subcategorías de {categoria} "
+                           f"en el árbol de categorías")
                 continue
 
             ctx.report(f"Subcategorías encontradas en {categoria}: "
@@ -131,10 +131,11 @@ class ScraperChangoMas(BaseScraper):
         there would end the run as a success with zero products, so a renamed
         or removed site path would look healthy.
 
-        A category that resolves but has no usable children is reported and
-        returns ``[]``: the caller skips it and keeps walking the remaining
-        categories. Failing the whole run there would be a regression, because
-        one legitimately empty category would block every other one.
+        A category that resolves but has no usable children returns ``[]``
+        silently: the caller reports it with the wording it always used and
+        keeps walking the remaining categories. Failing the whole run there
+        would be a regression, because one legitimately empty category would
+        block every other one.
         """
         tree = self._fetch_tree(ctx)
 
@@ -156,9 +157,6 @@ class ScraperChangoMas(BaseScraper):
             seen.add(slug)
             subcategories.append((slug, child.get("name") or slug,
                                   f"{categoria}/{slug}"))
-        if not subcategories:
-            ctx.report(f"La categoría {categoria} existe en el árbol pero no "
-                       f"tiene subcategorías utilizables")
         return subcategories
 
     @staticmethod
