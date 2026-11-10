@@ -36,6 +36,7 @@ def supermercados():
             'disco': 0,
             'mami': 0,
             'hiper': 0,
+            'chang': 0,
             'error': _DATABASE_ERROR,
         })
     except Exception:
@@ -49,6 +50,7 @@ def supermercados():
             'disco': 0,
             'mami': 0,
             'hiper': 0,
+            'chang': 0,
             'error': _UNEXPECTED_ERROR,
         })
 
@@ -66,6 +68,7 @@ def productos_agrupados():
             'disco': 0,
             'mami': 0,
             'hiper': 0,
+            'chang': 0,
             'error': _DATABASE_ERROR,
         })
     except Exception:
@@ -79,5 +82,6 @@ def productos_agrupados():
             'disco': 0,
             'mami': 0,
             'hiper': 0,
+            'chang': 0,
             'error': _UNEXPECTED_ERROR,
         })

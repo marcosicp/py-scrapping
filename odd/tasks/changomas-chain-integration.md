@@ -101,7 +101,7 @@ the other four blocks show logos.
 
 - [x] T1 — Rewrite `api/scrapers/changomas.py` on the VTEX catalog API and
       rewrite `tests/test_scraper_changomas.py` against it.
-- [ ] T2 — Surface the `chang` bucket: `api/services/matching.py`,
+- [x] T2 — Surface the `chang` bucket: `api/services/matching.py`,
       `api/services/products.py`, `api/blueprints/products.py`, and invert the
       tests that pin ChangoMás as ignored.
 - [ ] T3 — Dashboard: `offers.chang` column, `itemsChang`/`totalChang`, toggle
@@ -125,6 +125,16 @@ path and the product payload — answered 206 with
 `brand "Blancaflor"`, `ean "7790070562180"`, `Price 2349.0`. The child path
 `/products/search/almacen/harinas` is real, and the document shape matches
 Carrefour's `_to_document` field for field.
+
+**T2** — `python -m pytest -q` → `451 passed, 9 skipped`. flake8 gate → `0`.
+Independently re-read after the writer reported: `_PAYLOAD_KEYS` carries
+`chang`, `_BUCKET_ORDER` keeps `carre`0 / `disco`1 / `mami`2 / `hiper`3 and
+appends `chang`4, `_bucket()` matches both spellings, `catalog()` concatenates
+`supermami + carrefour + hiperlibertad + disco + changomas`, and all four
+`api/blueprints/products.py` fallbacks carry `'chang': 0` (`grep -c` → 4).
+The pin that asserted the opposite (`test_changomas_ignored_out_of_scope`) is
+replaced by `test_changomas_documents_get_their_own_chang_bucket`, and the
+spellings `ChangoMas` / `ChangoMás` / `CHANGOMAS` are covered in both layers.
 
 ## Follow-ups
 

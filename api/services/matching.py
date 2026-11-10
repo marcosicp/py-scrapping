@@ -15,8 +15,8 @@ and query-time (no new dependencies, D-5):
   today's behavior.
 
 The bucket mapping mirrors ``ProductService.catalog()``'s substring
-convention and its four payload keys; ChangoMás documents are ignored
-altogether (D-3 — persisted but not shown in the UI).
+convention and its five payload keys; documents from an unknown chain are
+ignored altogether (D-3).
 
 The service is pure: it consults no repository and touches no database.
 """
@@ -30,9 +30,10 @@ from collections import defaultdict
 from typing import Any
 
 # -- Payload keys, in catalog() order; Angular reads them as-is
-_PAYLOAD_KEYS = ("carre", "disco", "mami", "hiper")
-# -- Display tie-break contract (catalog() concatenation order)
-_BUCKET_ORDER = {"carre": 0, "disco": 1, "mami": 2, "hiper": 3}
+_PAYLOAD_KEYS = ("carre", "disco", "mami", "hiper", "chang")
+# -- Display tie-break contract (catalog() concatenation order); chang is
+# appended last on purpose so no existing tie-break moves.
+_BUCKET_ORDER = {"carre": 0, "disco": 1, "mami": 2, "hiper": 3, "chang": 4}
 
 # -- Layer-2 Spanish stopwords excluded from the name token-set
 _STOPWORDS = frozenset(
@@ -70,7 +71,9 @@ def _bucket(supermercado: str) -> str | None:
     """Chain bucket for a document, or None when it must be ignored.
 
     Mirrors ``ProductService.catalog()``'s substring mapping (same elif
-    order, first match wins; the ``hiper`` bucket carries La Anónima too).
+    order, first match wins; the ``hiper`` bucket carries La Anónima too,
+    the ``chang`` bucket carries ChangoMás in both spellings:
+    ``changomas`` and the accented ``changomás``).
     Deliberately duplicated here so matching does not import the catalog
     service and its repository port.
     """
@@ -84,6 +87,10 @@ def _bucket(supermercado: str) -> str | None:
         return "hiper"
     if "supermami" in s or "mami" in s:
         return "mami"
+    # -- no existing key is a substring of "changomas", so this branch
+    # cannot shadow the ones above
+    if "changomas" in s or "changomás" in s:
+        return "chang"
     return None
 
 
@@ -231,7 +238,7 @@ def _match_label(member_count: int, kind: str) -> str:
 
 def _display_name_offer(members: list[_Doc]) -> _Doc:
     """Offer with the most information: brand+unidad beats either alone
-    beats neither; ties go to bucket order carre→disco→mami→hiper."""
+    beats neither; ties go to bucket order carre→disco→mami→hiper→chang."""
     best = members[0]
     best_rank = (-_score(best), _BUCKET_ORDER[best.bucket])
     for doc in members[1:]:
@@ -274,7 +281,7 @@ def group_products(docs: list[dict]) -> dict:
     key counts as absent). Returns the §3 payload: one row per canonical
     product with the winning-key id like ``sha1[:16]`` of ``ean:<ean>`` or
     ``key:<tokens>|<qty>|<family>|<brand>``, per-chain offers, and one
-    consumed-document count per chain bucket (D-3: ChangoMás ignored).
+    consumed-document count per chain bucket (D-3: unknown origins ignored).
     """
     counts = dict.fromkeys(_PAYLOAD_KEYS, 0)
     ean_groups: dict[str, _Group] = {}
@@ -285,7 +292,7 @@ def group_products(docs: list[dict]) -> dict:
             continue
         item = _Doc(doc)
         if item.bucket is None:
-            continue  # ChangoMás or unknown origin (D-3)
+            continue  # unknown origin (D-3)
         counts[item.bucket] += 1
         ean = str(doc.get("ean", "") or "").strip()
         if ean:

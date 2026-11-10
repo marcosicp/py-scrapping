@@ -16,6 +16,7 @@ EMPTY_FALLBACK = {
     "disco": 0,
     "mami": 0,
     "hiper": 0,
+    "chang": 0,
 }
 
 # Non-database failures must never be reported as a database outage.
