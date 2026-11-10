@@ -106,7 +106,7 @@ the other four blocks show logos.
       tests that pin ChangoMás as ignored.
 - [x] T3 — Dashboard: `offers.chang` column, `itemsChang`/`totalChang`, toggle
       branch, fifth list panel, fifth header block (text), `col` layout.
-- [ ] T4 — Verification (`pytest`, `verify:selection`, flake8) and the
+- [x] T4 — Verification (`pytest`, `verify:selection`, flake8) and the
       `AGENTS.md` corrections for the two statements this invalidates.
 
 ## Verification observed
@@ -147,6 +147,33 @@ text block with a `badge-success` count — no image, no new asset, per D8.
 
 Not verified here: the rendered page. Per AGENTS.md §8 an agent session never
 opens a browser in this repo, so the visual check is the owner's.
+
+**T4** — Final state of every gate:
+
+| Gate | Command | Result |
+| --- | --- | --- |
+| Backend suite | `pytest -q` | `451 passed, 9 skipped` |
+| CI lint gate | `flake8 . --exclude .venv,adminpro,static,node_modules --select=E9,F63,F7,F82 --count` | `0` |
+| Angular logic | `cd adminpro && npm run verify:selection` | `selection logic OK (19 checks)` |
+| Angular types | `cd adminpro && npx tsc -p tsconfig.app.json --noEmit` | exit 0 |
+
+Documentation the feature invalidated, all corrected:
+
+- `AGENTS.md` §4 test count, §6 ChangoMás quirk (was: "re-fetches the discovery
+  page in its page loop"), §8 test count.
+- `docs/agent-context/known-issues.md` — the K-12 index row and the K-12
+  section are now `fixed`; the "substring dedupe in the remaining mechanical
+  port" bullet no longer names a guard that does not exist.
+- `docs/agent-context/repo-map.md` — the `changomas.py` row of the scraper
+  table, the `/supermercados` payload example (`chang`), the grouping
+  paragraph, the "quirks kept verbatim" bullet and the duplicate-suppression
+  bullet.
+- `docs/agent-context/runbook.md` — three stale `405 passed` statements.
+- `README.md` — the ChangoMás row said "Selenium".
+
+A `grep` for `selenium|json-ld|discovery page|half open|no branch|substring-based`
+next to any ChangoMás mention over `AGENTS.md`, `README.md` and
+`docs/agent-context/` now returns nothing.
 
 ## Follow-ups
 

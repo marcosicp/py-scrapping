@@ -30,7 +30,7 @@ Entry point for agents: [`AGENTS.md`](../../AGENTS.md).
 | [K-9](#k-9) | Medium | API | **fixed** — all runs go through `ScraperManager` threads (`7ff8ff2` + ports) |
 | [K-10](#k-10) | Medium | API | **fixed** — stop returns 202 with a status snapshot (`7ff8ff2`) |
 | [K-11](#k-11) | Medium | API | **fixed** — dead `/supermercado-*` routes deleted (`30b20cb`) |
-| [K-12](#k-12) | Medium | Data | **partially fixed** — ChangoMás persists (`9d9248d`); `/supermercados` + dashboard still ignore the group |
+| [K-12](#k-12) | Medium | Data | **fixed** — ChangoMás persists and now surfaces as the `chang` bucket |
 | [K-13](#k-13) | Medium | Security | open — unauthenticated scraper control + wide-open CORS |
 | [K-14](#k-14) | Medium | Tooling | **fixed** — venv provisioned on Python 3.15.x |
 | [K-15](#k-15) | Medium | Tooling | open — global Angular CLI too old |
@@ -278,15 +278,26 @@ ignored the parsed data entirely by returning `static/index.html`.
 
 ## <a id="k-12"></a>K-12 · ChangoMás writes only to local JSON files
 
-**Status: partially fixed** (`9d9248d`). The scraper is ported
-(`api/scrapers/changomas.py`) and persists through `ctx.save` →
-`ProductRepository.replace_products` instead of dumping
-`.changomas/almacen/<file>.json` (code gone).
+**Status: fixed** (`9d9248d`, then `3768ddd` + `0aab7d7` + `f98d142` on
+`feat/changomas-vtex-chain`).
 
-**Still open (API half):** `/supermercados` has no `changomas` branch — the
-grouping in `api/services/products.py:36-43` matches only `disco`, `carrefour`,
-`hiper*` and `mami*`, so ChangoMás products never appear in the payload or in
-the dashboard counts.
+Two independent halves, both closed:
+
+1. **Persistence** (`9d9248d`): the scraper is ported to the contract
+   (`api/scrapers/changomas.py`) and persists through `ctx.save` →
+   `ProductRepository.replace_products` instead of dumping
+   `.changomas/almacen/<file>.json` (code gone).
+2. **Surface** (`0aab7d7`): `matching._bucket()` and
+   `api/services/products.py::catalog()` gained the fifth chain bucket,
+   `chang` — matching `changomas` and the accented `changomás` — and the
+   dashboard carries the column, the list panel and the header block.
+   `_PAYLOAD_KEYS` / `_BUCKET_ORDER` and the `catalog()` concatenation append
+   it last so the existing four-chain tie-break order stays byte-identical.
+
+`3768ddd` additionally replaced the collection path: the ported scraper still
+drove Chrome against a curated `productClusterIds` cluster and never read
+`/almacen`. It now reads the VTEX catalog API and walks the nine children of
+`almacen` (4099 products), with no browser at all.
 
 Original symptom, retained for searchability:
 
@@ -297,9 +308,6 @@ branch.
 **Impact:** ChangoMás appeared in the README, the UI and the route table but its
 data was never queryable. `.changomas/` is gitignored, so the data was also
 ephemeral.
-
-**Remaining fix direction:** add a `changomas` group + count in
-`api/services/products.py` and the dashboard, then update the README table.
 
 ## <a id="k-13"></a>K-13 · Anyone can start a scrape; CORS is wide open
 
@@ -497,10 +505,11 @@ through the `hiper` payload key the dashboard already renders.
   (measured in a real Carrefour run, 6187 documents, 2026-11-04). **Fixed**: the
   quantity pattern now accepts `\d+(?:[.,]\d+)?` and the removal escapes the
   match, so `1.5 lts` / `1,5 lts` survive whole. `tests/test_helpers.py` pins it.
-- Duplicate suppression is substring-based in the remaining mechanical port
-  (e.g. `api/scrapers/changomas.py:178`), which drops legitimately distinct
-  products whose names contain another product's name. `laanonima.py` (art id)
-  and `carrefour.py` + `disco.py` (`productId`) dedupe by identity instead.
+- Duplicate suppression is identity-based everywhere now: `laanonima.py` (art
+  id), `carrefour.py` + `disco.py` + `changomas.py` (`productId`) and
+  `supermami.py` (`item_id`). The ChangoMás substring guard that this bullet
+  used to name was dropped when the scraper moved to the VTEX catalog API, so
+  products whose names contain another product's name are no longer lost.
 - **VTEX search-API limits (measured 2026-11-05 for Disco, reusable for the
   next VTEX scraper):** `/api/catalog_system/pub/products/search` accepts only
   offset windows that end at item 2549 — `_from=2500&_to=2549` answers 206,

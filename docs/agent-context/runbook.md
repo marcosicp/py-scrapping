@@ -30,7 +30,7 @@ file. The scrapers that open a browser need a working local Chrome.
 | Global `ng` | Angular CLI 14.x, `Node ... (Unsupported)` | ⛔ too old for Angular 21 — use the local CLI |
 | ChromeDriver | resolved by Selenium Manager (bundled with selenium); `CHROMEDRIVER_PATH` overrides | ✅ no pinned path locally — `render.yaml` pins `/usr/bin/chromedriver` in the container |
 | `.env` | absent (gitignored) | ⛔ `MONGODB_URI` must be provided |
-| Tests | pytest suite in `tests/` (405 passed / 9 skipped by default) | ✅ |
+| Tests | pytest suite in `tests/` (451 passed / 9 skipped by default) | ✅ |
 
 ## 1. Backend: the virtualenv
 
@@ -75,7 +75,7 @@ MONGODB_TEST_URI=mongodb://localhost:27017/ .venv/bin/python -m pytest tests/tes
 ```
 
 ✅ VERIFIED: `pytest` collects the suite in `tests/` and exits 0 —
-**405 passed, 9 skipped** by default. The 9 skips are the opt-in MongoDB
+**451 passed, 9 skipped** by default. The 9 skips are the opt-in MongoDB
 integration tests below. No default test touches the network, Chrome or a real
 database — the Mongo fixtures point at an unroutable URI
 (`mongodb://127.0.0.1:1/…`), so an accidental connection fails fast instead of
@@ -291,7 +291,7 @@ pointed at.
 2. `flake8 . --select=E9,F63,F7,F82` (real gate) then a `--exit-zero` style pass
 3. `pytest`
 
-✅ The suite is green: 405 passed, 9 skipped (the opt-in MongoDB integration
+✅ The suite is green: 451 passed, 9 skipped (the opt-in MongoDB integration
 tests) on this checkout. The first green run on GitHub Actions was not observed
 here (K-6).
 

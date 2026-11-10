@@ -18,7 +18,7 @@ por producto canónico y un dashboard Angular 21 los muestra.
 |---|---|---|
 | Disco | `disco` | API de catálogo VTEX |
 | Carrefour | `carrefour` | API de catálogo VTEX |
-| ChangoMás | `changomas` | Selenium |
+| ChangoMás | `changomas` | API de catálogo VTEX |
 | La Anónima | `laanonima` | HTTP + JSON-LD |
 | SuperMami | `supermami` | HTTP + Oracle Endeca |
 

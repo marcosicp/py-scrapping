@@ -159,14 +159,16 @@ There is no auth, no pagination, no filtering, and no write API other than
   "carre":  0,
   "disco":  0,
   "mami":   0,
-  "hiper":  0
+  "hiper":  0,
+  "chang":  0
 }
 ```
 
 Grouping is substring matching on the lowercase `supermercado` field
 (`api/services/products.py:36-43`, first match wins): `disco`, `carrefour`,
-`hiper*`, `mami*`. **ChangoMás has no branch** (K-12, API half open), so its
-products never appear. Dedupe is `remove_duplicates_by_key(list, 'name')` —
+`hiper*`, `mami*`, `changomas*`/`changomás*` → the `chang` bucket. An
+unrecognised origin is dropped. Dedupe is `remove_duplicates_by_key(list,
+'name')` —
 first occurrence wins (`api/helpers.py:3-8`). On any exception the blueprint
 returns an empty payload plus an `error` key rather than failing loudly
 (`api/blueprints/products.py`).
@@ -225,7 +227,7 @@ A scraper never imports Flask, Mongo or SocketIO.
 | `laanonima.py` | plain HTTP: the category tree is read from the page's navigation menu (`a.menu-n1` → `a.menu-n2`), then one GET per n2 node whose JSON-LD `ItemList` carries every product | Mongo per subcategory (n2 slug) | no browser; replaces the dead HiperLibertad module (`hiperlibertad.com.ar` 301s here, its VTEX API 403s); accepts `almacen` |
 | `disco.py` | plain HTTP against the VTEX catalog API: the level-2 categories are read from `/api/catalog_system/pub/category/tree/2`, each one is paged with `_from`/`_to` and the `resources: from-to/total` header | Mongo per subcategory (`categoria=<requested category>`, `subcategoria=<child slug>`) | no browser; the API rejects any window beyond item **2550** (`_from=2501` and `_to=2550` answer 400), so oversized nodes are bisected with `fq=P:[lo TO hi]` price ranges; identity is `productId`; accepts `almacen` |
 | `carrefour.py` | plain HTTP against the VTEX catalog API: the level-2 categories are read from `/api/catalog_system/pub/category/tree/2`, each one is paged with `_from`/`_to` and the `resources: from-to/total` header | Mongo per subcategory | no browser; the API rejects `_from=2501`, which is why almacén (6188) is split by subcategory (largest: 1933); `sku` is `productId`; accepts `almacen`, `desayuno-y-merienda` |
-| `changomas.py` | Chrome driver over the discovery page, section discovery, JSON-LD | Mongo via `ctx.save` | page loop re-fetches the **discovery** page (`:152`); empty first result aborts the whole run; label `ChangoMas`; **not shown by `/supermercados`** (K-12) |
+| `changomas.py` | plain HTTP against the VTEX catalog API: the level-2 categories are read from `/api/catalog_system/pub/category/tree/2`, each one is paged with `_from`/`_to` and the `resources: from-to/total` header | Mongo per subcategory | no browser; `masonline.com.ar` is VTEX, the API rejects `_from=2501`, and almacén's nine children partition the parent exactly (4099) so no bisection is needed (largest child 1544); `sku` is `productId`; label `ChangoMas`; surfaces as the `chang` bucket; accepts `almacen` |
 
 Common details:
 
@@ -238,20 +240,19 @@ Common details:
   validate_category`, `api/scrapers/base.py`). The *subcategories* are not
   hardcoded: `laanonima.py` reads them from the page menu and `carrefour.py`
   from the VTEX category tree, so both follow the site.
-- **Quirks kept verbatim** by the mechanical ports: ChangoMás re-fetches the
-  discovery page; ChangoMás's empty-first-result abort ends the whole run.
-  Fixing any of them changes collected data and must be validated against a
-  real run first (see `docs/agent-context/known-issues.md`). SuperMami's
-  parent-only scope is also a site fact to keep: its level-2 children do not
-  partition the parent (`almacen`: 2 680 of 3 210), so a children walk loses
-  products.
-- Duplicate suppression in the remaining mechanical port is substring-based
-  and O(n²) per page:
-  `if not any(element['name'] in jsonitea['name'] for element in jsondata)`
-  (`changomas.py:178`).
-  `laanonima.py` dedupes by `art_<id>` and `carrefour.py` + `disco.py` by
-  `productId`: after `name_parse` strips the unit, a substring guard silently
-  drops distinct variants.
+- **Quirks worth keeping**: SuperMami's parent-only scope is a site fact — its
+  level-2 children do not partition the parent (`almacen`: 2 680 of 3 210), so
+  a children walk would lose products. Conversely, Disco, Carrefour and
+  ChangoMás must walk children: their parents exceed the 2 500-offset ceiling
+  and their children partition the parent exactly. Changing any of this changes
+  collected data and must be validated against a real run first (see
+  `docs/agent-context/known-issues.md`).
+- Duplicate suppression is identity-based in every scraper: `laanonima.py` by
+  `art_<id>`, and `carrefour.py` + `disco.py` + `changomas.py` by `productId`,
+  `supermami.py` by `item_id`. The substring guard this bullet used to name
+  (`changomas.py`'s `if not any(element['name'] in jsonitea['name'] ...)`, O(n²)
+  per page) is gone with the browser path: after `name_parse` strips the unit, a
+  substring guard silently drops distinct variants.
 
 ### Record schema
 
