@@ -1,6 +1,7 @@
 # Feature: ChangoMás on the VTEX catalog API + its chain in the dashboard
 
-STATUS: IN PROGRESS (T1-T4)
+STATUS: DONE (T1-T4) — 5 commits on `feat/changomas-vtex-chain`; native review
+APPROVED and acknowledged (`review-d78dad7de43e9ac7`, authority burned)
 Owner request: "es hora de que arreglemos y acomodemos el scraper de ChangoMas.
 Este es su dominio https://www.masonline.com.ar y tiene categoria /almacen.
 Siempre mantene la linea con los otros scrapers. Ademas debes agregar su lista
@@ -207,7 +208,25 @@ failure. The test now queues the responses it actually needs, so it pins the
 ceiling on its own merits instead of relying on a swallowed error.
 
 Correction size: **94 diff lines**, against the declared plan of 120 and the
-frozen budget of 200.
+frozen budget of 200. The targeted validator admitted the correction and the
+lineage closed `approved`.
+
+### Review outcome
+
+`review-d78dad7de43e9ac7` — tier medium, one lens (`review-reliability`), 25
+files / 2331 lines, candidate `base-ref` = `origin/main` (so it also covered
+the four unreviewed Mongo TLS commits and the README rewrite that were sitting
+unpushed on `main`).
+
+- **R3-001** · CRITICAL · deterministic · introduced → corrected above.
+- **R3-002** · WARNING · informational · advisory. `_discover_subcategories`
+  returns `[]` when the requested category is absent from the tree
+  (`api/scrapers/changomas.py:133-135`), so the run reports "no subcategories",
+  saves nothing and ends as a success. With `categories = ("almacen",)` a
+  renamed or removed path on the site would silently produce zero products
+  instead of a failure. Non-blocking, no correction was offered, and it is the
+  same shape `carrefour.py` has — recorded as a follow-up rather than fixed
+  outside the frozen correction scope.
 
 ## Follow-ups
 
@@ -219,6 +238,9 @@ frozen budget of 200.
   ChangoMás, so the same truncation risk exists there and is now inconsistent
   with both `disco.py` and `changomas.py`. Pre-existing, unrelated to this
   feature, and worth its own task.
+- R3-002: a category missing from the VTEX tree ends the run as a success with
+  zero products and no save. `changomas.py` and `carrefour.py` both do this. A
+  fatal discovery node would make a site rename loud instead of silent.
 - `FakeSession` in the scraper tests signals "unexpected extra GET" with an
   `AssertionError`, which any `except Exception` in the code under test will
   swallow. R3-001 masked one test that way. A dedicated exception type would
