@@ -202,17 +202,42 @@ def test_discovery_never_returns_another_top_category_or_a_grandchild():
     assert "almacen/snacks/papas-fritas" not in paths
 
 
-def test_a_category_missing_from_the_tree_saves_nothing_and_says_so():
+def test_a_category_missing_from_the_tree_fails_the_discovery():
+    """A declared category absent from the tree is fatal (R3-002): returning
+    ``[]`` would end the run as a success with zero products, so a renamed
+    or removed site path would look healthy."""
     session = FakeSession([FakeResponse(200, TREE_JSON)])
     repository = InMemoryProductRepository()
-    ctx, _messages = make_ctx(session, repository)
+    ctx, messages = make_ctx(session, repository)
     # -- a missing top-level node: discover directly against a foreign slug
-    nodes = ScraperChangoMas()._discover_subcategories(ctx,
-                                                       "bebidas-tres-queen")
+    with pytest.raises(RuntimeError):
+        ScraperChangoMas()._discover_subcategories(ctx,
+                                                   "bebidas-tres-queen")
 
-    assert nodes == []
     assert repository.calls == []
     assert session.urls == [TREE_URL]
+    assert any("bebidas-tres-queen" in message for message in messages)
+
+
+def test_a_tree_node_without_usable_children_fails_the_run(repository):
+    """'almacen' resolves in the tree but yields no usable children: the run
+    must fail too (R3-002), with a report distinguishable from the
+    missing-node one so the operator can tell an empty node from a renamed
+    path."""
+    tree = json.loads(json.dumps(TREE_JSON))
+    for node in tree:
+        if node.get("url", "").rstrip("/").endswith("/almacen"):
+            node["children"] = []
+    session = FakeSession([FakeResponse(200, tree)])
+    ctx, messages = make_ctx(session, repository)
+
+    with pytest.raises(RuntimeError):
+        ScraperChangoMas().run(ctx)
+
+    assert repository.calls == []
+    assert session.urls == [TREE_URL]
+    assert any("no tiene subcategorías" in message for message in messages)
+    assert not any("PROCESO TERMINADO" in message for message in messages)
 
 
 # -- 2. happy path ----------------------------------------------------------

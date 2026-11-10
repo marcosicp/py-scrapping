@@ -1,0 +1,125 @@
+# Feature: VTEX scrapers — fatal page failures and fatal discovery
+
+STATUS: DONE — one commit on `main`
+Owner request: "arreglemos R3-001 y R3-002".
+
+Closes the two follow-ups recorded at the end of
+`odd/tasks/changomas-chain-integration.md`.
+
+## Why
+
+The native review of the ChangoMás round produced two findings. One was
+corrected in `changomas.py` inside the frozen correction scope; the instances
+in the other VTEX scrapers were explicitly left as follow-ups. Both are real and
+both survive in code today.
+
+**R3-001 — a page failure must not save a truncated slice.**
+`replace_products` REPLACES a scraper's `supermercado`/`categoria` slice. A
+scraper that `break`s out of a page loop on a network error, a non-2xx response
+or invalid JSON returns the documents collected so far, the caller saves them,
+and the run reports success — so one transient failure silently truncates the
+stored catalog.
+
+| Scraper | State before this task |
+| --- | --- |
+| `changomas.py` | **fixed** in the review correction: reports that the partial collection is not saved, then raises |
+| `disco.py` | already correct: 4xx raises at once, 5xx/network retry then re-raise |
+| `carrefour.py` | **open**: all three failures report and `break` |
+
+**R3-002 — a declared category missing from the tree must fail, not succeed.**
+`_discover_subcategories` returns `[]` when the requested category is not found
+in the VTEX tree. `run` then reports "no subcategories", saves nothing and ends
+as a **success** with zero products. If the site renames or removes the path,
+the run looks healthy and collects nothing.
+
+The helper is **byte-identical in all three VTEX scrapers** — it was
+copy-pasted, so the finding is not limited to the two files it names:
+
+| Scraper | Test currently pinning the silent success |
+| --- | --- |
+| `carrefour.py` | `test_a_category_missing_from_the_tree_saves_nothing_and_says_so` |
+| `disco.py` | `test_a_category_missing_from_the_tree_says_so_and_the_run_continues` |
+| `changomas.py` | `test_a_category_missing_from_the_tree_saves_nothing_and_says_so` |
+
+`disco.py`'s test goes further and **asserts that the run continues**, so the
+behaviour was pinned on purpose, not left by accident.
+
+## Decisions
+
+**D1 — R3-001 is fixed in `carrefour.py` by aligning it with `changomas.py` and
+`disco.py`.** The three page failures report that the partial collection will
+not be saved and then raise, so `run` never reaches `ctx.save` for that
+subcategory: the previous slice stays intact and the manager marks the run
+failed. `if not items: break` stays, because an empty page is how the API
+signals the end of a catalog. No retry/backoff is added to Carrefour: adding the
+Disco retry policy is a separate behaviour change that the finding did not ask
+for.
+
+**D2 — R3-002 is fixed in all three scrapers, not only the two it names.** A
+declared category that cannot be resolved is fatal: report and raise. The
+duplication is the reason the same defect exists three times, and fixing two
+would leave the third silently collecting nothing.
+
+**D3 — A resolved category with no usable children is fatal too.** It has the
+same harm: the run collects nothing for a declared category and reports
+success. Both conditions raise, with different messages so the operator can tell
+a renamed path from an empty node.
+
+**D4 — Dead branches are deleted, not left unreachable.** With `_fetch_tree`
+already raising on every failure, `if tree is None: return []` cannot run; with
+`_discover_subcategories` raising instead of returning `[]`, `run`'s
+`if not subcategorias: continue` cannot run either. Both go.
+
+**D5 — The pinning tests are inverted, not deleted.** Each keeps its intent and
+asserts the new contract. `test_a_page_that_is_not_2xx_is_reported_and_the_next_
+subcategory_runs` is the important one: it asserts the R3-001 defect by name, so
+it becomes the regression test for the fix.
+
+**D6 — Out of scope.** `carrefour.py` keeps the tree in a **class** attribute
+(`_tree = None`), a cross-run cache in one process; `disco.py` and
+`changomas.py` cache per instance and `tests/test_scraper_disco.py` punishes the
+class-level shape. Real, unrelated, and left alone.
+
+## Tasks
+
+- [x] T1 — `carrefour.py`: fatal page failures (R3-001) + invert the pinning
+      test.
+- [x] T2 — R3-002 in `carrefour.py`, `disco.py` and `changomas.py`: fatal
+      discovery, dead branches removed, three pinning tests inverted.
+- [x] T3 — Verification and the doc lines this invalidates.
+
+## Verification observed
+
+`python -m pytest -q` → **459 passed, 9 skipped** (454 before). flake8 CI gate
+(`--select=E9,F63,F7,F82`) → `0`.
+
+- RED observed before GREEN: 9 failures, all `DID NOT RAISE RuntimeError` — the
+  inverted and new tests failing against the old silently-successful behaviour.
+- The three `_discover_subcategories` bodies are **byte-identical** afterwards
+  (same md5), which is the point: the duplication is why the defect existed
+  three times.
+- Dead branches verified gone: `grep -n "tree is None\|if not subcategorias"`
+  over `api/scrapers/` finds only `laanonima.py:66`, a different subsystem (see
+  follow-ups).
+- Carrefour's page failures now report `No se guarda la recolección parcial` and
+  raise, exactly like `changomas.py`; no retry policy was added (D1).
+- The parametrised regression test covers network error, non-2xx and invalid
+  JSON mid-paging and asserts the run raises, nothing is saved and no
+  `PROCESO TERMINADO` is reported.
+
+Not verified: a live scrape. The failure paths need a real network fault to
+exercise end to end and no test touches the network by design.
+
+## Follow-ups
+
+- `carrefour.py`'s class-level `_tree` cache (D6).
+- `laanonima.py` has the same silent-success shape in a different subsystem:
+  `run` returns cleanly when the category has no configured node
+  (`laanonima.py:62-64`) or when the navigation menu yields no subcategories
+  (`laanonima.py:66-69`), so a site change there ends as a success with zero
+  products. Not fixed here: it is a JSON-LD/menu scraper, not VTEX, and the
+  findings did not name it.
+- `disco.py` has its own retry/backoff policy for search windows that
+  `carrefour.py` and `changomas.py` do not share; the three VTEX scrapers are
+  still three copies of the same shape. Extracting a shared module remains
+  deliberately undone: it would rewrite Disco's tested policy.

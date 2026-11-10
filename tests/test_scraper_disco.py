@@ -334,21 +334,42 @@ def test_discovery_never_returns_another_top_category_or_a_grandchild():
     assert paths == [f"{ALMACEN}/{SUB}", f"{ALMACEN}/{SUB2}"]
 
 
-def test_a_category_missing_from_the_tree_says_so_and_the_run_continues():
+def test_a_category_missing_from_the_tree_fails_the_run():
     """'almacen' is a registered category but absent from the measured tree:
-    reported, nothing requested or saved, and the run still ends cleanly."""
+    the run must fail (R3-002) instead of ending as a success with zero
+    products, so a renamed or removed site path cannot look healthy."""
     tree = [dict(TREE_JSON[0])]  # only 'tecnología', no 'almacén' node
     session = VtexSession(tree, {})
     repository = InMemoryProductRepository()
     ctx, messages = make_ctx(session, repository, category=ALMACEN)
 
-    ScraperDisco().run(ctx)
+    with pytest.raises(RuntimeError):
+        ScraperDisco().run(ctx)
 
     assert session.urls == [TREE_URL]
     assert repository.calls == []
-    assert any("No se encontraron subcategorías" in message
-               for message in messages)
-    assert messages[-1] == "PROCESO TERMINADO"
+    assert any("almacen" in message for message in messages)
+    assert not any("PROCESO TERMINADO" in message for message in messages)
+
+
+def test_a_tree_node_without_usable_children_fails_the_run():
+    """'almacen' resolves in the tree but yields no usable children: the run
+    must fail too (R3-002), with a report distinguishable from the
+    missing-node one so the operator can tell an empty node from a renamed
+    path."""
+    tree = [dict(TREE_JSON[0]), dict(TREE_JSON[1])]
+    tree[1]["children"] = []
+    session = VtexSession(tree, {})
+    repository = InMemoryProductRepository()
+    ctx, messages = make_ctx(session, repository, category=ALMACEN)
+
+    with pytest.raises(RuntimeError):
+        ScraperDisco().run(ctx)
+
+    assert session.urls == [TREE_URL]
+    assert repository.calls == []
+    assert any("no tiene subcategorías" in message for message in messages)
+    assert not any("PROCESO TERMINADO" in message for message in messages)
 
 
 def test_the_tree_is_refetched_per_run_and_only_then_cached():

@@ -194,16 +194,43 @@ def test_discovery_never_returns_another_top_category_or_a_grandchild():
     assert "almacen/snacks/papas-fritas" not in paths
 
 
-def test_a_category_missing_from_the_tree_saves_nothing_and_says_so():
+def test_a_category_missing_from_the_tree_fails_the_run(repository):
+    """'desayuno-y-merienda' is a registered category but absent from the
+    tree: the run must fail instead of ending as a success with zero
+    products (R3-002), so a renamed or removed site path cannot look
+    healthy."""
     session = FakeSession([FakeResponse(200, TREE_JSON)])
-    repository = InMemoryProductRepository()
-    ctx, messages = make_ctx(session, repository, category="desayuno-y-merienda")
+    ctx, messages = make_ctx(session, repository,
+                             category="desayuno-y-merienda")
 
-    ScraperCarrefour().run(ctx)
+    with pytest.raises(RuntimeError):
+        ScraperCarrefour().run(ctx)
 
     assert repository.calls == []
     assert len(session.urls) == 1
     assert any("desayuno-y-merienda" in message for message in messages)
+    assert not any("PROCESO TERMINADO" in message for message in messages)
+
+
+def test_a_tree_node_without_usable_children_fails_the_run(repository):
+    """'almacen' resolves in the tree but yields no usable children: the
+    run must fail too (R3-002), with a report distinguishable from the
+    missing-node one so the operator can tell an empty node from a renamed
+    path."""
+    tree = json.loads(json.dumps(TREE_JSON))
+    for node in tree:
+        if node.get("url", "").rstrip("/").endswith("/almacen"):
+            node["children"] = []
+    session = FakeSession([FakeResponse(200, tree)])
+    ctx, messages = make_ctx(session, repository)
+
+    with pytest.raises(RuntimeError):
+        ScraperCarrefour().run(ctx)
+
+    assert repository.calls == []
+    assert session.urls == [TREE_URL]
+    assert any("no tiene subcategorías" in message for message in messages)
+    assert not any("PROCESO TERMINADO" in message for message in messages)
 
 
 # -- 2. happy path ----------------------------------------------------------
@@ -340,20 +367,65 @@ def test_ean_comes_from_the_item_and_a_missing_ean_stores_empty():
 # -- 4. failure modes -------------------------------------------------------
 
 
-def test_a_page_that_is_not_2xx_is_reported_and_the_next_subcategory_runs(
-        repository):
-    session = FakeSession([
+class _FailsAfterFirstPage:
+    """The tree, then one page, then a dead network."""
+
+    def __init__(self, first_page, error):
+        self.urls = []
+        self._first_page = first_page
+        self._error = error
+
+    def get(self, url, timeout=None, headers=None):
+        self.urls.append(url)
+        if len(self.urls) == 1:
+            return FakeResponse(200, TREE_JSON)
+        if len(self.urls) == 2:
+            return self._first_page
+        raise self._error
+
+
+def _network_failure_session():
+    return _FailsAfterFirstPage(
+        FakeResponse(206, [vtex_product("A 1 kg", "1")], total=120),
+        RuntimeError("network down"))
+
+
+def _server_error_session():
+    return FakeSession([
         FakeResponse(200, TREE_JSON),
-        FakeResponse(400, None),
-        FakeResponse(206, [vtex_product("Papas fritas Lays 90 g", "555")],
-                     total=1),
+        FakeResponse(206, [vtex_product("A 1 kg", "1")], total=120),
+        FakeResponse(500, None),
     ])
-    ctx, messages = make_ctx(session, repository)
 
-    ScraperCarrefour().run(ctx)
 
-    assert repository.calls == [("Carrefour", ALMACEN, SUB_B, 1)]
-    assert any("400" in message for message in messages)
+def _invalid_json_session():
+    return FakeSession([
+        FakeResponse(200, TREE_JSON),
+        FakeResponse(206, [vtex_product("A 1 kg", "1")], total=120),
+        FakeResponse(200, None),
+    ])
+
+
+@pytest.mark.parametrize("build_session", [
+    _network_failure_session,
+    _server_error_session,
+    _invalid_json_session,
+])
+def test_a_page_failure_never_saves_a_truncated_slice(build_session):
+    """R3-001: ``replace_products`` REPLACES the slice, so saving the
+    documents collected before a page failure would wipe the stored catalog
+    for this subcategory while the run still reported ``PROCESO TERMINADO``.
+    The failure has to fail the run instead."""
+    repository = InMemoryProductRepository()
+    ctx, messages = make_ctx(build_session(), repository)
+
+    with pytest.raises(Exception):
+        ScraperCarrefour().run(ctx)
+
+    assert repository.calls == []
+    assert any("No se guarda la recolección parcial" in message
+               for message in messages)
+    assert not any("PROCESO TERMINADO" in message for message in messages)
 
 
 def test_a_tree_that_is_not_2xx_fails_the_run_instead_of_succeeding_empty(

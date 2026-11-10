@@ -133,10 +133,6 @@ class ScraperDisco(BaseScraper):
                 break
             ctx.report(f"Scrapeando categoria: {categoria}")
             subcategorias = self._discover_subcategories(ctx, categoria)
-            if not subcategorias:
-                ctx.report(f"No se encontraron subcategorías de {categoria} "
-                           f"en el árbol de categorías")
-                continue
 
             ctx.report(f"Subcategorías encontradas en {categoria}: "
                        f"{len(subcategorias)}")
@@ -182,14 +178,21 @@ class ScraperDisco(BaseScraper):
 
     def _discover_subcategories(self, ctx: ScrapeContext, categoria: str
                                 ) -> list[tuple[str, str, str]]:
-        """``(slug, label, search path)`` of the requested category's children."""
+        """``(slug, label, search path)`` of the requested category's children.
+
+        Both resolution failures are fatal (R3-002): returning ``[]`` would
+        end the run as a success with zero products, so a renamed or removed
+        site path would look healthy. The empty-node report differs from the
+        missing-node one so the operator can tell them apart.
+        """
         tree = self._fetch_tree(ctx)
-        if tree is None:
-            return []
 
         node = self._category_node(tree, categoria)
         if node is None:
-            return []
+            ctx.report(f"La categoría {categoria} no está en el árbol de "
+                       f"categorías")
+            raise RuntimeError(
+                f"the category {categoria} is not in the category tree")
 
         subcategories: list[tuple[str, str, str]] = []
         seen: set[str] = set()
@@ -202,6 +205,12 @@ class ScraperDisco(BaseScraper):
             seen.add(slug)
             subcategories.append((slug, child.get("name") or slug,
                                   f"{categoria}/{slug}"))
+        if not subcategories:
+            ctx.report(f"La categoría {categoria} existe en el árbol pero "
+                       f"no tiene subcategorías utilizables")
+            raise RuntimeError(
+                f"the category {categoria} has no usable subcategories in "
+                f"the category tree")
         return subcategories
 
     @staticmethod

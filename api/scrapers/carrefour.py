@@ -72,10 +72,6 @@ class ScraperCarrefour(BaseScraper):
                 break
             ctx.report(f"Scrapeando categoria: {categoria}")
             subcategorias = self._discover_subcategories(ctx, categoria)
-            if not subcategorias:
-                ctx.report(f"No se encontraron subcategorías de {categoria} "
-                           f"en el árbol de categorías")
-                continue
 
             ctx.report(f"Subcategorías encontradas en {categoria}: "
                        f"{len(subcategorias)}")
@@ -122,14 +118,21 @@ class ScraperCarrefour(BaseScraper):
 
     def _discover_subcategories(self, ctx: ScrapeContext, categoria: str
                                 ) -> list[tuple[str, str, str]]:
-        """``(slug, label, search path)`` of the requested category's children."""
+        """``(slug, label, search path)`` of the requested category's children.
+
+        Both resolution failures are fatal (R3-002): returning ``[]`` would
+        end the run as a success with zero products, so a renamed or removed
+        site path would look healthy. The empty-node report differs from the
+        missing-node one so the operator can tell them apart.
+        """
         tree = self._fetch_tree(ctx)
-        if tree is None:
-            return []
 
         node = self._category_node(tree, categoria)
         if node is None:
-            return []
+            ctx.report(f"La categoría {categoria} no está en el árbol de "
+                       f"categorías")
+            raise RuntimeError(
+                f"the category {categoria} is not in the category tree")
 
         subcategories: list[tuple[str, str, str]] = []
         seen: set[str] = set()
@@ -142,6 +145,12 @@ class ScraperCarrefour(BaseScraper):
             seen.add(slug)
             subcategories.append((slug, child.get("name") or slug,
                                   f"{categoria}/{slug}"))
+        if not subcategories:
+            ctx.report(f"La categoría {categoria} existe en el árbol pero "
+                       f"no tiene subcategorías utilizables")
+            raise RuntimeError(
+                f"the category {categoria} has no usable subcategories in "
+                f"the category tree")
         return subcategories
 
     @staticmethod
@@ -163,7 +172,15 @@ class ScraperCarrefour(BaseScraper):
 
     def _scrape_subcategory(self, ctx: ScrapeContext, categoria: str,
                             subcategoria: str, path: str) -> list[dict]:
-        """Every product of one level-two category, paged by ``resources``."""
+        """Every product of one level-two category, paged by ``resources``.
+
+        A page failure is fatal instead of ending the child early (the same
+        policy ``changomas.py`` and ``disco.py`` apply): the caller saves
+        whatever this returns, and ``replace_products`` REPLACES the slice,
+        so returning a truncated list would wipe the stored catalog for this
+        subcategory while the run still reported ``PROCESO TERMINADO``.
+        Raising leaves the previous slice untouched and marks the run failed.
+        """
         documents: list[dict] = []
         seen: set[str] = set()
         start = 0
@@ -174,17 +191,22 @@ class ScraperCarrefour(BaseScraper):
             try:
                 response = ctx.http.get(url, timeout=30)
             except Exception as exc:
-                ctx.report(f"Error de red en {subcategoria}: {exc}")
-                break
+                ctx.report(f"Error de red en {subcategoria}: {exc}. "
+                           f"No se guarda la recolección parcial")
+                raise
             if response.status_code not in (200, 206):
-                ctx.report(f"Error {response.status_code} en {subcategoria}")
-                break
+                ctx.report(f"Error {response.status_code} en {subcategoria}. "
+                           f"No se guarda la recolección parcial")
+                raise RuntimeError(
+                    f"the search API answered {response.status_code}")
 
             try:
                 items = response.json() or []
             except Exception as exc:
-                ctx.report(f"Respuesta inválida en {subcategoria}: {exc}")
-                break
+                ctx.report(f"Respuesta inválida en {subcategoria}: {exc}. "
+                           f"No se guarda la recolección parcial")
+                raise RuntimeError(
+                    f"{subcategoria} answered invalid JSON") from exc
             if not items:
                 break
 
