@@ -161,6 +161,48 @@ operator-facing string the candidate adds or removes, and it is nine lines.
 After this correction the only new report in the whole candidate is the missing
 node's, which is the behaviour R3-002 asked for.
 
+## Review outcome
+
+Four lineages were needed. The first three each produced one CRITICAL finding
+and each one was the same class of defect: **scope creep in prose**, never in
+logic.
+
+| Lineage | Finding | What it caught |
+| --- | --- | --- |
+| `review-e0e9ea2396c6128c` | R3-001 CRITICAL | made a resolved-but-empty category fatal; the baseline skipped it |
+| `review-6a71a145c39d12a1` | R3-1 CRITICAL | rewrote the empty-category report wording instead of keeping the baseline text |
+| `review-78d4e9da2cdc4db3` | R3-001 CRITICAL | appended "no se guarda la recolección parcial" to Carrefour's existing failure reports |
+| `review-e9431e3bb099497f` | — | **APPROVED**, no correction |
+
+The fourth candidate was literally minimal — original messages everywhere, only
+`break` → `raise`, plus the one new report the finding required — and it was
+approved on the reviewer's event with no refuter.
+
+Two advisory findings were recorded as informational and are **not** fixed here,
+by design:
+
+- R3-001 (WARNING) `tests/test_scraper_changomas.py:210-212`
+- R3-002 (SUGGESTION) `odd/tasks/vtex-scraper-failure-policy.md:174-178`
+
+### The correction-plan slot does not work in this environment
+
+The first three lineages reached `correction_required` with a valid, actionable
+finding, and the `review.capture-correction-plan` submission was rejected every
+time with `collectBinding is missing or stale for current STATUS` — including
+once with a binding proven **byte-identical** to the one the provider issued
+(`diff` of a script-generated copy against the provider's own string). The
+reviewer, refuter and validator slots all work; only the correction plan is
+refused. Consequences worth knowing:
+
+- A correction cannot be delivered through the native route here, so the way
+  out is to fix the code and start a **new lineage** for the corrected
+  candidate. That is slower (a full reviewer + refuter run per iteration) but it
+  does converge.
+- Three lineages were left in `correction_required`:
+  `review-e0e9ea2396c6128c`, `review-6a71a145c39d12a1`,
+  `review-78d4e9da2cdc4db3`. They need native intervention
+  (`gentle-ai review status --lineage=...`) if they are to be closed.
+
 ## Verification observed
 
 `python -m pytest -q` → **459 passed, 9 skipped** (454 before). flake8 CI gate
