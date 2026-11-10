@@ -28,6 +28,9 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+echo "Building Angular bundle into static/ ..."
+(cd "$ROOT_DIR/adminpro" && npm run build)
+
 (
   cd "$ROOT_DIR"
   "$FLASK" --app main:app run --debug --no-reload --host 127.0.0.1 --port 3000
