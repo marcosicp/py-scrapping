@@ -1,175 +1,183 @@
-# LaListita - Comparador de Precios de Supermercados 🛒
+# LaListita — Comparador de precios de supermercados 🛒
 
-Sistema de scraping y comparación de precios de productos de supermercados argentinos. Combina un backend **Flask** con scrapers **Selenium** y un frontend **Angular** con monitoreo en tiempo real vía **SocketIO**.
+Comparador de precios de supermercados argentinos. Scrapers en Python extraen
+catálogos de cinco cadenas, los persisten en MongoDB, una API Flask los agrupa
+por producto canónico y un dashboard Angular 21 los muestra.
+
+> **La fuente de verdad es [`AGENTS.md`](AGENTS.md).** Este README es la puerta
+> de entrada; el detalle vive en [`docs/agent-context/`](docs/agent-context/)
+> ([repo-map](docs/agent-context/repo-map.md),
+> [runbook](docs/agent-context/runbook.md),
+> [known-issues](docs/agent-context/known-issues.md),
+> [deploy-render](docs/agent-context/deploy-render.md)).
+> Si una instrucción de acá falla, este archivo está mal: corregilo.
 
 ## Supermercados soportados
 
-| Supermercado | Método de scraping |
-|---|---|
-| Disco | API VTEX |
-| Carrefour | API VTEX |
-| ChangoMás | Selenium (async + paginación) |
-| La Anónima | HTTP + JSON-LD |
-| SuperMami | HTTP + Endeca (gtag JSON) |
+| Supermercado | Slug | Método |
+|---|---|---|
+| Disco | `disco` | API de catálogo VTEX |
+| Carrefour | `carrefour` | API de catálogo VTEX |
+| ChangoMás | `changomas` | Selenium |
+| La Anónima | `laanonima` | HTTP + JSON-LD |
+| SuperMami | `supermami` | HTTP + Oracle Endeca |
+
+Cada cadena es un módulo en `api/scrapers/` y una línea en
+`default_registry()`. Rutas, panel de monitoreo y CLI se generan desde el
+registry.
 
 ## Arquitectura
 
 ```
-Angular Frontend (adminpro/)
-        │
-        ▼
-Flask Backend (app.py, puerto 3000)
-   ├── REST API (api/routes.py)
-   ├── SocketIO (api/sockets.py) ← actualizaciones en tiempo real
-   └── Scrapers (api/scrapers/)
-        │
-        ▼
-   MongoDB Cloud ("lalistita")
+Navegador
+   │
+   ▼
+Flask (app.py / main.py, puerto 3000)
+   ├── api/blueprints/     ── SPA, panel /scrape, API REST, aliases legacy
+   ├── api/services/       ── agrupación canónica, orquestación de runs
+   ├── api/repositories/   ── puerto + adaptador Mongo
+   ├── api/scrapers/       ── BaseScraper + una implementación por cadena
+   └── api/sockets.py      ── progreso en vivo (SocketIO, modo threading)
+        │                              ▲
+        ▼                              │
+   MongoDB · lalistitadev.productos    │
+                                       │
+Angular 21 (adminpro/src) ── build ──► static/ ── servido por Flask
 ```
 
-## Tech Stack
+## Stack
 
-- **Backend:** Python 3.11, Flask 3.0, Flask-SocketIO, Gunicorn
-- **Scrapers:** Selenium 4.15, BeautifulSoup4, Requests
-- **Base de datos:** MongoDB Atlas (PyMongo)
-- **Frontend:** Angular 16, Angular Material, Tailwind CSS
-- **Deploy:** Docker, Google Cloud Run
+| Capa | Versión |
+|---|---|
+| Python (todos los targets) | **3.15.2** (`.python-version`, `runtime.txt`, `Dockerfile`) |
+| Flask / flask-socketio / flask-cors | 3.1.3 · 5.7.2 · 6.0.5 |
+| Driver Mongo | pymongo 4.19.0 (directo, sin ODM) |
+| Scraping | selenium 4.52.0, beautifulsoup4 4.15.0, lxml 6.1.3 |
+| Servidor | gunicorn 26.2.0 |
+| Frontend | **Angular 21.2** (NgModule), Material 21.x, ag-grid, TypeScript 5.9 |
+| Base de datos | MongoDB (por defecto `lalistitadev`) |
+| Deploy | **Render, `runtime: docker`** (`render.yaml`) |
 
 ## Requisitos previos
 
-- Python 3.10+
-- Node.js y npm (para el frontend Angular)
-- Google Chrome (versión compatible con ChromeDriver)
-- ChromeDriver instalado manualmente en `/usr/local/bin/chromedriver-141`
-- Acceso a una instancia MongoDB (local o Atlas)
+- **Python 3.15** (3.11 es el piso de pymongo, pero el proyecto fija 3.15.2).
+- Node.js y npm, para el bundle de Angular.
+- Google Chrome o Chromium, sólo si vas a correr scrapers.
+- Acceso a una instancia MongoDB (local o Atlas).
 
-## Instalación
+**No hace falta instalar ChromeDriver a mano.** `api/scrapers/browser.py` es la
+única fuente del driver y usa Selenium Manager, que resuelve el binario que
+coincide con tu Chrome. Sólo en un host raro se fija con `CHROMEDRIVER_PATH`.
 
-### 1. Clonar el repositorio
-
-```bash
-git clone <repo-url>
-cd preciosflaskpy
-```
-
-### 2. Configurar el backend
+## Puesta en marcha
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+# 1. Backend
+python3.15 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+
+# 2. Frontend — static/ es build output y NO está versionado
+cd adminpro && npm ci && npm run build && cd ..
 ```
 
-### 3. Variables de entorno
+Sin el paso 2, `/` responde **503** con el comando exacto a ejecutar. Es a
+propósito: un clone limpio no trae bundle.
 
-Crear un archivo `.env` en la raíz del proyecto:
+```bash
+# 3. Correr
+python app.py                  # http://localhost:3000  (y /scrape)
+
+# Backend + dev server de Angular juntos; Ctrl+C frena los dos
+./dev.sh                       # Flask :3000, Angular :4200
+```
+
+## Variables de entorno
+
+`.env` en la raíz (gitignoreado; también lo excluye `.dockerignore`).
+
+| Variable | Default | Para qué |
+|---|---|---|
+| `SECRET_KEY` | `secret!` | **Ponela siempre.** El default es una constante pública y firma tus sesiones. |
+| `MONGODB_URI` | `mongodb://localhost:27017/` | Conexión. Necesaria para Atlas. |
+| `MONGODB_DB` | `lalistitadev` | Base de datos. |
+| `MONGODB_TLS_CA_FILE` | — | CA privada. Sin ella, un URI TLS usa el bundle de `certifi`. |
+| `CHROMEDRIVER_PATH` | — | Fija el binario del driver. Sin ella, Selenium Manager. |
+| `CHROME_BINARY` | — | Fija el binario del navegador (p. ej. `/usr/bin/chromium`). |
+| `CHROME_HEADLESS` | `0` | `1/true/yes/on` para correr sin ventana. |
+| `PORT` | `3000` (dev) · `10000` (imagen) | Puerto de escucha. |
 
 ```env
-MONGODB_URI=mongodb+srv://<usuario>:<password>@cluster0.mongodb.net/lalistita?retryWrites=true&w=majority
-FLASK_ENV=development
-PORT=3000
+SECRET_KEY=<una cadena larga y aleatoria>
+MONGODB_URI=mongodb+srv://<usuario>:<password>@cluster0.mongodb.net/?retryWrites=true&w=majority
+MONGODB_DB=lalistitadev
 ```
 
-### 4. Construir el frontend
-
-```bash
-cd adminpro
-npm install
-ng build --base-href /static/
-cd ..
-```
-
-Los archivos compilados se generan en `static/` y Flask los sirve automáticamente.
-
-## Uso
-
-### Desarrollo local
-
-```bash
-source .venv/bin/activate
-python app.py
-```
-
-- **App principal:** http://localhost:3000
-- **Panel de scraping:** http://localhost:3000/scrape
-- **API de productos:** http://localhost:3000/supermercados
-
-### Producción (Docker)
-
-```bash
-docker build -t preciosflask .
-docker run -p 3000:3000 --env-file .env preciosflask
-```
-
-## API Endpoints
+## API
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| `GET` | `/` | Frontend principal (Angular) |
-| `GET` | `/scrape` | Panel de monitoreo de scrapers |
-| `GET` | `/supermercados` | Todos los productos (JSON) |
-| `POST` | `/scraping-disco?category=X` | Iniciar scraper Disco |
-| `POST` | `/scraping-carrefour?category=X` | Iniciar scraper Carrefour |
-| `POST` | `/scraping-changomas?category=X` | Iniciar scraper ChangoMás |
-| `POST` | `/scraping-laanonima?category=X` | Iniciar scraper La Anónima |
-| `POST` | `/scraping-supermami?category=X` | Iniciar scraper SuperMami |
-| `GET` | `/scraping-changomas-stop` | Detener scraper ChangoMás |
-| `GET` | `/scraping-supermami-stop` | Detener scraper SuperMami |
+| `GET` | `/` | Dashboard Angular (503 si falta el bundle) |
+| `GET` | `/scrape` | Panel de control de scrapers |
+| `GET` | `/supermercados` | Catálogo plano (formato legacy) |
+| `GET` | `/api/productos/agrupados` | **Filas canónicas** — lo que consume el dashboard |
+| `GET` | `/api/scrapers` | Estado de las cinco cadenas |
+| `GET` | `/api/scrapers/<slug>` | Estado de una cadena |
+| `POST` | `/api/scrapers/<slug>/start` | Arranca (`?category=` o body JSON) → 202 |
+| `POST` | `/api/scrapers/<slug>/stop` | Frena → 202 |
 
-## Estructura del proyecto
+Los aliases viejos siguen vivos, generados desde el registry:
+`POST /scraping-<slug>?category=X` y `GET|POST /scraping-<slug>-stop`.
+Preferí `/api/scrapers` para código nuevo.
 
-```
-preciosflaskpy/
-├── app.py                    # Entry point Flask
-├── requirements.txt          # Dependencias Python
-├── Dockerfile                # Configuración Docker
-├── gunicorn_config.py        # Config servidor producción
-├── .env                      # Variables de entorno (no versionado)
-├── api/
-│   ├── routes.py             # Endpoints REST
-│   ├── sockets.py            # Configuración SocketIO
-│   ├── helpers.py            # Utilidades
-│   ├── models/
-│   │   └── productos.py      # Modelo de productos
-│   └── scrapers/
-│       ├── scrap_disco.py
-│       ├── scrap_carrefour.py
-│       ├── scrap_changomas.py
-│       ├── scrap_hiperlibertad.py
-│       └── scrap_supermami.py
-├── adminpro/                 # Frontend Angular 16
-│   └── src/app/
-├── static/                   # Build de Angular (servido por Flask)
-└── templates/
-    ├── index.html            # Template principal
-    └── scrape.html           # Monitor de scrapers (SocketIO)
-```
-
-## ChromeDriver
-
-> **Importante:** `webdriver-manager` puede fallar en macOS. Se recomienda la instalación manual.
+## Uso sin Flask
 
 ```bash
-# Verificar versión de Chrome
-/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --version
-
-# Descargar el ChromeDriver correspondiente y colocarlo en:
-/usr/local/bin/chromedriver-141
+python -m api.cli list                          # cadenas registradas
+python -m api.cli run carrefour --category almacen
 ```
 
-Los scrapers están configurados para usar esta ruta explícita:
+## Tests
 
-```python
-driver = webdriver.Chrome(service=ChromeService("/usr/local/bin/chromedriver-141"))
+```bash
+pip install -r requirements-dev.txt
+pytest                                          # sin red, sin Chrome, sin DB real
 ```
 
-## Comunicación en tiempo real
+Las únicas excepciones son las integraciones de Mongo, que corren sólo si
+definís `MONGODB_TEST_URI` y lo hacen sobre una base descartable.
 
-Los scrapers reportan progreso al frontend mediante SocketIO:
+El frontend **no tiene specs**. El único chequeo browser-free es:
 
-```python
-from api.sockets import notifyStatus
-notifyStatus("scraping-message-disco", "Scrapeando página 3 de 10...")
+```bash
+cd adminpro && npm run verify:selection
 ```
 
-El panel en `/scrape` muestra las actualizaciones en vivo para cada supermercado.
+El scraping en vivo se verifica a mano: necesita Chrome, driver y base real.
+
+## Deploy
+
+Render con `runtime: docker` (`render.yaml`). El `Dockerfile` construye el
+bundle de Angular en un stage de Node y lo copia al runtime de Python. La
+runtime nativa de Python **no sirve**: no instala 3.15 y no construye el
+frontend.
+
+```bash
+# Réplica local, tal como corre en el contenedor
+docker build -t lalistita .
+docker run -p 3000:10000 --env-file .env lalistita
+```
+
+El contenedor escucha en `10000` (`PORT` por defecto en la imagen), no en 3000.
+El proceso queda en `--workers 1`: el estado de los runs y los clientes de
+SocketIO viven en memoria.
+
+## Dos cosas que muerden
+
+1. **`replace_products` reemplaza, no appendea.** Cada scrape sustituye la
+   rebanada `supermercado`/`categoria` completa (inserta lo nuevo, poda lo
+   viejo; un scrape vacío no hace nada). No lo corras contra datos que te
+   importen sin pensarlo.
+2. **`static/` no está versionado** y nunca se edita a mano. La fuente es
+   `adminpro/src/`.
+
+El resto del inventario de trampas está en [`AGENTS.md`](AGENTS.md) §7.
