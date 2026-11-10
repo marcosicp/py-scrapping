@@ -194,20 +194,17 @@ class ScraperCarrefour(BaseScraper):
             try:
                 response = ctx.http.get(url, timeout=30)
             except Exception as exc:
-                ctx.report(f"Error de red en {subcategoria}: {exc}. "
-                           f"No se guarda la recolección parcial")
+                ctx.report(f"Error de red en {subcategoria}: {exc}")
                 raise
             if response.status_code not in (200, 206):
-                ctx.report(f"Error {response.status_code} en {subcategoria}. "
-                           f"No se guarda la recolección parcial")
+                ctx.report(f"Error {response.status_code} en {subcategoria}")
                 raise RuntimeError(
                     f"the search API answered {response.status_code}")
 
             try:
                 items = response.json() or []
             except Exception as exc:
-                ctx.report(f"Respuesta inválida en {subcategoria}: {exc}. "
-                           f"No se guarda la recolección parcial")
+                ctx.report(f"Respuesta inválida en {subcategoria}: {exc}")
                 raise RuntimeError(
                     f"{subcategoria} answered invalid JSON") from exc
             if not items:

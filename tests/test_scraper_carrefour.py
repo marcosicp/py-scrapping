@@ -423,7 +423,9 @@ def test_a_page_failure_never_saves_a_truncated_slice(build_session):
         ScraperCarrefour().run(ctx)
 
     assert repository.calls == []
-    assert any("No se guarda la recolección parcial" in message
+    # -- the failure is still reported with its original wording; only the
+    # -- control flow changed (raise instead of break)
+    assert any(message.startswith(("Error", "Respuesta inválida"))
                for message in messages)
     assert not any("PROCESO TERMINADO" in message for message in messages)
 

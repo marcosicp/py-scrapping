@@ -137,6 +137,30 @@ The same lesson as D3, one level down: **a finding licenses the smallest change
 that closes it, not a rewrite of the surrounding prose.** Inventing better
 messages was not asked for and is a real cost for anyone reading logs.
 
+## Correction after the third review (R3-001)
+
+`review-78d4e9da2cdc4db3` raised the same class of finding a third time:
+
+> The candidate appends `No se guarda la recolección parcial` to the existing
+> network, non-2xx and invalid-JSON failure messages in `_scrape_subcategory`,
+> changing operator-facing output beyond the requested fatal-failure behaviour.
+> R3-001 only required that a page failure not save a truncated slice.
+
+Corrected: Carrefour's three failure reports are back to their original
+wording; only the control flow changed (`break` → `raise`). The test asserts a
+message starting with `Error` / `Respuesta inválida` instead of the invented
+suffix.
+
+The pattern across the three findings is now explicit and worth stating once:
+**the reviewer is enforcing minimality, not correctness.** Each finding was a
+real deviation from "only what the finding asked for", and each one was in
+prose rather than logic. The audit that should have been done up front:
+`git diff <base> -- api/scrapers/ | grep '^[+-].*ctx\.report'` — it lists every
+operator-facing string the candidate adds or removes, and it is nine lines.
+
+After this correction the only new report in the whole candidate is the missing
+node's, which is the behaviour R3-002 asked for.
+
 ## Verification observed
 
 `python -m pytest -q` → **459 passed, 9 skipped** (454 before). flake8 CI gate
