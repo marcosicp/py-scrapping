@@ -31,6 +31,7 @@ class ProductService:
         carrefour = []
         hiperlibertad = []
         supermami = []
+        changomas = []
 
         for product in self._repository.find_all():
             supermarket = product.get("supermercado", "").lower()
@@ -47,18 +48,23 @@ class ProductService:
                 hiperlibertad.append(product)
             elif "supermami" in supermarket or "mami" in supermarket:
                 supermami.append(product)
+            # -- no existing key is a substring of "changomas", so this
+            # branch cannot shadow the ones above
+            elif "changomas" in supermarket or "changomás" in supermarket:
+                changomas.append(product)
 
         # Remove duplicates by name for each supermarket
         disco = remove_duplicates_by_key(disco, 'name')
         carrefour = remove_duplicates_by_key(carrefour, 'name')
         hiperlibertad = remove_duplicates_by_key(hiperlibertad, 'name')
         supermami = remove_duplicates_by_key(supermami, 'name')
+        changomas = remove_duplicates_by_key(changomas, 'name')
 
         # -- concatenation order is the tie-break contract for same-name
         # products across supermarkets (supermami, carrefour, hiperlibertad,
-        # disco) and is pinned by
+        # disco, changomas) and is pinned by
         # tests/test_products_api.py::test_stable_tie_break_across_supermarkets
-        data = supermami + carrefour + hiperlibertad + disco
+        data = supermami + carrefour + hiperlibertad + disco + changomas
         data.sort(key=lambda x: x.get("name", ""))
 
         return {
@@ -67,6 +73,7 @@ class ProductService:
             'disco': len(disco),
             'mami': len(supermami),
             'hiper': len(hiperlibertad),
+            'chang': len(changomas),
         }
 
     def grouped_catalog(self) -> dict[str, Any]:

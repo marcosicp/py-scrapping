@@ -16,6 +16,7 @@ EMPTY_FALLBACK = {
     "disco": 0,
     "mami": 0,
     "hiper": 0,
+    "chang": 0,
 }
 
 # Non-database failures must never be reported as a database outage.
@@ -49,7 +50,7 @@ def test_one_product_per_supermarket_counts_and_sorted_todos(repository, client)
     assert [p["name"] for p in payload["todos"]] == ["A", "B", "C", "D"]
 
 
-def test_grouping_is_case_insensitive_and_ignores_other_supermarkets(
+def test_grouping_is_case_insensitive_and_buckets_every_chain(
         repository, client):
     repository.documents = [
         {"supermercado": "DISCO", "name": "a"},
@@ -66,8 +67,9 @@ def test_grouping_is_case_insensitive_and_ignores_other_supermarkets(
     assert payload["carre"] == 1
     assert payload["hiper"] == 2
     assert payload["mami"] == 2
+    assert payload["chang"] == 1  # ChangoMas is now a visible chain
     assert [p["name"] for p in payload["todos"]] == [
-        "a", "b", "c", "d", "e", "f"]
+        "a", "b", "c", "d", "e", "f", "g"]
 
 
 def test_dedupe_by_name_inside_supermarket_keeps_first(repository, client):
@@ -154,4 +156,4 @@ def test_unexpected_repository_failure_is_also_not_labelled_database_error(
 def test_successful_payload_has_exactly_the_legacy_keys(repository, client):
     repository.documents = [{"supermercado": "disco", "name": "A"}]
     assert set(get_json(client).keys()) == {"todos", "carre", "disco",
-                                            "mami", "hiper"}
+                                            "mami", "hiper", "chang"}

@@ -224,7 +224,8 @@ def test_solo_docs_appear_with_single_offer():
 
 def test_payload_shape_and_stable_id():
     payload = group_products([_doc(), _doc(supermercado="carrefour")])
-    assert set(payload) == {"productos", "carre", "disco", "mami", "hiper"}
+    assert set(payload) == {
+        "productos", "carre", "disco", "mami", "hiper", "chang"}
     row = payload["productos"][0]
     assert len(row["id"]) == 16
     int(row["id"], 16)  # lowercase hex sha1 prefix
@@ -279,22 +280,45 @@ def test_missing_ean_key_treated_as_empty():
     assert set(payload["productos"][0]["offers"]) == {"carre", "disco"}
 
 
-def test_changomas_ignored_out_of_scope():
+def test_changomas_documents_get_their_own_chang_bucket():
     payload = group_products([
         _doc(supermercado="disco", name="Yerba", ean="123"),
         _doc(supermercado="ChangoMas", name="Yerba", ean="123"),
     ])
+    assert len(payload["productos"]) == 1
     assert payload["disco"] == 1
+    assert payload["chang"] == 1
     assert payload["carre"] == 0
     assert payload["mami"] == 0
     assert payload["hiper"] == 0
     assert payload["productos"][0]["offers"] == {
-        "disco": {"name": "Yerba", "price": 1500}}
+        "disco": {"name": "Yerba", "price": 1500},
+        "chang": {"name": "Yerba", "price": 1500}}
+
+
+def test_chang_bucket_accepts_every_spelling():
+    payload = group_products([
+        _doc(supermercado="ChangoMas", name="Yerba A"),
+        _doc(supermercado="ChangoMás", name="Yerba B"),
+        _doc(supermercado="CHANGOMAS", name="Yerba C"),
+    ])
+    assert payload["chang"] == 3
+    assert payload["disco"] == 0
+    assert payload["carre"] == 0
+    assert payload["mami"] == 0
+    assert payload["hiper"] == 0
+    # -- every spelling lands in the same bucket, each product its own row
+    assert len(payload["productos"]) == 3
+    assert all(set(row["offers"]) == {"chang"}
+               for row in payload["productos"])
+    assert {row["offers"]["chang"]["name"]
+            for row in payload["productos"]} == {"Yerba A", "Yerba B", "Yerba C"}
 
 
 def test_empty_input():
     assert group_products([]) == {
-        "productos": [], "carre": 0, "disco": 0, "mami": 0, "hiper": 0}
+        "productos": [], "carre": 0, "disco": 0, "mami": 0, "hiper": 0,
+        "chang": 0}
 
 
 # -- Layer 1 / layer 2 reconciliation (D-11, D-12) -------------------------

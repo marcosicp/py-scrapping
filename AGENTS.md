@@ -92,7 +92,7 @@ api/scrapers/errors.py   ScraperError family: UnknownScraper, InvalidCategory, A
 api/scrapers/browser.py Chrome factory: build_chrome(settings) driven by CHROMEDRIVER_PATH / CHROME_HEADLESS (D8); Selenium imported lazily
 api/scrapers/http.py    Shared HTTP session with the legacy browser User-Agent (no requests-html)
 api/scrapers/           One BaseScraper subclass per supermarket: supermami, laanonima, disco, carrefour, changomas
-tests/                  pytest suite (405 passed / 9 skipped by default; no network, no DB, no Chrome)
+tests/                  pytest suite (451 passed / 9 skipped by default; no network, no DB, no Chrome)
 adminpro/src/app/       Angular 21 source (dashboard with the grouped master grid, login, register, progress, grafica1)
 templates/scrape.html   The ONLY template a route renders (self-contained admin panel: own CSS, no third-party asset, polls /api/scrapers; registry-generated)
 docs/agent-context/     Deep dives for agents — read when you need detail
@@ -198,9 +198,15 @@ not undo (details in
   categories discovered from `/api/catalog_system/pub/category/tree/2` (whose
   children partition the parent exactly). Do not "simplify" it into one flat
   paged crawl: the last ~1400 products would silently vanish.
-- **ChangoMás re-fetches the discovery page in its page loop**
-  (`api/scrapers/changomas.py:152`) and is persisted but still not shown by
-  `/supermercados` (K-12, API half open).
+- **ChangoMás reads the VTEX catalog API, never the HTML or a browser.**
+  `masonline.com.ar` is VTEX; almacén holds 4099 products and the search API
+  answers **400 for `_from=2501`**, so the run walks the nine level-2 children
+  discovered from `/api/catalog_system/pub/category/tree/2`, which partition
+  the parent exactly (420+429+92+325+349+160+1544+303+477 = 4099). The largest
+  child is 1544, so no price bisection is needed — unlike Disco. Do not
+  "simplify" it into one flat paged crawl or restore the old browser path,
+  which drove Chrome against a curated `productClusterIds` cluster and never
+  read `/almacen` at all.
 - **SuperMami is Oracle Endeca, not VTEX** and no longer caps pages
   (`api/scrapers/supermami.py`). The category is resolved from the site menu
   and the products come from `/super/categoria/<slug>/_/N-<id>` with
@@ -309,7 +315,7 @@ the third depends on the machine. Full record:
   totals and the `es-AR` money format. It needs no Chrome, no karma and no
   network.
 
-Default run: **423 passed, 9 skipped** — the 9 skips are the opt-in MongoDB
+Default run: **451 passed, 9 skipped** — the 9 skips are the opt-in MongoDB
 integration tests.
 
 Consequence: watched behavior is covered by the pytest suite, but **live

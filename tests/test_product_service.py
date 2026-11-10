@@ -29,6 +29,7 @@ def test_catalog_happy_path_matches_legacy_payload():
         "disco": 1,
         "mami": 1,
         "hiper": 1,
+        "chang": 0,
     }
 
 
@@ -54,7 +55,28 @@ def test_catalog_empty_repository():
         "disco": 0,
         "mami": 0,
         "hiper": 0,
+        "chang": 0,
     }
+
+
+def test_catalog_buckets_changomas_into_the_chang_payload_key():
+    """ChangoMás is no longer the open half of K-12: its documents must be
+    counted and rendered in ``todos`` under the ``chang`` payload key for
+    every stored spelling."""
+    repository = InMemoryProductRepository()
+    repository.documents = [
+        {"supermercado": "ChangoMas", "name": "azucar"},
+        {"supermercado": "ChangoMás", "name": "yerba"},
+        {"supermercado": "CHANGOMAS", "name": "fideos"},
+    ]
+    payload = ProductService(repository).catalog()
+    assert payload["chang"] == 3
+    assert payload["carre"] == 0
+    assert payload["disco"] == 0
+    assert payload["mami"] == 0
+    assert payload["hiper"] == 0
+    assert [p["name"] for p in payload["todos"]] == [
+        "azucar", "fideos", "yerba"]
 
 
 def test_catalog_propagates_repository_exceptions_untouched():
