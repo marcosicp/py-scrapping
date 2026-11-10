@@ -92,7 +92,8 @@ api/scrapers/errors.py   ScraperError family: UnknownScraper, InvalidCategory, A
 api/scrapers/browser.py Chrome factory: build_chrome(settings) driven by CHROMEDRIVER_PATH / CHROME_HEADLESS (D8); Selenium imported lazily
 api/scrapers/http.py    Shared HTTP session with the legacy browser User-Agent (no requests-html)
 api/scrapers/           One BaseScraper subclass per supermarket: supermami, laanonima, disco, carrefour, changomas
-tests/                  pytest suite (451 passed / 9 skipped by default; no network, no DB, no Chrome)
+tests/                  pytest suite (no network, no DB, no Chrome; the 9 skips are the
+                        opt-in Mongo integration tests — read the total from `pytest`)
 adminpro/src/app/       Angular 21 source (dashboard with the grouped master grid, login, register, progress, grafica1)
 templates/scrape.html   The ONLY template a route renders (self-contained admin panel: own CSS, no third-party asset, polls /api/scrapers; registry-generated)
 docs/agent-context/     Deep dives for agents — read when you need detail
@@ -207,6 +208,15 @@ not undo (details in
   "simplify" it into one flat paged crawl or restore the old browser path,
   which drove Chrome against a curated `productClusterIds` cluster and never
   read `/almacen` at all.
+- **Page failures and a missing category are fatal on purpose.**
+  `carrefour.py`, `disco.py` and `changomas.py` raise instead of ending a
+  subcategory early: `replace_products` REPLACES the stored slice, so returning
+  a truncated list would persist an incomplete catalog while the run reported
+  success. A category that is genuinely absent from the VTEX tree raises too,
+  so a renamed site path is loud instead of silently collecting nothing. A
+  category that resolves but has no children is only reported and skipped —
+  making it fatal would let one empty category block every other one. Do not
+  turn any of these back into a silent `break`/`continue`.
 - **SuperMami is Oracle Endeca, not VTEX** and no longer caps pages
   (`api/scrapers/supermami.py`). The category is resolved from the site menu
   and the products come from `/super/categoria/<slug>/_/N-<id>` with
@@ -315,8 +325,9 @@ the third depends on the machine. Full record:
   totals and the `es-AR` money format. It needs no Chrome, no karma and no
   network.
 
-Default run: **451 passed, 9 skipped** — the 9 skips are the opt-in MongoDB
-integration tests.
+Default run: green, with 9 skips — and those 9 are the opt-in MongoDB
+integration tests. The passed total moves with every test that lands, so read
+it from `pytest` instead of trusting a number frozen into this file.
 
 Consequence: watched behavior is covered by the pytest suite, but **live
 scraping is still verified manually** — the scrapers need Chrome, a matching
