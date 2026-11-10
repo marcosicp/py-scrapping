@@ -166,7 +166,15 @@ class ScraperChangoMas(BaseScraper):
 
     def _scrape_subcategory(self, ctx: ScrapeContext, categoria: str,
                             subcategoria: str, path: str) -> list[dict]:
-        """Every product of one level-two category, paged by ``resources``."""
+        """Every product of one level-two category, paged by ``resources``.
+
+        A page failure is fatal instead of ending the child early: the caller
+        saves whatever this returns, and ``replace_products`` REPLACES the
+        slice, so returning a truncated list would wipe the stored catalog for
+        this subcategory while the run still reported ``PROCESO TERMINADO``.
+        Raising leaves the previous slice untouched and marks the run failed
+        (the same policy ``disco.py`` applies to its search windows).
+        """
         documents: list[dict] = []
         seen: set[str] = set()
         start = 0
@@ -177,17 +185,22 @@ class ScraperChangoMas(BaseScraper):
             try:
                 response = ctx.http.get(url, timeout=30)
             except Exception as exc:
-                ctx.report(f"Error de red en {subcategoria}: {exc}")
-                break
+                ctx.report(f"Error de red en {subcategoria}: {exc}. "
+                           f"No se guarda la recolección parcial")
+                raise
             if response.status_code not in (200, 206):
-                ctx.report(f"Error {response.status_code} en {subcategoria}")
-                break
+                ctx.report(f"Error {response.status_code} en {subcategoria}. "
+                           f"No se guarda la recolección parcial")
+                raise RuntimeError(
+                    f"the search API answered {response.status_code}")
 
             try:
                 items = response.json() or []
             except Exception as exc:
-                ctx.report(f"Respuesta inválida en {subcategoria}: {exc}")
-                break
+                ctx.report(f"Respuesta inválida en {subcategoria}: {exc}. "
+                           f"No se guarda la recolección parcial")
+                raise RuntimeError(
+                    f"{subcategoria} answered invalid JSON") from exc
             if not items:
                 break
 

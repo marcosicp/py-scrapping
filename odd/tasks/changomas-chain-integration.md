@@ -175,11 +175,51 @@ A `grep` for `selenium|json-ld|discovery page|half open|no branch|substring-base
 next to any ChangoMás mention over `AGENTS.md`, `README.md` and
 `docs/agent-context/` now returns nothing.
 
+## Correction after the native review (R3-001)
+
+The native review (`review-reliability`, tier medium) raised one CRITICAL,
+deterministic, candidate-introduced finding:
+
+**R3-001** — a mid-subcategory network error, non-2xx response or invalid JSON
+broke out of `_scrape_subcategory` and returned the documents collected so far;
+`run` then saved that partial list and ended with `PROCESO TERMINADO`. Because
+`replace_products` REPLACES the slice, a transient page failure could replace a
+stored subcategory with a truncated catalog while the run looked successful.
+
+This was inherited from `carrefour.py`, whose page errors `break` the same way.
+`disco.py` already solved it for its search windows: 4xx raises on the first
+attempt, 5xx/network retries then re-raises, and an incomplete collection is
+always reported, never trimmed silently.
+
+**Fix** — the three page failures now report that the partial collection will
+not be saved and then raise (`api/scrapers/changomas.py`), so `run` never
+reaches `ctx.save` for that subcategory: the previous slice stays intact and
+the manager marks the run failed. `if not items: break` is unchanged, since an
+empty page is how the API signals the end of a catalog.
+
+**One test was passing because of the bug.**
+`test_no_page_window_ever_reaches_or_crosses_the_2500_ceiling` queued only
+three canned responses for two children, so the fake session raised
+`AssertionError("unexpected extra GET")` on the second child — and the scraper's
+own `except Exception: break` swallowed it, ending that child with zero
+documents and letting the test assert its window list. The fix surfaced it as a
+failure. The test now queues the responses it actually needs, so it pins the
+ceiling on its own merits instead of relying on a swallowed error.
+
+Correction size: **94 diff lines**, against the declared plan of 120 and the
+frozen budget of 200.
+
 ## Follow-ups
 
 - `tests/test_scraper_*.py` duplicate their VTEX doubles per module; a shared
   fake in `tests/fakes.py` is the obvious cleanup, deliberately out of scope.
 - The header block for La Anónima still renders `libertad-logo.png`, the logo of
   the chain it replaced. Pre-existing, visible, unrelated to this feature.
-- `AGENTS.md` §2 and §8 disagree on the test count (405 vs 423). Neither matches
-  the observed 434. Separately requested, not fixed here.
+- `carrefour.py` carries the same page-failure `break` that R3-001 flagged in
+  ChangoMás, so the same truncation risk exists there and is now inconsistent
+  with both `disco.py` and `changomas.py`. Pre-existing, unrelated to this
+  feature, and worth its own task.
+- `FakeSession` in the scraper tests signals "unexpected extra GET" with an
+  `AssertionError`, which any `except Exception` in the code under test will
+  swallow. R3-001 masked one test that way. A dedicated exception type would
+  make that failure mode impossible to hide.

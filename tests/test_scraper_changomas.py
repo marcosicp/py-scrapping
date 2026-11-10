@@ -312,7 +312,8 @@ def test_no_page_window_ever_reaches_or_crosses_the_2500_ceiling(repository):
     session = FakeSession([
         FakeResponse(200, TREE_JSON),
         FakeResponse(206, [vtex_product("A 1 kg", "1")], total=60, start=0),
-        FakeResponse(206, [vtex_product("B 1 kg", "2")], total=1),
+        FakeResponse(206, [vtex_product("A 2 kg", "2")], total=60, start=50),
+        FakeResponse(206, [vtex_product("B 1 kg", "3")], total=1),
     ])
     ctx, _messages = make_ctx(session, repository)
 
@@ -497,3 +498,67 @@ def _set_event():
     event = threading.Event()
     event.set()
     return event
+
+
+# -- 6. a page failure is fatal, never a truncated save (R3-001) -------------
+
+
+class _FailsAfterFirstPage:
+    """The tree, then one page, then a dead network."""
+
+    def __init__(self, first_page, error):
+        self.urls = []
+        self._first_page = first_page
+        self._error = error
+
+    def get(self, url, timeout=None, headers=None):
+        self.urls.append(url)
+        if len(self.urls) == 1:
+            return FakeResponse(200, TREE_JSON)
+        if len(self.urls) == 2:
+            return self._first_page
+        raise self._error
+
+
+def _network_failure_session():
+    return _FailsAfterFirstPage(
+        FakeResponse(206, [vtex_product("A 1 kg", "1")], total=120),
+        RuntimeError("network down"))
+
+
+def _server_error_session():
+    return FakeSession([
+        FakeResponse(200, TREE_JSON),
+        FakeResponse(206, [vtex_product("A 1 kg", "1")], total=120),
+        FakeResponse(500, None),
+    ])
+
+
+def _invalid_json_session():
+    return FakeSession([
+        FakeResponse(200, TREE_JSON),
+        FakeResponse(206, [vtex_product("A 1 kg", "1")], total=120),
+        FakeResponse(200, None),
+    ])
+
+
+@pytest.mark.parametrize("build_session", [
+    _network_failure_session,
+    _server_error_session,
+    _invalid_json_session,
+])
+def test_a_page_failure_never_saves_a_truncated_slice(build_session):
+    """R3-001: ``replace_products`` REPLACES the slice, so saving the
+    documents collected before a page failure would wipe the stored catalog
+    for this subcategory while the run still reported ``PROCESO TERMINADO``.
+    The failure has to fail the run instead."""
+    repository = InMemoryProductRepository()
+    ctx, messages = make_ctx(build_session(), repository)
+
+    with pytest.raises(Exception):
+        ScraperChangoMas().run(ctx)
+
+    assert repository.calls == []
+    assert any("No se guarda la recolección parcial" in message
+               for message in messages)
+    assert not any("PROCESO TERMINADO" in message for message in messages)
