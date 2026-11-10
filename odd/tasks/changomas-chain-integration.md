@@ -104,7 +104,7 @@ the other four blocks show logos.
 - [x] T2 — Surface the `chang` bucket: `api/services/matching.py`,
       `api/services/products.py`, `api/blueprints/products.py`, and invert the
       tests that pin ChangoMás as ignored.
-- [ ] T3 — Dashboard: `offers.chang` column, `itemsChang`/`totalChang`, toggle
+- [x] T3 — Dashboard: `offers.chang` column, `itemsChang`/`totalChang`, toggle
       branch, fifth list panel, fifth header block (text), `col` layout.
 - [ ] T4 — Verification (`pytest`, `verify:selection`, flake8) and the
       `AGENTS.md` corrections for the two statements this invalidates.
@@ -135,6 +135,18 @@ appends `chang`4, `_bucket()` matches both spellings, `catalog()` concatenates
 The pin that asserted the opposite (`test_changomas_ignored_out_of_scope`) is
 replaced by `test_changomas_documents_get_their_own_chang_bucket`, and the
 spellings `ChangoMas` / `ChangoMás` / `CHANGOMAS` are covered in both layers.
+
+**T3** — `npm run verify:selection` → `selection logic OK (19 checks)`.
+`npx tsc -p tsconfig.app.json --noEmit` → exit 0, no output.
+`grep -c "col-3"` over the template → `0`.
+
+Diff read line by line: `selection.ts` untouched (it is chain-agnostic);
+everything appended at the end, so the four existing columns, lists and toggle
+branches keep their order. The ChangoMás header block is a 70px flex-centred
+text block with a `badge-success` count — no image, no new asset, per D8.
+
+Not verified here: the rendered page. Per AGENTS.md §8 an agent session never
+opens a browser in this repo, so the visual check is the owner's.
 
 ## Follow-ups
 

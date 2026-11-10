@@ -4,7 +4,7 @@
     <div class="card">
       <div class="card-body">
         <div *ngIf="items != undefined" class="row justify-content-center">
-          <div class="col-3 text-center">
+          <div class="col text-center">
             <img
               style="height: 70px; background-color: whitesmoke"
               src="./assets/images/carrefour.png"
@@ -15,7 +15,7 @@
               items!.carre
             }}</span>
           </div>
-          <div class="col-3 text-center">
+          <div class="col text-center">
             <img
               style="width: 70px; height: 70px; background-color: whitesmoke"
               src="./assets/images/disco-logo.png"
@@ -26,7 +26,7 @@
               items!.disco
             }}</span>
           </div>
-          <div class="col-3 text-center">
+          <div class="col text-center">
             <img
               style="height: 70px; width: 70px; background-color: whitesmoke"
               src="./assets/images/libertad-logo.png"
@@ -37,7 +37,7 @@
               items!.hiper
             }}</span>
           </div>
-          <div class="col-3 text-center">
+          <div class="col text-center">
             <img
               width="70px"
               style="height: 70px; width: 70px; background-color: whitesmoke"
@@ -47,6 +47,16 @@
             />
             <span class="badge badge-danger" style="font-weight: bold">{{
               items!.mami
+            }}</span>
+          </div>
+          <div class="col text-center">
+            <div
+              style="height: 70px; font-size: 1.25rem; font-weight: bold; display: flex; align-items: center; justify-content: center"
+            >
+              ChangoMás
+            </div>
+            <span class="badge badge-success" style="font-weight: bold">{{
+              items!.chang
             }}</span>
           </div>
         </div>
@@ -60,7 +70,7 @@
     <div class="card">
       <div class="card-body">
         <div *ngIf="items != undefined" class="row justify-content-center">
-          <div class="col-3 text-center">
+          <div class="col text-center">
             <ag-grid-angular
             style="width: 100%; height: 200px"
             class="ag-theme-alpine"
@@ -73,7 +83,7 @@
               Total: {{ formatMoney(totalCarre) }}
             </div>
           </div>
-          <div class="col-3 text-center">
+          <div class="col text-center">
             <ag-grid-angular
             style="width: 100%; height: 200px"
             class="ag-theme-alpine"
@@ -86,7 +96,7 @@
               Total: {{ formatMoney(totalDisco) }}
             </div>
           </div>
-          <div class="col-3 text-center">
+          <div class="col text-center">
             <ag-grid-angular
             style="width: 100%; height: 200px"
             class="ag-theme-alpine"
@@ -99,7 +109,7 @@
               Total: {{ formatMoney(totalHiper) }}
             </div>
           </div>
-          <div class="col-3 text-center">
+          <div class="col text-center">
             <ag-grid-angular
             style="width: 100%; height: 200px"
             class="ag-theme-alpine"
@@ -110,6 +120,19 @@
           ></ag-grid-angular>
             <div style="font-size: 12px; font-weight: bold; margin-top: 4px">
               Total: {{ formatMoney(totalMami) }}
+            </div>
+          </div>
+          <div class="col text-center">
+            <ag-grid-angular
+            style="width: 100%; height: 200px"
+            class="ag-theme-alpine"
+            [columnDefs]="columnDefsGeneric"
+            [rowData]="itemsChang"
+            [animateRows]="true"
+            [overlayNoRowsTemplate]="noRowsTemplate"
+          ></ag-grid-angular>
+            <div style="font-size: 12px; font-weight: bold; margin-top: 4px">
+              Total: {{ formatMoney(totalChang) }}
             </div>
           </div>
         </div>

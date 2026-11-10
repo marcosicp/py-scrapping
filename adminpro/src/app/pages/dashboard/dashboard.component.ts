@@ -19,12 +19,14 @@ export class DashboardComponent implements OnInit {
   itemsDisco?: ChainEntry[] = [];
   itemsMami?: ChainEntry[] = [];
   itemsHiper?: ChainEntry[] = [];
+  itemsChang?: ChainEntry[] = [];
   // -- D-15: one total per list, derived from that list and rendered under its
   // grid; the legacy setPinnedBottomRowData route is gone
   totalCarre = 0;
   totalDisco = 0;
   totalMami = 0;
   totalHiper = 0;
+  totalChang = 0;
   rowDataClicked1 = {};
   public rowSelection: 'single' | 'multiple' = 'multiple';
   // Each Column Definition results in one Column.
@@ -104,6 +106,17 @@ export class DashboardComponent implements OnInit {
     {
       field: 'offers.hiper.price',
       headerName: 'La Anónima',
+      sortable: true,
+      filter: true,
+      suppressSizeToFit: true,
+      cellRenderer: (param: any) => {
+        return param.value == null ? '' : '$' + param.value;
+      },
+      flex: 1,
+    },
+    {
+      field: 'offers.chang.price',
+      headerName: 'ChangoMás',
       sortable: true,
       filter: true,
       suppressSizeToFit: true,
@@ -208,6 +221,11 @@ export class DashboardComponent implements OnInit {
     if (offers.hiper) {
       this.itemsHiper = toggleOffer(rowId, offers.hiper, presentation, data.selected, this.itemsHiper);
       this.totalHiper = chainTotal(this.itemsHiper);
+    }
+    // -- ChangoMás
+    if (offers.chang) {
+      this.itemsChang = toggleOffer(rowId, offers.chang, presentation, data.selected, this.itemsChang);
+      this.totalChang = chainTotal(this.itemsChang);
     }
   }
 }
