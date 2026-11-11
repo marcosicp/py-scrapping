@@ -765,3 +765,36 @@ def test_a_shared_container_still_merges_branded_and_brandless():
     ])
     assert len(payload["productos"]) == 1
     assert set(payload["productos"][0]["offers"]) == {"disco", "carre", "hiper"}
+
+
+def test_a_contested_group_is_never_absorbed():
+    # -- third-round review R3-001: the ambiguity verdict was applied when a
+    # container arrives (join into a contested receiver) but NOT to the
+    # contested group itself, so a brandless packless row — ambiguous between
+    # two containers — still joined the branded container row through the
+    # brand pass and collapsed two products.
+    payload = group_products([
+        _doc(supermercado="supermami", name="Aceite de oliva Lira",
+             unidad="500 ML", brand="", price=1600),
+        _doc(supermercado="carrefour", name="Aceite de oliva Lira lata",
+             unidad="500 cc", brand="Lira", price=1500),
+        _doc(supermercado="hiperlibertad", name="Aceite de oliva Lira pet",
+             unidad="500 cc", brand="", price=1400),
+    ])
+    assert len(payload["productos"]) == 3
+    assert all(row["match"] == "solo" for row in payload["productos"])
+
+
+def test_a_contested_group_still_merges_when_one_container_remains():
+    # -- the guard must not freeze a row that is not ambiguous: with a single
+    # container in play the brandless packless document still joins it.
+    payload = group_products([
+        _doc(supermercado="supermami", name="Aceite de oliva Lira",
+             unidad="500 ML", brand="", price=1600),
+        _doc(supermercado="carrefour", name="Aceite de oliva Lira lata",
+             unidad="500 cc", brand="Lira", price=1500),
+        _doc(supermercado="hiperlibertad", name="Aceite de oliva Lira en lata",
+             unidad="500 cc", brand="", price=1400),
+    ])
+    assert len(payload["productos"]) == 1
+    assert set(payload["productos"][0]["offers"]) == {"mami", "carre", "hiper"}

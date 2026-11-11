@@ -276,3 +276,48 @@ work.
 Owner disposition (same as §10): leave the lineage in `correction_required` and
 continue; the code is verified by the suite, the RED-proof against the previous
 module and the live replay, not by the provider.
+
+## 12. Third native review (`review-be7a8b525e125e33`)
+
+The previous correction was never validated (the plan slot is blocked, §11), so
+the branch head — which now contains that correction — opened a third lineage
+over target `sha256:79fb165c…`, tier medium, `review-reliability`, 630 lines,
+budget 200. The host resolved START consent itself (`--consent=relay`); the
+first attempt returned an expired `consent/v3` binding with
+`lineage_created: false` and asked for a fresh START, which created the lineage.
+
+- **R3-001 · CRITICAL, deterministic, real a third time — same family, third
+  site.** The `contested` verdict was applied when a container *arrives* into a
+  contested receiver, but not to the contested group itself: a brandless
+  packless row, ambiguous between `lata` and `pet`, still joined the branded
+  `lata` row through the brand pass (`if group.pack and ...` meant the guard
+  only fired for container-carrying joiners), collapsing two products.
+  Fix: a contested group is never absorbed, whatever its own container is, and
+  a contested receiver still never absorbs. Proven to bite: against the previous
+  module `test_a_contested_group_is_never_absorbed` fails with `2 == len([...])`
+  (the ambiguous row had been merged into `lata`); the companion test
+  `test_a_contested_group_still_merges_when_one_container_remains` pins the
+  single-container merge that must keep working.
+- **Invariant audited instead of patched a fourth time.** Every site that can
+  move a document or a group was checked: the container pass (contested joiners
+  skipped, receivers always carry a container so they can never be contested),
+  the brand pass (both sides guarded now), and the D-20 EAN promotion — the one
+  place where a contested group *may* still be absorbed, because exactly one
+  stored EAN is stronger evidence than an unknown container and a second
+  container variant without an EAN keeps its own row. That reason is now a
+  comment at the promotion site, not a silent gap. Live catalog: **0 contested
+  groups and 0 promotions of them**, so the whole rule is defensive on today's
+  data.
+- Live output is unchanged (16 588 rows / 13 584 single-chain / 2 885 EAN rows):
+  no current product has two competing containers under one key.
+- Suite after the correction: **484 passed, 9 skipped**; flake8 gate 0.
+
+### The same defect three times: what it actually was
+
+Every round found the same mistake in a different place: **the ambiguity verdict
+was computed for one dimension and then applied only to some of the merge
+sites**. First a receiver-level check, then an exact-brand candidate key, then a
+guard gated on the joiner carrying a container. The durable shape is the one now
+in the code: compute `contested` once per group, over the brand-compatible
+candidate set, and consult it at *every* site that merges — with the single
+documented exception at the EAN layer.

@@ -450,13 +450,15 @@ def group_products(docs: list[dict]) -> dict:
     for group in strict:
         by_signature[(group.tokens, group.qty)].append(group)
     for group in sorted(loose, key=_layer2_key):  # deterministic pass
+        if id(group) in contested:
+            continue  # its own container is ambiguous: D-2 keeps it alone
         candidates = [strict_g
                       for strict_g in by_signature[(group.tokens, group.qty)]
                       if _joins_strict(group, strict_g)]
         if len(candidates) != 1:
             continue  # no corroboration or ambiguous: D-2 fail-open
         receiver = candidates[0]
-        if group.pack and id(receiver) in contested:
+        if id(receiver) in contested:
             continue  # R3-001: a container must not settle an ambiguous row
         receiver.members.extend(group.members)
         absorbed.add(id(group))
@@ -469,6 +471,11 @@ def group_products(docs: list[dict]) -> dict:
     # and the brands are compatible the D-9 way: equal when BOTH sides carry
     # one, no requirement when one side carries none. Anything ambiguous stays
     # on its own row, the same fail-open bias as D-2.
+    #
+    # A container-ambiguous group may still be promoted here on purpose: exactly
+    # one stored EAN is stronger evidence than an unknown container, and a second
+    # container variant that carries no EAN keeps its own row instead of being
+    # pulled in. Both reviews that asked about this path expected the same answer.
     #
     # The index is built from every EAN-backed DOCUMENT, not from a group's
     # first member: ``_Group`` copies its key parts from whichever document
