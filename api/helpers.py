@@ -12,12 +12,13 @@ def remove_duplicates_by_key(objects_list, key):
     return new_objects_list
 
 # -- Unit set for the stored `unidad`. Longest variants first so `lts` is never
-# -- read as `l`. Two corrections against the original pattern: the bare `l`
-# -- litre was missing (102 catalog names kept `unidad=""` because of it, C3 in
-# -- odd/tasks/catalog-matching-normalization.md), and `m` was removed because it
-# -- matched any stray metre-like token and no product in these chains is sold
-# -- by the metre.
-UNIDADES = ("kgs", "grs", "lts", "mls", "kg", "gr", "ml", "cc", "lt", "g", "l")
+# -- read as `l`. The bare `l` litre was the real gap: 102 catalog names kept
+# -- `unidad=""` because of it (C3 in
+# -- odd/tasks/catalog-matching-normalization.md). `m` stays: matching cannot
+# -- resolve it as a unit family, but dropping it changed how metre-length names
+# -- are stored, which is out of scope here (review R3-001).
+UNIDADES = ("kgs", "grs", "lts", "mls", "kg", "gr", "ml", "cc", "lt", "g",
+           "m", "l")
 
 
 def name_parse(name):

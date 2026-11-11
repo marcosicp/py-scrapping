@@ -59,11 +59,12 @@ def test_trailing_period_after_the_unit_is_handled():
     assert "1 l" not in parsed["name"]
 
 
-def test_bare_m_is_not_a_unit():
-    """`m` matched any stray metre-like token and no product in these chains is
-    sold by the metre."""
+def test_bare_m_keeps_its_baseline_behavior():
+    # -- `m` stays in the unit set on purpose: matching cannot resolve it as a
+    # unit family, but removing it changed how metre-length names are stored,
+    # which is out of scope for this fix (review R3-001).
     assert name_parse("Cinta adhesiva 50 m") == {
-        "name": "Cinta adhesiva 50 m", "unidad": ""}
+        "name": "Cinta adhesiva", "unidad": "50 m"}
 
 
 def test_multiple_quantities_are_comma_joined_but_only_the_first_is_removed():
