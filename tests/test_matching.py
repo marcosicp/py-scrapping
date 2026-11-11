@@ -430,6 +430,34 @@ def test_numbers_that_belong_to_the_name_are_not_consumed():
     assert len(together["productos"]) == 1
 
 
+def test_a_contradictory_unit_in_the_name_is_not_consumed():
+    # -- R3-002 of the native review: the presentation taken from `unidad`
+    # dropped whatever unit token followed the repeated quantity, even when it
+    # named a different family. That deleted the only token telling a document
+    # spelled `1.5 kg` apart from one spelled `1.5 L`, so two contradictory
+    # listings collapsed into one row — a false positive, which is the failure
+    # this module exists to avoid.
+    payload = group_products([
+        _doc(supermercado="disco", name="Aceite firme 1.5 kg",
+             unidad="1,5 Lt", brand="", ean=""),
+        _doc(supermercado="la anónima", name="Aceite firme 1.5 L",
+             unidad="1,5 Lt", brand="", ean=""),
+    ])
+    assert len(payload["productos"]) == 2
+
+
+def test_a_same_family_unit_in_the_name_is_still_consumed():
+    # -- the other side of R3-002: the repeated presentation is still dropped
+    # when it names the same family, which is the case the fix exists for.
+    payload = group_products([
+        _doc(supermercado="disco", name="Aceite firme 1.5 L",
+             unidad="1,5 Lt", brand="", ean=""),
+        _doc(supermercado="la anónima", name="Aceite firme 1,5 Lt",
+             unidad="", brand="", ean=""),
+    ])
+    assert len(payload["productos"]) == 1
+
+
 def test_ambiguous_ean_signature_keeps_the_layer2_group_separate():
     # -- two EAN groups share the canonical signature: the third document has
     # two candidates and stays on its own row (D-11 fail-open).

@@ -138,7 +138,8 @@ class _Doc:
     # -- presentation per D-8 ------------------------------------------
 
     def _drop_repeated_presentation(
-            self, name_tokens: list[str], quantity: float) -> None:
+            self, name_tokens: list[str], quantity: float,
+            family: str) -> None:
         """Mark the name token that repeats a presentation taken from `unidad`.
 
         Positional on purpose (review H-1): the name usually repeats its own
@@ -146,6 +147,11 @@ class _Doc:
         belongs to the presentation. Matching by string also deleted an
         unrelated ``1`` or ``5`` elsewhere in the name, which collapsed two
         different packs into one row.
+
+        The unit token is dropped only when it names the SAME family (review
+        R3-002): a document spelled ``1.5 kg`` under ``unidad=1,5 Lt`` is
+        contradictory data, and deleting ``kg`` would remove the one token that
+        keeps it apart from a ``1.5 L`` listing.
         """
         for index, token in enumerate(name_tokens):
             fused = _FUSED_TOKEN_RE.match(token)
@@ -154,9 +160,17 @@ class _Doc:
                 continue
             if _decimal_value(quantity_text) != quantity:
                 continue
+            if fused is not None:
+                # -- a fused token cannot be split by index: drop it whole only
+                # -- when its unit belongs to the same family, else keep it
+                if _UNIT_FAMILIES[fused.group(2).lower()][1] == family:
+                    self.consumed.add(index)
+                return
             self.consumed.add(index)
-            if fused is None and index + 1 < len(name_tokens) \
-                    and _UNIT_TOKEN_RE.match(name_tokens[index + 1]):
+            if (index + 1 < len(name_tokens)
+                    and _UNIT_TOKEN_RE.match(name_tokens[index + 1])
+                    and _UNIT_FAMILIES[name_tokens[index + 1].lower()][1]
+                    == family):
                 self.consumed.add(index + 1)
             return
 
@@ -173,7 +187,7 @@ class _Doc:
             unit = match.group(2).lower()
             factor, family = _UNIT_FAMILIES[unit]
             quantity = _decimal_value(match.group(1))
-            self._drop_repeated_presentation(name_tokens, quantity)
+            self._drop_repeated_presentation(name_tokens, quantity, family)
             return quantity * factor, family
         for index, tok in enumerate(name_tokens):
             fused = _FUSED_TOKEN_RE.match(tok)
