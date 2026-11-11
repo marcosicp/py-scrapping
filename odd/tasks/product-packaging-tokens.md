@@ -321,3 +321,31 @@ guard gated on the joiner carrying a container. The durable shape is the one now
 in the code: compute `contested` once per group, over the brand-compatible
 candidate set, and consult it at *every* site that merges — with the single
 documented exception at the EAN layer.
+
+### The plan slot is unusable, with two different rejections
+
+| attempt | binding | result |
+| --- | --- | --- |
+| 1 | `request-hash sha256:b24efdd3…`, `expected-revision sha256:56a0d0b2…` | `capture-binding-rejected: collectBinding does not carry one non-empty matching provider lineage and target token` |
+| 2 (after fresh STATUS re-offered the same slot) | identical | identical |
+
+Nothing burned (`mutation_performed: false`). Across the three lineages the
+correction-plan slot has now failed **five times** with two distinct symptoms —
+`missing or stale for current STATUS` (memories 737, 742, §11) and this
+`matching provider lineage and target token` one — while START, the materialize
+reviewer and the refuter work every time. The `concatenate-extra-keys` mistake
+recorded in memory 742 is not the cause here: the binding is passed byte for
+byte as STATUS returned it.
+
+Owner disposition (same as §10): leave the three lineages in
+`correction_required` and continue. The corrections in `b02e5a5`, `d1c5b9c` and
+`0a6a248` are verified by the suite, by a RED-proof against the previous module
+and by the live replay — not by the provider.
+
+### Residual risk to disclose
+
+Three corrections are now in the branch that the provider never validated: each
+one was reviewed by the *next* lineage (which is why the defects kept surfacing),
+except `0a6a248`, which no lineage has seen. A fourth round would very likely
+find another variant of the same family, so the loop has to be stopped by a
+human decision rather than by exhaustion.
