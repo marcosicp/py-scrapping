@@ -204,11 +204,14 @@ first document per chain wins) and ChangoMás has no bucket (K-12). Grouping
 is `api/services/matching.py::group_products()`: EAN groups first, then a
 strict canonical key, and a loose group joins at most one strict group —
 loose-vs-loose never merges (D-2). Because only Disco and Carrefour persist
-`ean`, a layer-2 group whose canonical signature equals exactly one EAN
-group's is merged into that row (ambiguous signatures stay separate), so one
-physical product keeps a single row when half of its chains lack an EAN. On
-any exception the blueprint answers 200 with `productos: []`, zeroed counts
-and an `error` key.
+`ean`, a layer-2 group is merged into the EAN row that its own
+`(tokens, qty, family)` points at, provided exactly one EAN matches and the
+brands are compatible the D-9 way (equal when both sides carry one) — so a
+La Anónima document, which never carries a brand, still keeps a single row
+with the same product on the EAN chains, and the merge does not depend on
+which document arrived first (D-20). Ambiguous keys and unresolved
+presentations stay on their own row. On any exception the blueprint answers
+200 with `productos: []`, zeroed counts and an `error` key.
 
 ## 5. Scrapers — `api/scrapers/`
 

@@ -81,7 +81,7 @@ api/container.py        Services composition root: init_services/get_services (a
 api/blueprints/         frontend.py (`/`, `/scrape` — the monitor page is registry-generated) + products.py (`/supermercados`, `/api/productos/agrupados`) + scrapers.py (`/api/scrapers` control API) + legacy.py (registry-generated `/scraping-<slug>` aliases); HTTP layer only
 api/cli.py              `python -m api.cli` scraper runner: `list` + `run <slug>`, no Flask/gunicorn
 api/services/           products.py — ProductService.catalog() grouping/dedupe/count logic, and grouped_catalog() for the canonical rows
-                        matching.py — group_products(): EAN first, then a strict canonical key, one row per canonical product with per-chain offers
+                        matching.py — group_products(): EAN first, then a strict canonical key, one row per canonical product with per-chain offers; a key group joins the single EAN its (tokens, qty, family) points at, brand compatible per D-9 (D-20)
                         scraping.py — ScraperManager + RunStatus/RunState (per-supermarket runs: threads, single-flight, cooperative stop)
 api/sockets.py          SocketIO singleton + SocketIOReporter (scraper progress publisher)
 api/helpers.py          remove_duplicates_by_key(), name_parse() → {name, unidad}
