@@ -44,6 +44,30 @@ _STOPWORDS = frozenset(
     {"de", "del", "la", "el", "los", "las", "con", "sin",
      "en", "x", "por", "para", "un", "una", "al"})
 
+# -- D-26 packaging words: the commercial container a chain may name or omit
+# ("Aceite de oliva Cocinero extra virgen" vs "... extra virgen pet"). Folded
+# to one value per container so `bot`/`botella` do not split either. NOT part of
+# the identity token set: it is a compatible-when-absent attribute, the same
+# shape as D-9's brand rule.
+_PACKAGING_CANONICAL = {
+    "pet": "pet",
+    "botella": "botella", "bot": "botella", "botellon": "botella",
+    "bidon": "bidon", "bid": "bidon", "bib": "bidon",
+    "pomo": "pomo",
+    "lata": "lata",
+    "frasco": "frasco",
+    "vidrio": "vidrio",
+    "bolsa": "bolsa",
+    "sobre": "sobre", "sobres": "sobre", "sachet": "sobre",
+    "doypack": "doypack", "pouch": "doypack",
+    "tetra": "tetra", "tetrabrik": "tetra",
+    "spray": "spray", "aerosol": "spray",
+    "bandeja": "bandeja",
+    "envase": "envase",
+}
+# -- D-27: `pack`, `caja`, `estuche`, `blister`, `display`, `un`, `unid` are
+# deliberately absent: they change WHAT is sold, so they stay identity tokens.
+
 # -- D-8 unit families: unit -> (factor, base unit)
 _UNIT_FAMILIES = {
     "kg": (1000.0, "g"), "kgs": (1000.0, "g"),
@@ -123,7 +147,7 @@ class _Doc:
     """
 
     __slots__ = ("doc", "bucket", "brand", "tokens", "qty", "family",
-                 "consumed")
+                 "consumed", "pack")
 
     def __init__(self, doc: dict[str, Any]) -> None:
         self.doc = doc
@@ -131,6 +155,7 @@ class _Doc:
         self.brand: str | None = _brand_key(doc)
         raw_tokens = _fold(str(doc.get("name", ""))).split()
         self.consumed: set[int] = set()
+        self.pack: tuple[str, ...] = ()
         self.qty, self.family = self._presentation(
             str(doc.get("unidad", "") or ""), raw_tokens)
         self.tokens = self._name_tokens(raw_tokens)
@@ -209,15 +234,26 @@ class _Doc:
         return None, None
 
     def _name_tokens(self, raw_tokens: list[str]) -> tuple[str, ...]:
-        """Matching token-set: punctuation split, stopwords and the consumed
-        raw tokens (by index) dropped, sorted."""
+        """Matching token-set: punctuation split, stopwords, the consumed raw
+        tokens (by index) and the packaging words (D-26) dropped, sorted.
+
+        A packaging word leaves the identity here and lands in ``pack``, which
+        is the compatible-when-absent dimension handled by ``group_products``.
+        """
         pieces = []
+        pack = set()
         for index, tok in enumerate(raw_tokens):
             if index in self.consumed:
                 continue
             for piece in re.split(r"[^0-9a-z]+", tok):
-                if piece and piece not in _STOPWORDS:
-                    pieces.append(piece)
+                if not piece or piece in _STOPWORDS:
+                    continue
+                container = _PACKAGING_CANONICAL.get(piece)
+                if container is not None:
+                    pack.add(container)
+                    continue
+                pieces.append(piece)
+        self.pack = tuple(sorted(pack))
         return tuple(sorted(pieces))
 
 
@@ -233,13 +269,14 @@ def _append(groups: dict, key: Any, doc: _Doc) -> None:
 class _Group:
     """A candidate canonical group: its winning key parts plus members."""
 
-    __slots__ = ("tokens", "qty", "family", "brand", "members")
+    __slots__ = ("tokens", "qty", "family", "brand", "pack", "members")
 
     def __init__(self, doc: _Doc) -> None:
         self.tokens = doc.tokens
         self.qty = doc.qty
         self.family = doc.family
         self.brand = doc.brand
+        self.pack = doc.pack
         self.members: list[_Doc] = [doc]
 
 
@@ -252,7 +289,7 @@ def _is_strict(group: _Group) -> bool:
 def _joins_strict(loose: _Group, strict: _Group) -> bool:
     """Whether ``loose`` may join ``strict``: equal tokens and quantity,
     families equal or missing on one side (D-8), brands equal when both
-    sides carry one (D-9)."""
+    sides carry one (D-9), containers equal when both sides name one (D-26)."""
     if loose.tokens != strict.tokens:
         return False
     if loose.qty != strict.qty:
@@ -260,16 +297,31 @@ def _joins_strict(loose: _Group, strict: _Group) -> bool:
     if (loose.family is not None and strict.family is not None
             and loose.family != strict.family):
         return False
+    if not _container_compatible(loose.pack, strict.pack):
+        return False
     return not (loose.brand is not None and strict.brand is not None
                 and loose.brand != strict.brand)
 
 
+def _container_compatible(left: tuple[str, ...],
+                          right: tuple[str, ...]) -> bool:
+    """D-26: one side naming no container is compatible with any container;
+    two named containers must be the same one."""
+    return not (left and right and left != right)
+
+
 def _layer2_key(group: _Group) -> str:
-    """Canonical layer-2 winning key (§3): tokens|quantity|family|brand."""
+    """Canonical layer-2 winning key (§3): tokens|quantity|family|brand,
+    plus the container signature when the row names one.
+
+    D-28: the container is not part of ``tokens``, so two rows kept apart by
+    D-26 would otherwise hash to the same id.
+    """
     tokens, qty, family, brand = group.tokens, group.qty, group.family, group.brand
-    return (f"key:{' '.join(tokens)}|"
-            f"{'' if qty is None else format(qty, 'g')}|"
-            f"{family or ''}|{brand or ''}")
+    key = (f"key:{' '.join(tokens)}|"
+           f"{'' if qty is None else format(qty, 'g')}|"
+           f"{family or ''}|{brand or ''}")
+    return f"{key}|{' '.join(group.pack)}" if group.pack else key
 
 
 def _match_label(member_count: int, kind: str) -> str:
@@ -340,17 +392,39 @@ def group_products(docs: list[dict]) -> dict:
             _append(ean_groups, ean, item)
         else:
             _append(key_groups, (item.tokens, item.qty, item.family,
-                                 item.brand), item)
+                                 item.brand, item.pack), item)
+
+    # -- D-26 container reconciliation: a group that names no container joins
+    # its container-carrying counterpart when that counterpart is unique. This
+    # pass runs BEFORE the brand/family one on purpose: run the other way
+    # around, a brandless document would face two container variants (both
+    # compatible) and D-2's fail-open guard would keep it separate, splitting
+    # the row the fix is meant to join.
+    absorbed: set[int] = set()
+    by_container = defaultdict(list)
+    for group in key_groups.values():
+        if group.pack:
+            by_container[(group.tokens, group.qty, group.family,
+                          group.brand)].append(group)
+    for group in sorted(key_groups.values(), key=_layer2_key):
+        if group.pack:
+            continue
+        candidates = by_container.get((group.tokens, group.qty,
+                                       group.family, group.brand))
+        if candidates and len(candidates) == 1:
+            candidates[0].members.extend(group.members)
+            absorbed.add(id(group))
 
     # -- D-2 ambiguity guard: a group without brand or presentation family
     # joins a strict group only when exactly one candidate exists, and only
     # strict groups (brand + family + quantity present) may receive it.
-    strict = [g for g in key_groups.values() if _is_strict(g)]
-    loose = [g for g in key_groups.values() if not _is_strict(g)]
+    strict = [g for g in key_groups.values()
+              if id(g) not in absorbed and _is_strict(g)]
+    loose = [g for g in key_groups.values()
+             if id(g) not in absorbed and not _is_strict(g)]
     by_signature = defaultdict(list)
     for group in strict:
         by_signature[(group.tokens, group.qty)].append(group)
-    absorbed = set()
     for group in sorted(loose, key=_layer2_key):  # deterministic pass
         candidates = [
             strict_g for strict_g in by_signature[(group.tokens, group.qty)]

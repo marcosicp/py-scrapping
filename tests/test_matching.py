@@ -578,3 +578,118 @@ def test_promotion_requires_exactly_one_candidate_ean():
     ])
     assert len(payload["productos"]) == 3
     assert all(row["match"] == "solo" for row in payload["productos"])
+
+
+# -- Packaging words (D-26, D-27, D-28) ------------------------------------
+#
+# Only some chains name the container in the product name. A packaging word is
+# a *compatible-when-absent* attribute, the same shape as D-9's brand rule: one
+# side naming a container and the other naming none is the same product, while
+# two different containers at the same size are two real products.
+
+
+def test_packaging_word_on_one_side_does_not_split_the_row():
+    # -- owner report 2026-11-18 ("aceite oliva extra virgen": 250 Ml vs
+    # 250 cc). Disco names no container, Carrefour says "pet", La Anónima
+    # carries no brand.
+    payload = group_products([
+        _doc(supermercado="disco",
+             name="Aceite De Oliva Cocinero Extra Virgen", unidad="X250 cc",
+             brand="COCINERO", price=8500),
+        _doc(supermercado="carrefour",
+             name="Aceite de oliva Cocinero extra virgen pet", unidad="250 cc",
+             brand="Cocinero", price=7900),
+        _doc(supermercado="la anónima",
+             name="Aceite de Oliva Extra Virgen Pet Cocinero x .",
+             unidad="250 cc", brand="", price=8100),
+    ])
+    assert len(payload["productos"]) == 1
+    row = payload["productos"][0]
+    assert row["match"] == "key"
+    assert set(row["offers"]) == {"disco", "carre", "hiper"}
+    assert row["offers"]["carre"]["price"] == 7900
+
+
+def test_two_different_containers_at_the_same_size_stay_split():
+    # -- Carrefour lists the same oil "en botella" and "en lata": two SKUs of
+    # the same size, so D-26 keeps them apart and D-28 keeps their ids apart.
+    payload = group_products([
+        _doc(supermercado="carrefour",
+             name="Aceite de oliva Carrefour Classic virgen en botella",
+             unidad="500 ml", brand="Carrefour", price=100),
+        _doc(supermercado="carrefour",
+             name="Aceite de oliva virgen Carrefour Classic en lata",
+             unidad="500 ml", brand="Carrefour", price=120),
+    ])
+    assert len(payload["productos"]) == 2
+    assert all(row["match"] == "solo" for row in payload["productos"])
+    assert len({row["id"] for row in payload["productos"]}) == 2
+
+
+def test_packaging_word_does_not_join_a_different_presentation():
+    payload = group_products([
+        _doc(supermercado="carrefour", name="Aceite de oliva Lira pet",
+             unidad="500 cc", brand="Lira"),
+        _doc(supermercado="disco", name="Aceite de oliva Lira", unidad="250 ml",
+             brand="Lira"),
+    ])
+    assert len(payload["productos"]) == 2
+
+
+def test_multipack_and_count_words_are_not_packaging():
+    # -- D-27: a pack changes what is sold, so it stays in the token set
+    payload = group_products([
+        _doc(supermercado="carrefour", name="Yerba Playadito Pack x 2",
+             unidad="1 kg", brand="Playadito"),
+        _doc(supermercado="disco", name="Yerba Playadito", unidad="1000 g",
+             brand="Playadito"),
+        _doc(supermercado="supermami", name="Gelatina Royal caja x 4",
+             unidad="25 g", brand="Royal"),
+        _doc(supermercado="hiperlibertad", name="Gelatina Royal", unidad="25 g",
+             brand=""),
+    ])
+    # -- yerba pair and gelatina pair each keep their two rows: the pack is a
+    # token of its own, never a compatible-when-absent attribute
+    assert len(payload["productos"]) == 4
+
+
+def test_packaging_synonyms_are_the_same_container():
+    # -- "bot" and "botella" name the same bottle, so the pair joins even
+    # though both sides carry a container word.
+    payload = group_products([
+        _doc(supermercado="disco", name="Aceite De Oliva Pisi Bot .",
+             unidad="250 cc", brand="PISI"),
+        _doc(supermercado="carrefour", name="Aceite de Oliva Pisi botella",
+             unidad="250 ml", brand="Pisi"),
+    ])
+    assert len(payload["productos"]) == 1
+    assert payload["productos"][0]["match"] == "key"
+
+
+def test_two_containers_keep_a_packless_row_separate():
+    # -- D-2's fail-open bias still rules: with two container candidates the
+    # packless document has no unique counterpart and stays on its own row.
+    payload = group_products([
+        _doc(supermercado="carrefour", name="Aceite de oliva Lira pet",
+             unidad="500 cc", brand="Lira"),
+        _doc(supermercado="disco", name="Aceite de oliva Lira lata",
+             unidad="500 cc", brand="Lira"),
+        _doc(supermercado="hiperlibertad", name="Aceite de oliva Lira",
+             unidad="500 cc", brand="Lira"),
+    ])
+    assert len(payload["productos"]) == 3
+    assert all(row["match"] == "solo" for row in payload["productos"])
+
+
+def test_packaging_word_is_not_a_token_of_the_row():
+    # -- a container word must not survive as identity: "Oliovita" spelled
+    # with "vidrio" and without it is the same product.
+    payload = group_products([
+        _doc(supermercado="la anónima",
+             name="Aceite de Oliva Extra Virgen Vidrio Lira x .",
+             unidad="500 cc", brand=""),
+        _doc(supermercado="supermami", name="ACEITE DE OLIVA LIRA EXTRA VIRGEN",
+             unidad="500 ML", brand="LIRA"),
+    ])
+    assert len(payload["productos"]) == 1
+    assert set(payload["productos"][0]["offers"]) == {"hiper", "mami"}
