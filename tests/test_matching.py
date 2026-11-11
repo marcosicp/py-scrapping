@@ -7,6 +7,7 @@ and deterministic ordering. Pure tests: no network, no DB, no Chrome.
 """
 
 import hashlib
+from itertools import permutations
 
 from api.services.matching import group_products
 
@@ -384,23 +385,27 @@ def test_decimal_presentation_left_in_the_name_does_not_split_the_row():
 
 
 def test_numbers_that_belong_to_the_name_are_not_consumed():
-    # -- the other side of C3: consuming the presentation's pieces must not
-    # eat a number that is part of the product's name.
-    payload = group_products([
+    # -- R3-003: the two documents differ ONLY by the number in the name, so
+    # they can only merge if that number is dropped from the token set. The
+    # previous version of this test gave both documents the same number, so it
+    # would have passed even with a regression that eats name numbers.
+    apart = group_products([
         _doc(supermercado="carrefour", name="Aceite de oliva 120 Años",
              unidad="500 cc", brand="", ean=""),
-        _doc(supermercado="disco", name="Aceite de oliva 120 años 500 ml",
-             unidad="", brand="", ean=""),
+        _doc(supermercado="disco", name="Aceite de oliva 200 Años",
+             unidad="500 ml", brand="", ean=""),
     ])
-    assert len(payload["productos"]) == 1
-    # -- and a different line of the same brand stays apart
-    payload = group_products([
+    assert len(apart["productos"]) == 2
+    assert all(row["match"] == "solo" for row in apart["productos"])
+    # -- and the same number on both sides still merges, so the guard is not
+    # just "numbers always block"
+    together = group_products([
         _doc(supermercado="carrefour", name="Aceite de oliva 120 Años",
              unidad="500 cc", brand="", ean=""),
         _doc(supermercado="disco", name="Aceite de oliva 120 Años",
-             unidad="250 cc", brand="", ean=""),
+             unidad="500 ml", brand="", ean=""),
     ])
-    assert len(payload["productos"]) == 2
+    assert len(together["productos"]) == 1
 
 
 def test_ambiguous_ean_signature_keeps_the_layer2_group_separate():
@@ -458,19 +463,30 @@ def test_brandless_document_joins_the_single_matching_ean_group():
 
 
 def test_brandless_join_does_not_depend_on_insertion_order():
-    # -- C2: the old reconciliation compared a group's signature, which is
-    # copied from its FIRST document. Measured on the live catalog: 86% of the
-    # 2 644 multi-document EAN groups have members with inconsistent
-    # tokens/qty/family, so the merge used to depend on arrival order.
-    a = _doc(supermercado="carrefour", name="Aceite de girasol Pureza",
-             unidad="1500 cc", brand="Pureza", price=7465,
-             ean="7792180137944")
-    b = _doc(supermercado="la anónima", name="Aceite de Girasol Pureza x .",
-             unidad="1,5 Lt", brand="", price=7900)
-    forward = group_products([a, b])["productos"]
-    backward = group_products([b, a])["productos"]
-    assert len(forward) == len(backward) == 1
+    # -- R3-004: the EAN group must have TWO members that disagree on their
+    # derived fields, because that is the shape that made the old group-level
+    # signature depend on which document arrived first (Carrefour `1500 cc`
+    # against Disco `1.5 L` with an empty `unidad`). A single EAN document
+    # would not exercise it. Both orders must return the same payload.
+    ean = "7792180137944"
+    carre = _doc(supermercado="carrefour", name="Aceite de girasol Pureza",
+                 unidad="1500 cc", brand="Pureza", price=7465, ean=ean)
+    disco = _doc(supermercado="disco", name="Aceite Girasol Pureza 1.5 L",
+                 unidad="", brand="PUREZA", price=7850, ean=ean)
+    anonima = _doc(supermercado="la anónima",
+                   name="Aceite de Girasol Pureza x .", unidad="1,5 Lt",
+                   brand="", price=7900)
+    forward = group_products([carre, disco, anonima])["productos"]
+    backward = group_products([anonima, disco, carre])["productos"]
+    assert len(forward) == 1
     assert forward == backward
+    assert set(forward[0]["offers"]) == {"carre", "disco", "hiper"}
+    assert forward[0]["id"] == _hashed(f"ean:{ean}")
+    # -- every arrival order, not just the two obvious ones
+    orders = list(permutations([carre, disco, anonima]))
+    payloads = [group_products(list(order))["productos"] for order in orders]
+    assert all(payload == payloads[0] for payload in payloads), \
+        f"{len(orders)} orders, {len({str(p) for p in payloads})} payloads"
 
 
 def test_a_conflicting_brand_keeps_the_document_separate():

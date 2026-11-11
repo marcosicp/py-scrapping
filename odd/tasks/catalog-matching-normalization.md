@@ -163,8 +163,8 @@ Findings and dispositions:
 | --- | --- | --- |
 | `R3-001` — dropping `m` from the unit set changes stored metre-length names | CRITICAL | **Real, fixed in `c140980`** (correction declared as 22 diff lines) |
 | `R3-002` — "the C3 decimal fix leaves a `1` token for `1.5 L`" | WARNING | **False positive**: `_presentation` reads whitespace tokens (`"1.5"` is whole) and `_name_tokens` runs after it, so `_consume("1.5", "l")` covers the pieces |
-| `R3-003` — the name-number guard test proves nothing | WARNING | Accepted: the positive case is weak. Follow-up |
-| `R3-004` — the insertion-order test uses a single EAN document | WARNING | Accepted: it does not exercise a multi-document EAN group. Follow-up |
+| `R3-003` — the name-number guard test proves nothing | WARNING | **Fixed** in the follow-up `tests(matching)` commit of this branch: the two documents now differ only by the number in the name |
+| `R3-004` — the insertion-order test uses a single EAN document | WARNING | **Fixed** in the same commit: a two-document EAN group with disagreeing members plus all 6 arrival orders |
 
 After the correction was committed, `STATUS` offered the targeted-validation
 slot (`request_hash sha256:cebd1928…`) and every replay of that exact binding
@@ -188,11 +188,19 @@ authority was mutated.
 - `name_parse` leaves the punctuation that followed the unit (`... pet 1 l.` →
   name `... pet .`). Pre-existing for every `... 160 g.` name; cleaning it up
   changes stored names, so it needs its own decision.
-- **R3-003 follow-up**: `test_numbers_that_belong_to_the_name_are_not_consumed`
-  should compare a name number that only one side carries (`120 Años` vs
-  `Años`) so the assertion fails if `_consume` ever eats an independent number.
-- **R3-004 follow-up**: `test_brandless_join_does_not_depend_on_insertion_order`
-  should use a two-document EAN group whose members disagree (Carrefour
-  `1500 cc` + Disco `1.5 L`, `unidad=""`) — the shape that made C2 possible.
+- **R3-003 follow-up (done)**: `test_numbers_that_belong_to_the_name_are_not_consumed`
+  now compares `120 Años` against `200 Años` — the number is the ONLY difference,
+  so it can only merge if `_consume` eats name numbers — and keeps a
+  same-number merge so the guard is not "numbers always block".
+- **R3-004 follow-up (done)**: `test_brandless_join_does_not_depend_on_insertion_order`
+  now uses the Carrefour `1500 cc` + Disco `1.5 L` (`unidad=""`) pair inside one
+  EAN, and asserts all six arrival orders produce an identical payload. What it
+  does not isolate is the first-member defect by itself, because the
+  per-document index plus the cleaned token set already neutralize it; it fails
+  on the pre-fix implementation, which is the property worth keeping.
+- Both strengthened tests were proved to bite, not just to pass: replaying them
+  against the pre-fix `matching.py` (`git show 656d01a^:api/services/matching.py`)
+  and against a simulated regression that drops numeric name tokens each fail
+  exactly the intended test.
 - `price = 0.0` on 1 477 Carrefour documents is a separate known defect
   (`docs/agent-context/known-issues.md`) and is out of scope.
