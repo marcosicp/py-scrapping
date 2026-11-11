@@ -251,3 +251,28 @@ consent itself, so no envelope had to be relayed.
   Lira 500 family now reads honestly — `Lira extra virgen` alone (three
   competing containers), `pet`, `botella`, and the brandless pair together.
 - Suite after the correction: **482 passed, 9 skipped**; flake8 gate 0.
+
+### Correction and the blocked correction plan
+
+The §11 finding is fixed and committed (the `contested` verdict is now computed
+per brand-compatible candidate; `test_a_brandless_container_competes_with_a_branded_one`
+fails against the previous module and passes now), but the provider refuses the
+correction plan itself:
+
+| attempt | binding | result |
+| --- | --- | --- |
+| 1 | `request-hash sha256:4d038d89…`, `expected-revision sha256:edf993c9…` | `capture-binding-rejected: collectBinding is missing or stale for current STATUS` |
+| 2 (after fresh STATUS re-offered the same slot) | identical | identical |
+
+`mutation_performed: false` both times, nothing burned. The mismatch is visible
+in the payload: `authority.revision` is `sha256:b2859374…` while the issued
+binding carries `expected-revision sha256:edf993c9…` (the repository-context
+revision), and STATUS reports `target_identity sha256:20ca750f…` (post-correction)
+next to `authority_target_identity sha256:c3167064…`. This is the third
+occurrence of the same provider shape (memories 737 and 742), always on the
+correction-plan slot only: START, the materialize reviewer and the refuter all
+work.
+
+Owner disposition (same as §10): leave the lineage in `correction_required` and
+continue; the code is verified by the suite, the RED-proof against the previous
+module and the live replay, not by the provider.
