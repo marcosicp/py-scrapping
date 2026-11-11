@@ -117,7 +117,9 @@ class _Doc:
     ``qty``/``family`` are the normalized presentation (family None when the
     unit is missing or unresolvable), ``tokens`` the matching token-set with
     the presentation's quantity/unit already consumed, and ``consumed`` the
-    folded strings that presentation search took out of the name.
+    raw-token INDEXES that presentation search took out of the name. Indexes,
+    not strings: a string set also deletes an unrelated ``1`` or ``5``
+    elsewhere in the name, which merged two different packs (review H-1).
     """
 
     __slots__ = ("doc", "bucket", "brand", "tokens", "qty", "family",
@@ -128,25 +130,35 @@ class _Doc:
         self.bucket = _bucket(str(doc.get("supermercado", "")))
         self.brand: str | None = _brand_key(doc)
         raw_tokens = _fold(str(doc.get("name", ""))).split()
-        self.consumed: set[str] = set()
+        self.consumed: set[int] = set()
         self.qty, self.family = self._presentation(
             str(doc.get("unidad", "") or ""), raw_tokens)
         self.tokens = self._name_tokens(raw_tokens)
 
     # -- presentation per D-8 ------------------------------------------
 
-    def _consume(self, *tokens: str) -> None:
-        """Register presentation strings taken out of the name, with pieces.
+    def _drop_repeated_presentation(
+            self, name_tokens: list[str], quantity: float) -> None:
+        """Mark the name token that repeats a presentation taken from `unidad`.
 
-        ``_name_tokens`` splits on ``[^0-9a-z]+``, so a consumed ``"1.5"``
-        survives as ``"1"`` and ``"5"`` unless its pieces are consumed too
-        (C3): two documents of the same product then disagree on the token
-        set and never group.
+        Positional on purpose (review H-1): the name usually repeats its own
+        size (``... 1.5 L`` with ``unidad=1,5 Lt``), and only that occurrence
+        belongs to the presentation. Matching by string also deleted an
+        unrelated ``1`` or ``5`` elsewhere in the name, which collapsed two
+        different packs into one row.
         """
-        for token in tokens:
-            self.consumed.add(token)
-            self.consumed.update(
-                piece for piece in re.split(r"[^0-9a-z]+", token) if piece)
+        for index, token in enumerate(name_tokens):
+            fused = _FUSED_TOKEN_RE.match(token)
+            quantity_text = fused.group(1) if fused else token
+            if not _QTY_TOKEN_RE.match(quantity_text):
+                continue
+            if _decimal_value(quantity_text) != quantity:
+                continue
+            self.consumed.add(index)
+            if fused is None and index + 1 < len(name_tokens) \
+                    and _UNIT_TOKEN_RE.match(name_tokens[index + 1]):
+                self.consumed.add(index + 1)
+            return
 
     def _presentation(
             self, unidad: str, name_tokens: list[str]) -> tuple[Any, Any]:
@@ -158,36 +170,39 @@ class _Doc:
         """
         match = _UNIDAD_QTY_UNIT_RE.search(_fold(unidad))
         if match:
-            qty_text, unit = match.group(1).lower(), match.group(2).lower()
-            self._consume(qty_text, unit, qty_text + unit)
+            unit = match.group(2).lower()
             factor, family = _UNIT_FAMILIES[unit]
-            return _decimal_value(match.group(1)) * factor, family
-        for i, tok in enumerate(name_tokens):
+            quantity = _decimal_value(match.group(1))
+            self._drop_repeated_presentation(name_tokens, quantity)
+            return quantity * factor, family
+        for index, tok in enumerate(name_tokens):
             fused = _FUSED_TOKEN_RE.match(tok)
             if fused:
                 factor, family = _UNIT_FAMILIES[fused.group(2).lower()]
-                self._consume(tok.lower())
+                self.consumed.add(index)
                 return _decimal_value(fused.group(1)) * factor, family
-            if (_QTY_TOKEN_RE.match(tok) and i + 1 < len(name_tokens)
-                    and _UNIT_TOKEN_RE.match(name_tokens[i + 1])):
-                factor, family = _UNIT_FAMILIES[name_tokens[i + 1].lower()]
-                self._consume(tok.lower(), name_tokens[i + 1].lower())
+            if (_QTY_TOKEN_RE.match(tok) and index + 1 < len(name_tokens)
+                    and _UNIT_TOKEN_RE.match(name_tokens[index + 1])):
+                factor, family = _UNIT_FAMILIES[name_tokens[index + 1].lower()]
+                self.consumed.add(index)
+                self.consumed.add(index + 1)
                 return _decimal_value(tok) * factor, family
         # -- no unit anywhere: the first bare number is the presentation
-        for tok in name_tokens:
+        for index, tok in enumerate(name_tokens):
             if _QTY_TOKEN_RE.match(tok):
-                self._consume(tok.lower())
+                self.consumed.add(index)
                 return _decimal_value(tok), None
         return None, None
 
     def _name_tokens(self, raw_tokens: list[str]) -> tuple[str, ...]:
-        """Matching token-set: punctuation split, stopwords and the
-        presentation's quantity/unit dropped, sorted."""
+        """Matching token-set: punctuation split, stopwords and the consumed
+        raw tokens (by index) dropped, sorted."""
         pieces = []
-        for tok in raw_tokens:
+        for index, tok in enumerate(raw_tokens):
+            if index in self.consumed:
+                continue
             for piece in re.split(r"[^0-9a-z]+", tok):
-                if (piece and piece not in _STOPWORDS
-                        and piece not in self.consumed):
+                if piece and piece not in _STOPWORDS:
                     pieces.append(piece)
         return tuple(sorted(pieces))
 

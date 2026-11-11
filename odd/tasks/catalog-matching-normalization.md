@@ -84,7 +84,10 @@ moves no price.
 - **D-21 · The fail-open bias is preserved, not weakened.** Ambiguity still
   keeps rows apart: 362 `(tokens, qty, family)` keys point at 2+ distinct EANs
   and stay ungrouped. A false positive corrupts the price comparison; a false
-  negative only repeats today's behavior (D-2).
+  negative only repeats today's behavior (D-2). The ambiguity count runs
+  **before** the brand filter on purpose: a key with two candidate EANs stays
+  split even when only one of them would be brand-compatible, because with two
+  plausible products in play a guess is not worth the comparison error.
 - **D-22 · This deliberately retires one D-11 guardrail.**
   `test_loose_layer2_group_never_absorbs_into_a_strict_ean_group` pinned the old
   "a brandless document never joins an EAN group" rule; that rule is exactly what
@@ -204,3 +207,51 @@ authority was mutated.
   exactly the intended test.
 - `price = 0.0` on 1 477 Carrefour documents is a separate known defect
   (`docs/agent-context/known-issues.md`) and is out of scope.
+
+## 9. Self-review of the branch (owner request, 2026-11-11)
+
+Read all seven commits again before merging and found one real defect of my own
+plus two nits.
+
+### H-1 · `consumed` was a set of strings, so it deleted any standalone `1`/`5`
+
+`_consume` registered the punctuation-split pieces of a decimal presentation
+(`"1.5"` → `"1"`, `"5"`) and `_name_tokens` dropped **every** token equal to
+them. Reproduced:
+
+```
+"Yogur firme 1 unidad 1.5 L" → tokens ('firme', 'unidad', 'yogur')
+"Yogur firme 5 unidad 1.5 L" → tokens ('firme', 'unidad', 'yogur')
+→ one row for two different packs
+```
+
+That is precisely the false positive this module exists to avoid. Exposure on
+the live catalog when found: **0 documents** (no name repeats `1`/`5` as a
+discriminator next to a decimal presentation in the name) — a latent defect, not
+corrupt data.
+
+Fix: consumption is **positional**. `consumed` holds raw-token indexes,
+`_presentation` marks the index of the quantity (and the unit token after it),
+and `_drop_repeated_presentation` marks the name token that repeats a
+presentation taken from `unidad` — comparing numerically, so `1,5` in `unidad`
+and `1.5` in the name are the same size. `_name_tokens` skips those indexes;
+nothing is matched by string any more.
+
+Measured after the fix: rows still **16 667** and 13 703 single-chain (no
+grouping change), while the token set of 33 documents improves — mostly names
+that had their own number eaten (`"Chocolate Amargo Extrafino 70% Aguila"` keeps
+`70`, `"Saborizador 4 quesos"` keeps `4`). New test
+`test_a_number_elsewhere_in_the_name_survives_the_presentation` fails before the
+fix and passes after; the two regression simulations still bite.
+
+### H-2 · Documented the check order
+
+D-21 now states that the ambiguity count runs before the brand filter, which is
+the conservative choice the code already made.
+
+### H-3 · Left as is
+
+`3006dd0` is titled "read a bare litre and stop treating `m` as a unit" and
+`c140980` reverses the second half. Kept as two commits: it is the honest
+history of a review correction, and only worth squashing if this branch becomes
+a pull request.

@@ -384,6 +384,28 @@ def test_decimal_presentation_left_in_the_name_does_not_split_the_row():
     assert set(payload["productos"][0]["offers"]) == {"disco", "hiper"}
 
 
+def test_a_number_elsewhere_in_the_name_survives_the_presentation():
+    # -- H-1 of the review (2026-11-11): `consumed` was a set of STRINGS, so the
+    # pieces of `1.5` ("1" and "5") deleted every standalone `1`/`5` in the
+    # name and two different packs collapsed into one row — the false positive
+    # the whole module is supposed to avoid.
+    payload = group_products([
+        _doc(supermercado="disco", name="Yogur firme 1 unidad 1.5 L",
+             unidad="", brand="", ean=""),
+        _doc(supermercado="la anónima", name="Yogur firme 5 unidad 1.5 L",
+             unidad="", brand="", ean=""),
+    ])
+    assert len(payload["productos"]) == 2
+    # -- and the same pack still merges, so the guard is not "numbers block"
+    payload = group_products([
+        _doc(supermercado="disco", name="Yogur firme 5 unidad 1.5 L",
+             unidad="", brand="", ean=""),
+        _doc(supermercado="la anónima", name="Yogur firme 5 unidad 1,5 Lt",
+             unidad="", brand="", ean=""),
+    ])
+    assert len(payload["productos"]) == 1
+
+
 def test_numbers_that_belong_to_the_name_are_not_consumed():
     # -- R3-003: the two documents differ ONLY by the number in the name, so
     # they can only merge if that number is dropped from the token set. The
