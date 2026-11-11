@@ -13,6 +13,10 @@ and query-time (no new dependencies, D-5):
   group exists — with two or more candidates it stays ungrouped; a false
   positive would corrupt the price comparison, a false negative keeps
   today's behavior.
+* Layer 1 / layer 2 reconciliation (D-11, refined by D-20): a layer-2 group
+  joins the single EAN group that its own ``(tokens, qty, family)`` points at,
+  brand compatible per D-9. Identity comes from the documents, never from
+  whichever group member happened to arrive first.
 
 The bucket mapping mirrors ``ProductService.catalog()``'s substring
 convention and its five payload keys; documents from an unknown chain are
@@ -218,11 +222,6 @@ def _joins_strict(loose: _Group, strict: _Group) -> bool:
                 and loose.brand != strict.brand)
 
 
-def _signature(group: _Group) -> tuple:
-    """Canonical signature of a group: its layer-2 key parts (D-11)."""
-    return (group.tokens, group.qty, group.family, group.brand)
-
-
 def _layer2_key(group: _Group) -> str:
     """Canonical layer-2 winning key (§3): tokens|quantity|family|brand."""
     tokens, qty, family, brand = group.tokens, group.qty, group.family, group.brand
@@ -318,24 +317,43 @@ def group_products(docs: list[dict]) -> dict:
             candidates[0].members.extend(group.members)
             absorbed.add(id(group))
 
-    # -- Layer 1 / layer 2 reconciliation (D-11, D-12): only Disco and
-    # Carrefour persist ``ean`` (seleccion-smart T1), so one physical product
-    # reaches layer 1 through them and layer 2 through the other chains. A key
-    # group whose canonical signature is exactly an EAN group's joins it, but
-    # only when that signature picks exactly one EAN group — anything
-    # ambiguous stays on its own row, the same fail-open bias as D-2. Merged
-    # EAN members come first, so ``_row``'s first-offer-per-chain rule keeps
-    # the EAN-backed document on a chain reached through both layers.
-    eans_by_signature: dict[tuple, list[str]] = defaultdict(list)
+    # -- Layer 1 / layer 2 reconciliation (D-11, refined by D-20): only Disco
+    # and Carrefour persist ``ean`` (seleccion-smart T1), so one physical
+    # product reaches layer 1 through them and layer 2 through the other
+    # chains. A layer-2 group joins the EAN group that its own
+    # (tokens, qty, family) points at, but only when exactly one EAN matches
+    # and the brands are compatible the D-9 way: equal when BOTH sides carry
+    # one, no requirement when one side carries none. Anything ambiguous stays
+    # on its own row, the same fail-open bias as D-2.
+    #
+    # The index is built from every EAN-backed DOCUMENT, not from a group's
+    # first member: ``_Group`` copies its key parts from whichever document
+    # arrived first, and on live data 2 270 of the 2 644 multi-document EAN
+    # groups have members whose tokens/qty/family disagree, so a group-level
+    # comparison made the merge depend on insertion order (C2).
+    eans_by_key: dict[tuple, set[str]] = defaultdict(set)
+    brands_by_ean: dict[str, set[str]] = defaultdict(set)
     for ean, group in ean_groups.items():
-        eans_by_signature[_signature(group)].append(ean)
+        for member in group.members:
+            if member.qty is not None and member.family is not None:
+                eans_by_key[(member.tokens, member.qty,
+                             member.family)].add(ean)
+            if member.brand is not None:
+                brands_by_ean[ean].add(member.brand)
     for group in key_groups.values():
         if id(group) in absorbed:
             continue
-        candidates = eans_by_signature.get(_signature(group), [])
-        if len(candidates) == 1:
-            ean_groups[candidates[0]].members.extend(group.members)
-            absorbed.add(id(group))
+        if group.qty is None or group.family is None:
+            continue  # nothing corroborates the promotion (D-21)
+        candidates = eans_by_key.get((group.tokens, group.qty, group.family))
+        if not candidates or len(candidates) != 1:
+            continue  # unknown or ambiguous: stay on its own row
+        ean = next(iter(candidates))
+        if (group.brand is not None and brands_by_ean[ean]
+                and group.brand not in brands_by_ean[ean]):
+            continue  # D-9: two known, different brands never merge
+        ean_groups[ean].members.extend(group.members)
+        absorbed.add(id(group))
 
     rows = []
     for ean, group in ean_groups.items():

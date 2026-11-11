@@ -65,16 +65,24 @@ def test_single_doc_with_ean_is_solo():
     assert payload["productos"][0]["match"] == "solo"
 
 
-def test_ean_doc_never_joins_layer2_group():
-    # -- an EAN-bearing doc only groups through layer 1; a same-name doc
-    # without EAN stays ungrouped (D-2 fail-open).
+def test_ean_document_keeps_its_identity_when_a_brandless_doc_joins():
+    # -- D-20 retired the old assertion here (a brandless same-name document
+    # used to stay ungrouped, which is the bug the owner reported on
+    # 2026-11-10). What still holds: layer 1 owns the row identity and the EAN
+    # label, and a document that does not match is never pulled in.
     payload = group_products([
         _doc(supermercado="carrefour", ean="7790272001005"),
         _doc(supermercado="hiperlibertad", name="Aceite de girasol natura",
              unidad="900 cc", brand=""),
+        _doc(supermercado="supermami", name="Aceite de girasol natura",
+             unidad="1.5 lt", brand=""),
     ])
     assert len(payload["productos"]) == 2
-    assert all(p["match"] == "solo" for p in payload["productos"])
+    ean_row = [p for p in payload["productos"] if p["match"] == "ean"][0]
+    assert ean_row["id"] == _hashed("ean:7790272001005")
+    assert set(ean_row["offers"]) == {"carre", "hiper"}
+    solo = [p for p in payload["productos"] if p["match"] != "ean"][0]
+    assert set(solo["offers"]) == {"mami"}
 
 
 # -- Layer 2: tokens, presentation, brand ----------------------------------
@@ -388,14 +396,83 @@ def test_ean_group_with_a_different_presentation_is_not_absorbed():
     assert all(row["match"] == "solo" for row in payload["productos"])
 
 
-def test_loose_layer2_group_never_absorbs_into_a_strict_ean_group():
-    # -- a document without brand or presentation resolution keeps its own
-    # row even when a strict EAN group has the same tokens (D-11).
+def test_brandless_document_joins_the_single_matching_ean_group():
+    # -- the owner's report (2026-11-10): "aceite girasol pureza" in `1,5 lt`
+    # (La Anónima) and `1500 cc` (Carrefour) rendered as two rows. La Anónima
+    # stores no brand at all, and D-20 promotes a brandless document by its own
+    # (tokens, qty, family) key instead of demanding signature equality (D-9
+    # only requires equal brands when BOTH sides carry one).
     payload = group_products([
-        _doc(supermercado="carrefour", name="Aceite de girasol Natura 900 cc",
-             unidad="900 cc", brand="Natura", ean="111"),
-        _doc(supermercado="hiperlibertad", name="Aceite de girasol natura",
-             unidad="900 cc", brand=""),
+        _doc(supermercado="carrefour", name="Aceite de girasol Pureza",
+             unidad="1500 cc", brand="Pureza", price=7465,
+             ean="7792180137944"),
+        _doc(supermercado="disco", name="Aceite Girasol Pureza 1.5 L",
+             unidad="", brand="PUREZA", price=7850, ean="7792180137944"),
+        _doc(supermercado="changomas", name="Aceite De Girasol Pureza 1.5 L",
+             unidad="", brand="Pureza", price=7469, ean="7792180137944"),
+        _doc(supermercado="la anónima", name="Aceite de Girasol Pureza x .",
+             unidad="1,5 Lt", brand="", price=7900),
+    ])
+    assert len(payload["productos"]) == 1
+    row = payload["productos"][0]
+    assert row["match"] == "ean"
+    assert row["id"] == _hashed("ean:7792180137944")
+    assert set(row["offers"]) == {"carre", "disco", "chang", "hiper"}
+    assert row["offers"]["hiper"]["price"] == 7900
+
+
+def test_brandless_join_does_not_depend_on_insertion_order():
+    # -- C2: the old reconciliation compared a group's signature, which is
+    # copied from its FIRST document. Measured on the live catalog: 86% of the
+    # 2 644 multi-document EAN groups have members with inconsistent
+    # tokens/qty/family, so the merge used to depend on arrival order.
+    a = _doc(supermercado="carrefour", name="Aceite de girasol Pureza",
+             unidad="1500 cc", brand="Pureza", price=7465,
+             ean="7792180137944")
+    b = _doc(supermercado="la anónima", name="Aceite de Girasol Pureza x .",
+             unidad="1,5 Lt", brand="", price=7900)
+    forward = group_products([a, b])["productos"]
+    backward = group_products([b, a])["productos"]
+    assert len(forward) == len(backward) == 1
+    assert forward == backward
+
+
+def test_a_conflicting_brand_keeps_the_document_separate():
+    # -- D-9 survives D-20: when both sides carry a brand and they differ, the
+    # document stays on its own row even though (tokens, qty, family) match.
+    payload = group_products([
+        _doc(supermercado="carrefour", name="Aceite de girasol 900 cc",
+             unidad="900 cc", brand="Pureza", ean="111"),
+        _doc(supermercado="supermami", name="Aceite de girasol 900 cc",
+             unidad="900 cc", brand="Natura"),
     ])
     assert len(payload["productos"]) == 2
+    assert all(row["match"] == "solo" for row in payload["productos"])
+
+
+def test_unresolved_presentation_never_joins_an_ean_group():
+    # -- D-21: without a resolved quantity and family there is nothing to
+    # corroborate the promotion, so the document keeps its own row.
+    payload = group_products([
+        _doc(supermercado="carrefour", name="Aceite de girasol Pureza",
+             unidad="900 cc", brand="Pureza", ean="111"),
+        _doc(supermercado="la anónima", name="Aceite de girasol Pureza x .",
+             unidad="", brand=""),
+    ])
+    assert len(payload["productos"]) == 2
+    assert all(row["match"] == "solo" for row in payload["productos"])
+
+
+def test_promotion_requires_exactly_one_candidate_ean():
+    # -- the fail-open bias of D-2/D-21 is preserved: two EAN groups share the
+    # key, so the brandless document has two candidates and stays apart.
+    payload = group_products([
+        _doc(supermercado="carrefour", name="Aceite de girasol Pureza 900 cc",
+             unidad="900 cc", brand="Pureza", ean="111"),
+        _doc(supermercado="disco", name="Aceite de girasol Pureza 900 ml",
+             unidad="900 ml", brand="Pureza", ean="222"),
+        _doc(supermercado="la anónima", name="Aceite de girasol Pureza 900 cc",
+             unidad="900 cc", brand=""),
+    ])
+    assert len(payload["productos"]) == 3
     assert all(row["match"] == "solo" for row in payload["productos"])
