@@ -637,13 +637,16 @@ def test_packaging_word_does_not_join_a_different_presentation():
 
 
 def test_multipack_and_count_words_are_not_packaging():
-    # -- D-27: a pack changes what is sold, so it stays in the token set
+    # -- D-27: a pack changes what is sold, so it stays in the token set. The
+    # names differ ONLY by that word on purpose (review R3-002): a leftover
+    # number would keep the pair apart on its own and hide the regression that
+    # moved `pack`/`caja` into the container map.
     payload = group_products([
-        _doc(supermercado="carrefour", name="Yerba Playadito Pack x 2",
+        _doc(supermercado="carrefour", name="Yerba Playadito Pack",
              unidad="1 kg", brand="Playadito"),
         _doc(supermercado="disco", name="Yerba Playadito", unidad="1000 g",
              brand="Playadito"),
-        _doc(supermercado="supermami", name="Gelatina Royal caja x 4",
+        _doc(supermercado="supermami", name="Gelatina Royal Caja",
              unidad="25 g", brand="Royal"),
         _doc(supermercado="hiperlibertad", name="Gelatina Royal", unidad="25 g",
              brand=""),
@@ -679,6 +682,38 @@ def test_two_containers_keep_a_packless_row_separate():
     ])
     assert len(payload["productos"]) == 3
     assert all(row["match"] == "solo" for row in payload["productos"])
+
+
+def test_two_brandless_containers_do_not_collapse_into_one_row():
+    # -- review R3-001: a branded row that names no container is the single D-2
+    # receiver of two BRANDLESS container variants, and the brand pass used to
+    # accept both of them, putting `lata` and `botella` in the same row.
+    payload = group_products([
+        _doc(supermercado="carrefour", name="Aceite de oliva Lira",
+             unidad="500 cc", brand="Lira", price=1500),
+        _doc(supermercado="hiperlibertad", name="Aceite de oliva Lira lata",
+             unidad="500 cc", brand="", price=1400),
+        _doc(supermercado="supermami", name="Aceite de oliva Lira botella",
+             unidad="500 ML", brand="", price=1600),
+    ])
+    assert len(payload["productos"]) == 3
+    assert all(row["match"] == "solo" for row in payload["productos"])
+    assert all(len(row["offers"]) == 1 for row in payload["productos"])
+
+
+def test_one_brandless_container_still_joins_the_packless_row():
+    # -- the other half of R3-001: with a single container candidate the merge
+    # D-26 promises must still happen.
+    payload = group_products([
+        _doc(supermercado="carrefour", name="Aceite de oliva Lira",
+             unidad="500 cc", brand="Lira", price=1500),
+        _doc(supermercado="hiperlibertad", name="Aceite de oliva Lira lata",
+             unidad="500 cc", brand="", price=1400),
+    ])
+    assert len(payload["productos"]) == 1
+    row = payload["productos"][0]
+    assert set(row["offers"]) == {"carre", "hiper"}
+    assert row["offers"]["hiper"]["price"] == 1400
 
 
 def test_packaging_word_is_not_a_token_of_the_row():

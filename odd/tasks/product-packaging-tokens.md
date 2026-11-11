@@ -179,3 +179,32 @@ that describe the product the owner sees, because `app.py` loads `.env`.
   `BAGLEY`. Substring normalization risks merging two real brands.
 - **`offers` as a list per chain** (D-29): removes the price loss entirely and
   would let the dashboard show both prices of the same chain.
+
+## 9. Native review (lineage `review-71b100f21143da92`)
+
+Scoped review over `ce51b80..f80682c` (the branch's two commits), tier medium,
+lens `review-reliability`, 417 changed lines, correction budget 200. Verdict:
+`correction_required` with one CRITICAL and one SUGGESTION.
+
+- **R3-001 · CRITICAL, deterministic, real.** The brand/family pass absorbs a
+  loose group into a strict one, and a strict group that names no container has
+  none of its own to compare against — so a branded packless row (brand `Lira`)
+  accepted **two** brandless container variants (`Lira lata`, `Lira botella`)
+  and collapsed both containers into one row, violating D-26. The author's own
+  test missed it because it stamped the brand on all three documents, which
+  routes them through the container pass instead of the brand pass.
+  Fix: before absorbing, collect the containers that point at each packless
+  receiver; two different ones block all of them (`contested`) and the
+  fail-open split stands. Proven to bite: against the pre-fix module
+  `test_two_brandless_containers_do_not_collapse_into_one_row` fails with
+  `1 == len([...])`, and `test_one_brandless_container_still_joins_the_packless_row`
+  pins the half that must keep merging. Live output does not move
+  (16 588 rows before and after the correction): no current catalog case has
+  two brandless containers under one key, so this is a pure correctness fix.
+- **R3-002 · SUGGESTION, valid.** The multipack test compared
+  `Yerba Playadito Pack x 2` against `Yerba Playadito`, so the leftover `2`
+  alone kept the pair apart and the test would still pass if `pack` were
+  wrongly added to the container map. Now the names differ only by that word,
+  and adding `"pack": "pet"` to `_PACKAGING_CANONICAL` makes the test fail —
+  observed, then reverted.
+- Suite after the correction: **480 passed, 9 skipped**; flake8 gate 0.

@@ -425,13 +425,31 @@ def group_products(docs: list[dict]) -> dict:
     by_signature = defaultdict(list)
     for group in strict:
         by_signature[(group.tokens, group.qty)].append(group)
+    # -- D-26 containment (review R3-001): a strict group that names no
+    # container has none of its own to compare against, so it would accept TWO
+    # brandless container variants and collapse `lata` and `botella` into one
+    # row. Collect the containers that point at each such receiver; two
+    # different ones block all of them and the fail-open split stands.
+    candidates_of: dict[int, list[_Group]] = {}
+    containers_by_receiver: dict[int, set] = defaultdict(set)
+    for group in loose:
+        candidates = [strict_g
+                      for strict_g in by_signature[(group.tokens, group.qty)]
+                      if _joins_strict(group, strict_g)]
+        candidates_of[id(group)] = candidates
+        if len(candidates) == 1 and group.pack and not candidates[0].pack:
+            containers_by_receiver[id(candidates[0])].add(group.pack)
+    contested = {key for key, containers in containers_by_receiver.items()
+                 if len(containers) > 1}
     for group in sorted(loose, key=_layer2_key):  # deterministic pass
-        candidates = [
-            strict_g for strict_g in by_signature[(group.tokens, group.qty)]
-            if _joins_strict(group, strict_g)]
-        if len(candidates) == 1:
-            candidates[0].members.extend(group.members)
-            absorbed.add(id(group))
+        candidates = candidates_of[id(group)]
+        if len(candidates) != 1:
+            continue  # no corroboration or ambiguous: D-2 fail-open
+        receiver = candidates[0]
+        if group.pack and id(receiver) in contested:
+            continue  # R3-001: two containers must not collapse into one row
+        receiver.members.extend(group.members)
+        absorbed.add(id(group))
 
     # -- Layer 1 / layer 2 reconciliation (D-11, refined by D-20): only Disco
     # and Carrefour persist ``ean`` (seleccion-smart T1), so one physical
