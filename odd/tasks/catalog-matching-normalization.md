@@ -255,3 +255,24 @@ the conservative choice the code already made.
 `c140980` reverses the second half. Kept as two commits: it is the honest
 history of a review correction, and only worth squashing if this branch becomes
 a pull request.
+
+## 10. Native review of the H-1 delta (`review-0297320a8fa2eb16`)
+
+Scoped to the only unreviewed executable change — `baseRef=0f5e99f`,
+`committedOnly=true`, 3 files / 146 lines, tier medium, one lens
+`review-reliability`, correction budget 73. **Approved**; authority burned
+(`gentle-ai.review-acknowledged/v1`), delivery left to ordinary repository
+policy.
+
+| Finding | Severity | Disposition |
+| --- | --- | --- |
+| `R3-001` — "renaming the loop variable to `index` leaves the quantity+unit branch referencing undefined `i`" | BLOCKER | **Refuted.** `grep` for `name_tokens[i` / `i +` finds nothing: every reference uses `index` (lines 183-186), the branch is exercised by `test_decimal_presentation_left_in_the_name_does_not_split_the_row`, and the whole suite is green. The reviewer misread the variable. |
+| `R3-002` — dropping the unit that follows the repeated quantity can delete a *different* family (`Aceite 1.5 kg` under `unidad=1,5 Lt` loses `kg`) | WARNING | **Real but inert.** Verified by hand: tokens become `('aceite','firme')` where the baseline kept `kg`. Measured exposure on the live catalog: **2 documents** have `unidad` and name in different families, and both are harmless (their quantities differ, so nothing is dropped — `Salsa Golf 220 Ml Dánica` with `unidad=209 Grs, 220 Ml`, `Mayonesa 246 Ml Hellmann's` with `232 Grs, 246 Ml`). Left as a documented follow-up per the review's advisory, which forbids re-running review on this candidate. |
+
+### Follow-up (not done, needs its own round)
+
+`_drop_repeated_presentation` should only drop the following unit token when its
+`_UNIT_FAMILIES` family equals the presentation's — and only drop a fused token
+when the fused unit is in the same family. That keeps `1,5 Lt` matching
+`1.5 L` (same family, which is the case that matters) while refusing to delete a
+contradictory `kg`. Six lines plus a test; zero change expected on live data.
