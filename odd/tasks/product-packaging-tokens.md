@@ -222,3 +222,32 @@ lens `review-reliability`, 417 changed lines, correction budget 200. Verdict:
 - **Two `ean`s for the same product stay split** (§8). The owner's ruling: two
   EANs are two products. The ambiguity guard keeps them apart and this branch
   does not touch layer 1.
+
+## 11. Second native review (`review-93e6f41a858457d4`)
+
+Re-inspected after §10: the new target `sha256:c3167064…` (branch head including
+the §9 correction) opened a fresh lineage, tier medium, lens
+`review-reliability`, 525 changed lines, budget 200. The host resolved the START
+consent itself, so no envelope had to be relayed.
+
+- **R3-001 · CRITICAL, deterministic, real again — and a different defect.**
+  The container pass decided uniqueness with an exact `(tokens, qty, family,
+  brand)` key, so a packless row with a brand saw only the *same-brand*
+  container and glued itself to it even when a **brandless** row named another
+  container (`Lira` packless + `Lira lata` branded + `Lira pet` brandless). Under
+  D-9 the brandless row is an equally valid candidate, so the packless row was
+  ambiguous and should have stayed alone: the old check skipped the fail-open
+  guard rather than applying it.
+  Fix: the container verdict is computed **once**, over every
+  container-carrying group with the same `(tokens, qty, family)` whose brand is
+  compatible per D-9. Two different containers mark the packless group
+  `contested`, and a contested group neither absorbs nor is absorbed — which
+  also retires the narrower per-receiver check of §9, since it was a special
+  case of this one. Proven to bite: against the previous module
+  `test_a_brandless_container_competes_with_a_branded_one` fails;
+  `test_a_shared_container_still_merges_branded_and_brandless` pins the merge
+  that must keep happening (the owner's Cocinero pair).
+- Live effect: rows stay **16 588**, single-chain 13 584, EAN rows 2 885. The
+  Lira 500 family now reads honestly — `Lira extra virgen` alone (three
+  competing containers), `pet`, `botella`, and the brandless pair together.
+- Suite after the correction: **482 passed, 9 skipped**; flake8 gate 0.

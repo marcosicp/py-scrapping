@@ -299,8 +299,12 @@ def _joins_strict(loose: _Group, strict: _Group) -> bool:
         return False
     if not _container_compatible(loose.pack, strict.pack):
         return False
-    return not (loose.brand is not None and strict.brand is not None
-                and loose.brand != strict.brand)
+    return _brands_compatible(loose.brand, strict.brand)
+
+
+def _brands_compatible(left: str | None, right: str | None) -> bool:
+    """D-9: unknown on one side is compatible; two known brands must match."""
+    return left is None or right is None or left == right
 
 
 def _container_compatible(left: tuple[str, ...],
@@ -400,18 +404,38 @@ def group_products(docs: list[dict]) -> dict:
     # around, a brandless document would face two container variants (both
     # compatible) and D-2's fail-open guard would keep it separate, splitting
     # the row the fix is meant to join.
+    #
+    # A group with no container is AMBIGUOUS as soon as two different
+    # containers are brand-compatible candidates, and then it neither absorbs
+    # nor is absorbed (reviews R3-001 in both rounds). The verdict is computed
+    # once, over every container-carrying group with the same
+    # ``(tokens, qty, family)`` whose brand is compatible per D-9: comparing
+    # brands for exact equality here would hide the brandless container that
+    # La Anónima and SuperMami produce and let the other one win by default.
     absorbed: set[int] = set()
-    by_container = defaultdict(list)
+    containers_by_key: dict[tuple, list[_Group]] = defaultdict(list)
     for group in key_groups.values():
         if group.pack:
-            by_container[(group.tokens, group.qty, group.family,
-                          group.brand)].append(group)
-    for group in sorted(key_groups.values(), key=_layer2_key):
+            containers_by_key[(group.tokens, group.qty,
+                               group.family)].append(group)
+    contested: set[int] = set()
+    for group in key_groups.values():
         if group.pack:
             continue
-        candidates = by_container.get((group.tokens, group.qty,
-                                       group.family, group.brand))
-        if candidates and len(candidates) == 1:
+        packs = {candidate.pack
+                 for candidate in containers_by_key.get(
+                     (group.tokens, group.qty, group.family), ())
+                 if _brands_compatible(group.brand, candidate.brand)}
+        if len(packs) > 1:
+            contested.add(id(group))
+    for group in sorted(key_groups.values(), key=_layer2_key):
+        if group.pack or id(group) in contested:
+            continue
+        candidates = [candidate
+                      for candidate in containers_by_key.get(
+                          (group.tokens, group.qty, group.family), ())
+                      if candidate.brand == group.brand]
+        if len(candidates) == 1:
             candidates[0].members.extend(group.members)
             absorbed.add(id(group))
 
@@ -425,29 +449,15 @@ def group_products(docs: list[dict]) -> dict:
     by_signature = defaultdict(list)
     for group in strict:
         by_signature[(group.tokens, group.qty)].append(group)
-    # -- D-26 containment (review R3-001): a strict group that names no
-    # container has none of its own to compare against, so it would accept TWO
-    # brandless container variants and collapse `lata` and `botella` into one
-    # row. Collect the containers that point at each such receiver; two
-    # different ones block all of them and the fail-open split stands.
-    candidates_of: dict[int, list[_Group]] = {}
-    containers_by_receiver: dict[int, set] = defaultdict(set)
-    for group in loose:
+    for group in sorted(loose, key=_layer2_key):  # deterministic pass
         candidates = [strict_g
                       for strict_g in by_signature[(group.tokens, group.qty)]
                       if _joins_strict(group, strict_g)]
-        candidates_of[id(group)] = candidates
-        if len(candidates) == 1 and group.pack and not candidates[0].pack:
-            containers_by_receiver[id(candidates[0])].add(group.pack)
-    contested = {key for key, containers in containers_by_receiver.items()
-                 if len(containers) > 1}
-    for group in sorted(loose, key=_layer2_key):  # deterministic pass
-        candidates = candidates_of[id(group)]
         if len(candidates) != 1:
             continue  # no corroboration or ambiguous: D-2 fail-open
         receiver = candidates[0]
         if group.pack and id(receiver) in contested:
-            continue  # R3-001: two containers must not collapse into one row
+            continue  # R3-001: a container must not settle an ambiguous row
         receiver.members.extend(group.members)
         absorbed.add(id(group))
 

@@ -728,3 +728,40 @@ def test_packaging_word_is_not_a_token_of_the_row():
     ])
     assert len(payload["productos"]) == 1
     assert set(payload["productos"][0]["offers"]) == {"hiper", "mami"}
+
+
+def test_a_brandless_container_competes_with_a_branded_one():
+    # -- second-round review R3-001: the container pass used to compare brands
+    # for exact equality, so it saw only the same-brand `lata` variant and
+    # glued the packless row to it, even though the BRANDLESS `pet` row is an
+    # equally valid candidate under D-9. The packless row is ambiguous and must
+    # stay on its own row.
+    payload = group_products([
+        _doc(supermercado="carrefour", name="Aceite de oliva Lira",
+             unidad="500 cc", brand="Lira", price=1500),
+        _doc(supermercado="disco", name="Aceite de oliva Lira lata",
+             unidad="500 cc", brand="Lira", price=1400),
+        _doc(supermercado="hiperlibertad", name="Aceite de oliva Lira pet",
+             unidad="500 cc", brand="", price=1600),
+    ])
+    assert len(payload["productos"]) == 3
+    assert all(row["match"] == "solo" for row in payload["productos"])
+    assert all(len(row["offers"]) == 1 for row in payload["productos"])
+
+
+def test_a_shared_container_still_merges_branded_and_brandless():
+    # -- the other side of the same rule: when every candidate carries the SAME
+    # container the brandless document still joins (D-9), so the Cocinero pair
+    # the owner reported keeps one row.
+    payload = group_products([
+        _doc(supermercado="disco", name="Aceite de Oliva Cocinero Extra Virgen",
+             unidad="X250 cc", brand="COCINERO", price=8500),
+        _doc(supermercado="carrefour",
+             name="Aceite de oliva Cocinero extra virgen pet", unidad="250 cc",
+             brand="Cocinero", price=7900),
+        _doc(supermercado="la anónima",
+             name="Aceite de Oliva Extra Virgen Pet Cocinero x .",
+             unidad="250 cc", brand="", price=8100),
+    ])
+    assert len(payload["productos"]) == 1
+    assert set(payload["productos"][0]["offers"]) == {"disco", "carre", "hiper"}
