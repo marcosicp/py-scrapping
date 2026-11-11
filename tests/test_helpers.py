@@ -40,6 +40,32 @@ def test_recognised_units_are_unchanged(text):
     assert parsed["unidad"] not in parsed["name"]
 
 
+def test_bare_litre_is_recognised():
+    """`l` was missing from the unit set (only `lt`/`lts` were there), so 102
+    catalog names kept an empty `unidad` and matching had to recover the
+    presentation from the name — C3 in
+    `odd/tasks/catalog-matching-normalization.md`."""
+    assert name_parse("Aceite Girasol Pureza 1.5 L") == {
+        "name": "Aceite Girasol Pureza", "unidad": "1.5 L"}
+
+
+def test_trailing_period_after_the_unit_is_handled():
+    # -- the unit is read even with the site's trailing period. The dangling
+    # punctuation it leaves in `name` is pre-existing behavior for every
+    # `... 160 g.` style name and out of scope here (follow-up in the feature
+    # document), so this pins the unit side only.
+    parsed = name_parse("Vinagre de alcohol Favinco pet 1 l.")
+    assert parsed["unidad"] == "1 l"
+    assert "1 l" not in parsed["name"]
+
+
+def test_bare_m_is_not_a_unit():
+    """`m` matched any stray metre-like token and no product in these chains is
+    sold by the metre."""
+    assert name_parse("Cinta adhesiva 50 m") == {
+        "name": "Cinta adhesiva 50 m", "unidad": ""}
+
+
 def test_multiple_quantities_are_comma_joined_but_only_the_first_is_removed():
     """Legacy behavior: the unit list is complete, the name loses one match."""
     parsed = name_parse("Pack 3 x 200 ml")

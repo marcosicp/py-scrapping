@@ -11,14 +11,18 @@ def remove_duplicates_by_key(objects_list, key):
 
     return new_objects_list
 
+# -- Unit set for the stored `unidad`. Longest variants first so `lts` is never
+# -- read as `l`. Two corrections against the original pattern: the bare `l`
+# -- litre was missing (102 catalog names kept `unidad=""` because of it, C3 in
+# -- odd/tasks/catalog-matching-normalization.md), and `m` was removed because it
+# -- matched any stray metre-like token and no product in these chains is sold
+# -- by the metre.
+UNIDADES = ("kgs", "grs", "lts", "mls", "kg", "gr", "ml", "cc", "lt", "g", "l")
+
+
 def name_parse(name):
-    # Patrón de expresión regular para buscar el peso o volumen en formato "1kg", "500 ml", "1 lt" o "2 lt"
-    # -- the quantity may be a decimal ("1.5 lts", "1,5 lts") or an "X2" pack;
-    # -- without the decimal part the pattern matched "5 lts" inside "1.5 lts"
-    # -- and corrupted the name (review R3-002).
-    #patron_peso_volumen = r"\b(\d+|X\d+)\s*(kg|kgs|g|gr|grs|ml|mls|m|cc|lt|lts)\b"
     patron_peso_volumen = (r"(\d+(?:[.,]\d+)?|X\d+)\s*"
-                           r"(kg|kgs|g|gr|grs|ml|mls|m|cc|lt|lts)\b")
+                           r"(" + "|".join(UNIDADES) + r")\b")
 
     concatenated_result=''
     resultados = re.findall(patron_peso_volumen, name, re.IGNORECASE)
