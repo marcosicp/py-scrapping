@@ -197,7 +197,8 @@ counts are **consumed documents per chain bucket**, not row counts:
 string or integer price.)
 
 `id` is `sha1[:16]` of `ean:<ean>` when the EAN is known, otherwise of
-`key:<tokens>|<qty>|<family>|<brand>`. `match` is `ean`/`key` only for groups
+`key:<tokens>|<qty>|<family>|<brand>` (plus `|<container>` when the row names a
+packaging word, D-28). `match` is `ean`/`key` only for groups
 of two or more members; a singleton is `solo` even when it carries an EAN.
 `offers` is keyed exactly like the counts (`carre`/`disco`/`mami`/`hiper`,
 first document per chain wins) and ChangoMás has no bucket (K-12). Grouping
@@ -210,7 +211,15 @@ brands are compatible the D-9 way (equal when both sides carry one) — so a
 La Anónima document, which never carries a brand, still keeps a single row
 with the same product on the EAN chains, and the merge does not depend on
 which document arrived first (D-20). Ambiguous keys and unresolved
-presentations stay on their own row. On any exception the blueprint answers
+presentations stay on their own row. A packaging word (`pet`, `botella`,
+`lata`, `vidrio`, `bolsa`, `sobre`, `sachet`, `doypack`, `tetra`, `spray`) is
+**not** part of the token set: it is a compatible-when-absent attribute, the
+same shape as D-9's brand rule, so a chain that names the container and a
+chain that omits it share one row, while two different containers at the same
+size stay apart (D-26). Multipack words (`pack`, `caja`, `estuche`) stay
+tokens because they change what is sold (D-27), and the packaging signature is
+appended to the `key:` row id so two container-separated rows never collide
+(D-28). On any exception the blueprint answers
 200 with `productos: []`, zeroed counts and an `error` key.
 
 ## 5. Scrapers — `api/scrapers/`
@@ -351,7 +360,7 @@ code against `pymongo` and is imported by nothing.
 | `api/blueprints/legacy.py` | registry-generated `/scraping-<slug>` aliases |
 | `api/cli.py` | `python -m api.cli list\|run` — scraper runner without Flask |
 | `api/mongo.py` | `build_client(settings)` — the one `MongoClient` construction site, with the TLS trust store (`certifi` for TLS URIs, `MONGODB_TLS_CA_FILE` override) and `connect=False` |
-| `api/services/matching.py` | `group_products()` — canonical rows: EAN layer, strict-key layer, per-chain offers, counts |
+| `api/services/matching.py` | `group_products()` — canonical rows: EAN layer, strict-key layer, container compatibility, per-chain offers, counts |
 | `api/services/products.py` | `ProductService.catalog()` — grouping/dedupe/sort/counts; `grouped_catalog()` — the same port through the matching service |
 | `api/services/scraping.py` | `ScraperManager` — runs, stop, status snapshots |
 | `api/sockets.py` | `socketio` singleton, `configure_sockets()`, `SocketIOReporter` |
