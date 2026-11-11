@@ -92,9 +92,14 @@ moves no price.
   the cases where the guard must still hold (brand conflict, ambiguous key,
   unresolved presentation) keep their own tests.
 - **D-23 · Unit vocabulary is shared knowledge, not two regexes.**
-  `helpers.name_parse` gains the bare `l` and drops `m` (which matches any stray
-  "m" and is not a unit); `matching` keeps its own family map but both are
-  pinned by tests so they cannot drift silently again.
+  `helpers.name_parse` gains the bare `l` and the unit set becomes one ordered
+  tuple (`UNIDADES`) instead of a vocabulary buried inside the regex; both are
+  pinned by tests so they cannot drift silently again. The bare `m` stays:
+  dropping it was an unrequested behavior change that altered how metre-length
+  names are stored, caught by the review (R3-001) and reverted in `c140980`.
+  Matching cannot resolve `m` as a unit family, which was the original
+  motivation — but "matching ignores it" is not a reason to change what the
+  scrapers store.
 - **D-24 · Query-time only, no re-scrape.** Matching is computed on every
   request from stored documents, so no catalog rewrite is required.
 
@@ -106,8 +111,9 @@ moves no price.
 | T2 | RED: document-level reconciliation tests (owner's case, brand conflict, ambiguity, order independence) | `pytest` → 2 failed, 28 passed |
 | T3 | GREEN: document-level reconciliation in `matching.py` | `656d01a` · 30 passed · catalog 17 200 → 16 667 rows |
 | T4 | RED+GREEN: `consumed` survives the token split | `9f16796` · 32 passed · 31 documents change token set |
-| T5 | RED+GREEN: `name_parse` reads a bare `l`, drops `m` | `3006dd0` · full suite 468 passed / 9 skipped, flake8 gate 0 |
-| T6 | Full-catalog re-measure + docs + close | this section |
+| T5 | RED+GREEN: `name_parse` reads a bare `l` | `3006dd0` · full suite 468 passed / 9 skipped, flake8 gate 0 |
+| T6 | Full-catalog re-measure + docs + close | section 5 |
+| T7 | Correction after review R3-001 (keep `m`) | `c140980` · suite still 468 passed / 9 skipped |
 
 ## 5. Result (live catalog, 21 293 documents)
 
@@ -141,7 +147,36 @@ moves no price.
 5. Frontend: no change needed, the payload shape is identical — only grouping.
    The owner's manual round is still the UI evidence (AGENTS.md §8).
 
-## 7. Residual risks and follow-ups
+## 7. Native review (scoped lineage `review-186f38355fa69536`)
+
+Owner decision: review **scoped to these four commits** rather than the whole
+unpushed range, because the provider's default base-ref bundles the previous
+round's dashboard spinner (already left unreviewed by the owner) and a
+`dev.sh` commit from an earlier session. `START` with
+`baseRef=f9c45e55810e37c52c3cc04e2ced23abea85bb2c, committedOnly=true`:
+tier medium, one lens `review-reliability`, 7 files / 426 lines, correction
+budget 200.
+
+Findings and dispositions:
+
+| Finding | Severity | Disposition |
+| --- | --- | --- |
+| `R3-001` — dropping `m` from the unit set changes stored metre-length names | CRITICAL | **Real, fixed in `c140980`** (correction declared as 22 diff lines) |
+| `R3-002` — "the C3 decimal fix leaves a `1` token for `1.5 L`" | WARNING | **False positive**: `_presentation` reads whitespace tokens (`"1.5"` is whole) and `_name_tokens` runs after it, so `_consume("1.5", "l")` covers the pieces |
+| `R3-003` — the name-number guard test proves nothing | WARNING | Accepted: the positive case is weak. Follow-up |
+| `R3-004` — the insertion-order test uses a single EAN document | WARNING | Accepted: it does not exercise a multi-document EAN group. Follow-up |
+
+After the correction was committed, `STATUS` offered the targeted-validation
+slot (`request_hash sha256:cebd1928…`) and every replay of that exact binding
+was rejected with `capture-binding-rejected: collectBinding is missing or stale
+for current STATUS`, including one with no acknowledgement flag — the binding
+carries `expected-revision sha256:d8b7adf7…` while `STATUS.authority.revision`
+reads `sha256:d670ef3d…`, so the two never line up. `capture` was not retried
+further: a slot that cannot be satisfied through the facade is a blocked human
+decision, not something to replay. Lineage left open; nothing in the review
+authority was mutated.
+
+## 8. Residual risks and follow-ups
 
 - A brandless document can still join the wrong EAN group when two physical
   products share `(tokens, qty, family)` and only one of them has an EAN. Tokens
@@ -153,5 +188,11 @@ moves no price.
 - `name_parse` leaves the punctuation that followed the unit (`... pet 1 l.` →
   name `... pet .`). Pre-existing for every `... 160 g.` name; cleaning it up
   changes stored names, so it needs its own decision.
+- **R3-003 follow-up**: `test_numbers_that_belong_to_the_name_are_not_consumed`
+  should compare a name number that only one side carries (`120 Años` vs
+  `Años`) so the assertion fails if `_consume` ever eats an independent number.
+- **R3-004 follow-up**: `test_brandless_join_does_not_depend_on_insertion_order`
+  should use a two-document EAN group whose members disagree (Carrefour
+  `1500 cc` + Disco `1.5 L`, `unidad=""`) — the shape that made C2 possible.
 - `price = 0.0` on 1 477 Carrefour documents is a separate known defect
   (`docs/agent-context/known-issues.md`) and is out of scope.
