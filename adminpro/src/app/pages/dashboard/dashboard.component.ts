@@ -1,7 +1,7 @@
 import { Component, OnInit, ViewChild } from '@angular/core';
 import { AgGridAngular } from 'ag-grid-angular';
 import { ColDef, GridApi, GridReadyEvent } from 'ag-grid-community';
-import { Observable } from 'rxjs';
+import { Observable, finalize } from 'rxjs';
 import { AppService } from 'src/app/service/app.service';
 import { TotalValueRenderer } from './cellRender';
 import { ChainEntry, chainTotal, formatAmount, toggleOffer } from './selection';
@@ -14,6 +14,12 @@ import { ChainEntry, chainTotal, formatAmount, toggleOffer } from './selection';
 })
 export class DashboardComponent implements OnInit {
   items?: any;
+  // -- The spinner must live exactly as long as the catalog request. The
+  // `.preloader` in index.html is the template's boot cover: jQuery fades it
+  // out on DOM ready, long before `/api/productos/agrupados` answers, so it
+  // never waited for the backend.
+  loading = true;
+  loadError = false;
   noRowsTemplate = '¡Agrega tus productos!';
   itemsCarre?: ChainEntry[] = [];
   itemsDisco?: ChainEntry[] = [];
@@ -169,9 +175,25 @@ export class DashboardComponent implements OnInit {
   @ViewChild(AgGridAngular) agGrid!: AgGridAngular;
 
   ngOnInit() {
-    this.http.getExams().subscribe((a) => {
-      this.items = a;
-    });
+    this.loadCatalog();
+  }
+
+  // -- One request, one loading flag: `finalize` clears the spinner on both
+  // outcomes, so a failing backend shows a retry instead of spinning forever.
+  loadCatalog() {
+    this.loading = true;
+    this.loadError = false;
+    this.http
+      .getExams()
+      .pipe(finalize(() => (this.loading = false)))
+      .subscribe({
+        next: (a) => {
+          this.items = a;
+        },
+        error: () => {
+          this.loadError = true;
+        },
+      });
   }
 
   // Example load data from server

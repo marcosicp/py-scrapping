@@ -1,9 +1,38 @@
 <!-- <p>dashboard works!</p> -->
+<!-- -- Loading state: covers the first `/api/productos/agrupados` request.
+     `items` stays undefined until the response lands, so without this block the
+     page showed its empty cards and no indication that data was on the way. -->
+<div *ngIf="loading" class="row">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-body">
+        <div class="spinner" role="status" aria-live="polite">
+          <div class="spinner__wheel"></div>
+          <span class="spinner__label">CARGANDO PRODUCTOS...</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div *ngIf="loadError && !loading" class="row">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-body text-center">
+        <p class="mb-2">No pudimos cargar los productos.</p>
+        <button class="btn btn-primary btn-sm" (click)="loadCatalog()">
+          Reintentar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="row">
   <div class="col-12">
     <div class="card">
       <div class="card-body">
-        <div *ngIf="items != undefined" class="row justify-content-center">
+        <div *ngIf="!loading && items != undefined" class="row justify-content-center">
           <div class="col text-center">
             <img
               style="height: 70px; background-color: whitesmoke"
@@ -69,7 +98,7 @@
   <div class="col-12">
     <div class="card">
       <div class="card-body">
-        <div *ngIf="items != undefined" class="row justify-content-center">
+        <div *ngIf="!loading && items != undefined" class="row justify-content-center">
           <div class="col text-center">
             <ag-grid-angular
             style="width: 100%; height: 200px"
@@ -158,7 +187,7 @@
   <div class="col-12">
     <div class="card">
       <div class="card-body">
-        <div *ngIf="items != undefined">
+        <div *ngIf="!loading && items != undefined">
           <div class="input-container" style="height: 50px">
             <input
               matInput
