@@ -135,6 +135,19 @@ class _Doc:
 
     # -- presentation per D-8 ------------------------------------------
 
+    def _consume(self, *tokens: str) -> None:
+        """Register presentation strings taken out of the name, with pieces.
+
+        ``_name_tokens`` splits on ``[^0-9a-z]+``, so a consumed ``"1.5"``
+        survives as ``"1"`` and ``"5"`` unless its pieces are consumed too
+        (C3): two documents of the same product then disagree on the token
+        set and never group.
+        """
+        for token in tokens:
+            self.consumed.add(token)
+            self.consumed.update(
+                piece for piece in re.split(r"[^0-9a-z]+", token) if piece)
+
     def _presentation(
             self, unidad: str, name_tokens: list[str]) -> tuple[Any, Any]:
         """Quantity and unit family from ``unidad``, else from the name.
@@ -146,24 +159,24 @@ class _Doc:
         match = _UNIDAD_QTY_UNIT_RE.search(_fold(unidad))
         if match:
             qty_text, unit = match.group(1).lower(), match.group(2).lower()
-            self.consumed = {qty_text, unit, qty_text + unit}
+            self._consume(qty_text, unit, qty_text + unit)
             factor, family = _UNIT_FAMILIES[unit]
             return _decimal_value(match.group(1)) * factor, family
         for i, tok in enumerate(name_tokens):
             fused = _FUSED_TOKEN_RE.match(tok)
             if fused:
                 factor, family = _UNIT_FAMILIES[fused.group(2).lower()]
-                self.consumed = {tok.lower()}
+                self._consume(tok.lower())
                 return _decimal_value(fused.group(1)) * factor, family
             if (_QTY_TOKEN_RE.match(tok) and i + 1 < len(name_tokens)
                     and _UNIT_TOKEN_RE.match(name_tokens[i + 1])):
                 factor, family = _UNIT_FAMILIES[name_tokens[i + 1].lower()]
-                self.consumed = {tok.lower(), name_tokens[i + 1].lower()}
+                self._consume(tok.lower(), name_tokens[i + 1].lower())
                 return _decimal_value(tok) * factor, family
         # -- no unit anywhere: the first bare number is the presentation
         for tok in name_tokens:
             if _QTY_TOKEN_RE.match(tok):
-                self.consumed = {tok.lower()}
+                self._consume(tok.lower())
                 return _decimal_value(tok), None
         return None, None
 

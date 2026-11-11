@@ -367,6 +367,42 @@ def test_ean_group_absorbs_the_same_product_without_ean():
             payload["mami"], payload["hiper"]) == (1, 1, 1, 1)
 
 
+def test_decimal_presentation_left_in_the_name_does_not_split_the_row():
+    # -- C3 of `odd/tasks/catalog-matching-normalization.md`: two layers of
+    # token normalization disagreed. `_presentation` consumes the raw name
+    # token ("1.5") while `_name_tokens` splits on `[^0-9a-z]+`, so the leaked
+    # pieces were "1" and "5" and the same product ended up with two token
+    # sets — exactly the Disco / La Anónima pair of the owner's report.
+    payload = group_products([
+        _doc(supermercado="disco", name="Aceite Girasol Pureza 1.5 L",
+             unidad="", brand="PUREZA", ean=""),
+        _doc(supermercado="la anónima", name="Aceite de Girasol Pureza x .",
+             unidad="1,5 Lt", brand=""),
+    ])
+    assert len(payload["productos"]) == 1
+    assert set(payload["productos"][0]["offers"]) == {"disco", "hiper"}
+
+
+def test_numbers_that_belong_to_the_name_are_not_consumed():
+    # -- the other side of C3: consuming the presentation's pieces must not
+    # eat a number that is part of the product's name.
+    payload = group_products([
+        _doc(supermercado="carrefour", name="Aceite de oliva 120 Años",
+             unidad="500 cc", brand="", ean=""),
+        _doc(supermercado="disco", name="Aceite de oliva 120 años 500 ml",
+             unidad="", brand="", ean=""),
+    ])
+    assert len(payload["productos"]) == 1
+    # -- and a different line of the same brand stays apart
+    payload = group_products([
+        _doc(supermercado="carrefour", name="Aceite de oliva 120 Años",
+             unidad="500 cc", brand="", ean=""),
+        _doc(supermercado="disco", name="Aceite de oliva 120 Años",
+             unidad="250 cc", brand="", ean=""),
+    ])
+    assert len(payload["productos"]) == 2
+
+
 def test_ambiguous_ean_signature_keeps_the_layer2_group_separate():
     # -- two EAN groups share the canonical signature: the third document has
     # two candidates and stays on its own row (D-11 fail-open).
