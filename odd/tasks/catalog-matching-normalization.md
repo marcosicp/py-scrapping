@@ -269,10 +269,19 @@ policy.
 | `R3-001` — "renaming the loop variable to `index` leaves the quantity+unit branch referencing undefined `i`" | BLOCKER | **Refuted.** `grep` for `name_tokens[i` / `i +` finds nothing: every reference uses `index` (lines 183-186), the branch is exercised by `test_decimal_presentation_left_in_the_name_does_not_split_the_row`, and the whole suite is green. The reviewer misread the variable. |
 | `R3-002` — dropping the unit that follows the repeated quantity can delete a *different* family (`Aceite 1.5 kg` under `unidad=1,5 Lt` loses `kg`) | WARNING | **Real but inert.** Verified by hand: tokens become `('aceite','firme')` where the baseline kept `kg`. Measured exposure on the live catalog: **2 documents** have `unidad` and name in different families, and both are harmless (their quantities differ, so nothing is dropped — `Salsa Golf 220 Ml Dánica` with `unidad=209 Grs, 220 Ml`, `Mayonesa 246 Ml Hellmann's` with `232 Grs, 246 Ml`). Left as a documented follow-up per the review's advisory, which forbids re-running review on this candidate. |
 
-### Follow-up (not done, needs its own round)
+### Follow-up — done on `fix/matching-presentation-followups` (`1ef5b8c`)
 
-`_drop_repeated_presentation` should only drop the following unit token when its
-`_UNIT_FAMILIES` family equals the presentation's — and only drop a fused token
-when the fused unit is in the same family. That keeps `1,5 Lt` matching
-`1.5 L` (same family, which is the case that matters) while refusing to delete a
-contradictory `kg`. Six lines plus a test; zero change expected on live data.
+`_drop_repeated_presentation` now takes the presentation's family and drops the
+following unit token only when it belongs to the same family; a fused name token
+(`1.5kg`) is dropped whole only when its unit matches too, and kept untouched
+otherwise. `1,5 Lt` still absorbs a `1.5 L` spelling (the case that matters) and
+no longer deletes a contradictory `kg`.
+
+Evidence: `test_a_contradictory_unit_in_the_name_is_not_consumed` was red before
+the change and is green after; `test_a_same_family_unit_in_the_name_is_still_consumed`
+pins the other side. Full suite 471 passed / 9 skipped, flake8 gate 0, live
+catalog unchanged at 16 667 rows / 13 703 single-chain.
+
+Still open on that branch: the dangling punctuation `name_parse` leaves after a
+removed unit (`... pet 1 l.` → `... pet .`), which changes what the scrapers
+store and therefore needs a scope decision before it is coded.
