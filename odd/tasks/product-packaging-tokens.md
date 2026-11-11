@@ -349,3 +349,21 @@ one was reviewed by the *next* lineage (which is why the defects kept surfacing)
 except `0a6a248`, which no lineage has seen. A fourth round would very likely
 find another variant of the same family, so the loop has to be stopped by a
 human decision rather than by exhaustion.
+
+## 13. Closing decision (owner, 2026-11-18)
+
+Asked with the three-way option (stop / fourth round / abandon the lineages),
+the owner chose **stop**: the branch is accepted as it stands and handed over for
+his own review.
+
+- Evidence the branch rests on: `pytest` 484 passed / 9 skipped, flake8 gate 0,
+  a RED-proof of every new test against the previous module, and a read-only
+  replay over the live Atlas catalog (16 667 → 16 588 rows, 13 703 → 13 584
+  single-chain, 2 867 → 2 885 EAN rows, 6 prices hidden by D-29).
+- Explicitly accepted residual: `0a6a248` is the only correction no reviewer has
+  seen. It is small (8 lines of production code plus a comment) and pinned by
+  two tests, one of them proven to fail without it.
+- Three lineages stay in `correction_required` by owner decision
+  (`review-71b100f21143da92`, `review-93e6f41a858457d4`,
+  `review-be7a8b525e125e33`); no authority was burned and nothing was abandoned.
+- Push, PR and merge remain the owner's decisions.
