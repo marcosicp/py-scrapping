@@ -208,3 +208,17 @@ lens `review-reliability`, 417 changed lines, correction budget 200. Verdict:
   and adding `"pack": "pet"` to `_PACKAGING_CANONICAL` makes the test fail —
   observed, then reverted.
 - Suite after the correction: **480 passed, 9 skipped**; flake8 gate 0.
+
+## 10. Owner decisions on the open items (2026-11-18)
+
+- **The blocked lineage stays where it is.** `review-71b100f21143da92` remains in
+  `correction_required`: the provider rejects `review.capture-correction-plan`
+  twice with `capture-binding-rejected: collectBinding is missing or stale for
+  current STATUS` (`mutation_performed: false`, nothing burned), because the
+  issued binding carries `expected-revision sha256:09be334e…` while
+  `authority.revision` reads `sha256:7be14606…`. Same provider shape as the two
+  previous rounds. No authority is mutated; the correction below is verified by
+  the suite and the live replay, not by the provider.
+- **Two `ean`s for the same product stay split** (§8). The owner's ruling: two
+  EANs are two products. The ambiguity guard keeps them apart and this branch
+  does not touch layer 1.
