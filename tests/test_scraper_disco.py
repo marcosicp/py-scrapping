@@ -885,10 +885,10 @@ def test_ean_comes_from_the_item_and_a_missing_ean_stores_empty(repository):
 # -- 6. field mapping and validation -----------------------------------------
 
 
-def test_price_comes_from_the_offer_and_a_missing_offer_stores_zero(repository):
+def test_price_comes_from_the_offer_and_a_missing_offer_stores_none(repository):
     """An unpriced atom (Price 0.0) is intentionally not requested (D-3); a
     product whose offer is absent but which arrives inside a priced window
-    still stores `price: 0`."""
+    still stores `price: None` — never the 0 sentinel the rule retired."""
     node = f"/{ALMACEN}/{SUB}"
     node2 = f"/{ALMACEN}/{SUB2}"
     catalog = {
@@ -910,10 +910,38 @@ def test_price_comes_from_the_offer_and_a_missing_offer_stores_zero(repository):
     assert any("sin stock omitidos" in message for message in messages)
     stored = stored_documents(repository)
     assert [(doc["name"], doc["price"], doc["sku"]) for doc in stored] == [
-        ("Sin oferta", 0, "900"),
+        ("Sin oferta", None, "900"),
         ("Con oferta", 1800.5, "901"),
     ]
+    assert stored[0]["price"] is None
     assert all(doc["name"] != "Solo no disponible" for doc in stored)
+
+
+def test_the_document_price_follows_the_shared_vtex_rule(repository):
+    """The measured ChangoMás case proven on this caller: a priced window
+    delivers a product whose first seller is unavailable at Price 0.0 while
+    the second carries the real price; the stored document takes 1519.0."""
+    node = f"/{ALMACEN}/{SUB}"
+    node2 = f"/{ALMACEN}/{SUB2}"
+    multi = product("Ketchup Danica", 903, 1519.0)
+    multi["items"][0]["sellers"] = [
+        {"commertialOffer": {"Price": 0.0, "IsAvailable": False}},
+        {"commertialOffer": {"Price": 1519.0, "IsAvailable": True}},
+    ]
+    catalog = {
+        node: [(0.0, product("Sin precio", 902, 0.0)), (1519.0, multi)],
+        node2: [],
+    }
+    session = VtexSession(TREE_JSON, catalog)
+    repository = InMemoryProductRepository()
+    ctx, _messages = make_ctx(session, repository)
+
+    ScraperDisco().run(ctx)
+
+    stored = stored_documents(repository)
+    assert [(doc["name"], doc["price"]) for doc in stored] == [
+        ("Ketchup Danica", 1519.0),
+    ]
 
 
 def test_an_unknown_category_is_rejected_before_any_request():

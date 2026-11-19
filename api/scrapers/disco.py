@@ -69,6 +69,7 @@ from urllib.parse import urlsplit
 
 from api.helpers import name_parse
 from api.scrapers.base import BaseScraper, ScrapeContext
+from api.scrapers.vtex import price_of
 
 BASE_URL = "https://www.disco.com.ar"
 TREE_URL = f"{BASE_URL}/api/catalog_system/pub/category/tree/2"
@@ -483,18 +484,17 @@ class ScraperDisco(BaseScraper):
 
     @staticmethod
     def _price_of(item: dict):
-        """``items[0].sellers[0].commertialOffer.Price``, or 0 when absent."""
-        items = item.get("items") or []
-        if not items or not isinstance(items[0], dict):
-            return 0
-        sellers = items[0].get("sellers") or []
-        if not sellers or not isinstance(sellers[0], dict):
-            return 0
-        offer = sellers[0].get("commertialOffer") or {}
-        price = offer.get("Price") if isinstance(offer, dict) else None
-        if isinstance(price, bool) or not isinstance(price, (int, float)):
-            return 0
-        return price
+        """The first available positive price inside ``items[0]``, or None.
+
+        One shared rule for the three VTEX scrapers (P-4,
+        ``api/scrapers/vtex.py``): three private copies of
+        ``sellers[0].commertialOffer.Price`` stored ``price = 0`` whenever
+        a window delivered an offerless item and are the reason the rule
+        now lives in one place. This chain's own zeros stay near zero only
+        because its price filter keeps unpriced products out of the
+        collection entirely.
+        """
+        return price_of(item)
 
     @staticmethod
     def _ean_of(item: dict) -> str:

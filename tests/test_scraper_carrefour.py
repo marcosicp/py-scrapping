@@ -301,7 +301,7 @@ def test_an_empty_subcategory_is_not_saved(repository):
 # -- 3. field mapping -------------------------------------------------------
 
 
-def test_price_comes_from_the_offer_and_a_missing_offer_stores_zero():
+def test_price_comes_from_the_offer_and_a_missing_offer_stores_none():
     session = FakeSession([
         FakeResponse(200, TREE_JSON),
         FakeResponse(206, [vtex_product("Sin oferta 500 gr", "900",
@@ -317,8 +317,34 @@ def test_price_comes_from_the_offer_and_a_missing_offer_stores_zero():
 
     stored = stored_documents(repository)
     assert [(doc["name"], doc["price"], doc["sku"]) for doc in stored] == [
-        ("Sin oferta", 0, "900"),
+        ("Sin oferta", None, "900"),
         ("Con oferta", 1800.5, "901"),
+    ]
+    assert stored[0]["price"] is None
+
+
+def test_the_document_price_follows_the_shared_vtex_rule():
+    """The measured ChangoMás case proven on this caller: the first seller is
+    unavailable at Price 0.0 and the second carries the real price; the
+    stored document takes 1519.0, never the 0 of the unavailable seller."""
+    multi = vtex_product("Ketchup Danica 550 gr", "902", 0.0)
+    multi["items"][0]["sellers"] = [
+        {"commertialOffer": {"Price": 0.0, "IsAvailable": False}},
+        {"commertialOffer": {"Price": 1519.0, "IsAvailable": True}},
+    ]
+    session = FakeSession([
+        FakeResponse(200, TREE_JSON),
+        FakeResponse(206, [multi], total=1),
+        FakeResponse(206, [], total=0),
+    ])
+    repository = InMemoryProductRepository()
+    ctx, _messages = make_ctx(session, repository)
+
+    ScraperCarrefour().run(ctx)
+
+    stored = stored_documents(repository)
+    assert [(doc["name"], doc["price"]) for doc in stored] == [
+        ("Ketchup Danica", 1519.0),
     ]
 
 

@@ -291,6 +291,34 @@ def test_every_stored_document_carries_the_full_key_set(repository):
                               "subcategoria"}
 
 
+def test_the_document_price_follows_the_shared_vtex_rule():
+    """The measured case (price-integrity.md): the first seller is
+    unavailable at Price 0.0 and the second carries the real price; a
+    payload with no available price stores None, never 0."""
+    unavailable = vtex_product("Sin oferta 500 gr", "900", offer=False)
+    multi = vtex_product("Ketchup Danica", "901", 0.0)
+    multi["items"][0]["sellers"] = [
+        {"commertialOffer": {"Price": 0.0, "IsAvailable": False}},
+        {"commertialOffer": {"Price": 1519.0, "IsAvailable": True}},
+    ]
+    session = FakeSession([
+        FakeResponse(200, TREE_JSON),
+        FakeResponse(206, [unavailable, multi], total=2),
+        FakeResponse(206, [], total=0),
+    ])
+    repository = InMemoryProductRepository()
+    ctx, _messages = make_ctx(session, repository)
+
+    ScraperChangoMas().run(ctx)
+
+    stored = stored_documents(repository)
+    assert [(doc["name"], doc["price"]) for doc in stored] == [
+        ("Sin oferta", None),
+        ("Ketchup Danica", 1519.0),
+    ]
+    assert stored[0]["price"] is None
+
+
 def test_an_empty_subcategory_is_not_saved(repository):
     session = FakeSession([
         FakeResponse(200, TREE_JSON),
