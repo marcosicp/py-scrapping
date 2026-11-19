@@ -155,13 +155,22 @@ fix it.
   not block the other eight.
 - **Merged** to local `main` as a fast-forward (`3bff01a`); `main` is 16 commits
   ahead of `origin/main` and nothing was pushed.
-- **Native review blocked**: `gentle_review inspect` first timed out on the
-  native `review/status` and succeeded on retry (`action: start`, committed
-  range from `6afbbc8`), but START failed twice with the same native timeout
-  (`error_code: timeout`, SIGTERM, `lineage_created: false`,
-  `mutation_performed: false`). Nothing was created, nothing burned. This round
-  therefore carries no native verdict; the code is committed on the strength of
-  the tests, not of a review.
+- **Native review**: `inspect` timed out twice on the native `review/status`
+  (retry answered), then START failed twice the same way before succeeding, so
+  the first three attempts looked like a dead facade and were not. Lineage
+  `review-addbe7d3471d8431` (tier medium, one lens `review-reliability`,
+  25 paths / 2 216 changed lines) came back **approved**, and its
+  acknowledgement burned the authority (`native-approved-acknowledgement-completed`).
+  Two advisory findings were attached, both `WARNING` and non-blocking:
+  `api/cli.py:118` and `tests/test_product_repository.py:253`. Their full claim
+  text was not part of the closure payload, so they are recorded here as
+  follow-ups to read, not as defects to guess at.
+- **A rejection is not always a defect.** One capture was refused with
+  `collectBinding is missing or stale for current STATUS` because the hand-copied
+  binding had a corrupted `schema` URL (`https://gentle-ai/review/...` instead of
+  `https://gentle-ai.dev/schema/review/...`). Re-submitting the byte-exact
+  binding was accepted immediately. Verify the copy before concluding the facade
+  is broken.
 
 ## Non-goals
 
