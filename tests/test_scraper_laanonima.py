@@ -70,6 +70,7 @@ DESAYUNO_URL = "https://www.laanonima.com.ar/desayuno-y-merienda/n2_521/"
 SNACKS_URL = "https://www.laanonima.com.ar/snacks/n2_522/"
 BEBIDAS_URL = "https://www.laanonima.com.ar/bebidas/n1_513/"
 AGUAS_URL = "https://www.laanonima.com.ar/aguas/n2_530/"
+MASCOTAS_URL = "https://www.laanonima.com.ar/mascotas/n1_877/"
 
 # The real page carries one navigation menu with the whole site tree nested
 # n1 -> n2 -> n3. Bebidas is deliberately present: a run must not walk it.
@@ -94,20 +95,45 @@ MENU_HTML = f"""
       <li><a href="{AGUAS_URL}" class="color333333 menu-n2">Aguas</a></li>
     </ul>
   </li>
+  <li>
+    <a href="{MASCOTAS_URL}" class="color333333 menu-n1">Mascotas</a>
+  </li>
 </ul>
 </body></html>
 """
 
 
-def item_list_html(*products):
-    """A category page carrying one JSON-LD ItemList and a breadcrumb."""
+def item_list_script(*products):
+    """The ``<script>`` block of one JSON-LD ItemList, standalone."""
     entries = ", ".join(
         '{"@type": "ListItem", "position": %d, "item": {"@type": "Product", '
         '"name": %s, "url": %s, "offers": %s}}' % (position, name, url, offers)
         for position, (name, url, offers) in enumerate(products, start=1))
+    return ('<script type="application/ld+json">{"@context": '
+            '"https://schema.org", "@type": "ItemList", '
+            f'"itemListElement": [{entries}]}}</script>')
+
+
+def n1_page(*products):
+    """A real n1 page: the navigation menu plus the page's own ItemList.
+
+    ``mascotas`` measured exactly this shape: the menu carries its
+    ``a.menu-n1`` anchor but no ``a.menu-n2`` under it, while the page
+    itself embeds the JSON-LD ``ItemList`` of its products.
+    """
+    return MENU_HTML.replace(
+        "</body></html>", item_list_script(*products) + "</body></html>")
+
+
+def item_list_html(*products):
+    """A category page carrying one JSON-LD ItemList and a breadcrumb."""
+    breadcrumb = ('<script type="application/ld+json">{"@context": '
+                  '"https://schema.org", "@type": "BreadcrumbList", '
+                  '"itemListElement": [{"@type": "ListItem", '
+                  '"position": 1, "name": "Almacen"}]}</script>')
     return f"""<html><head>
-<script type="application/ld+json">{{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{{"@type": "ListItem", "position": 1, "name": "Almacen"}}]}}</script>
-<script type="application/ld+json">{{"@context": "https://schema.org", "@type": "ItemList", "itemListElement": [{entries}]}}</script>
+{breadcrumb}
+{item_list_script(*products)}
 </head><body></body></html>"""
 
 
@@ -121,11 +147,12 @@ def product(name, art_id, price=1500):
 GALLETITAS_URL = "https://www.laanonima.com.ar/galletitas-dulces/n3_598/"
 
 
-def make_ctx(session, repository, *, stop_event=None, browser_factory=None):
+def make_ctx(session, repository, *, category="almacen", stop_event=None,
+             browser_factory=None):
     messages: list[str] = []
     ctx = ScrapeContext(
         slug=ScraperLaAnonima.slug, label=ScraperLaAnonima.label,
-        category="almacen", stop_event=stop_event or threading.Event(),
+        category=category, stop_event=stop_event or threading.Event(),
         report=messages.append, repository=repository,
         browser_factory=browser_factory,
         http_factory=lambda: session)
@@ -144,7 +171,17 @@ def stored_documents(repository):
 def test_identity_replaces_the_dead_hiperlibertad_brand():
     assert ScraperLaAnonima.slug == "laanonima"
     assert ScraperLaAnonima.label == "La Anónima"
-    assert ScraperLaAnonima.categories == ("almacen",)
+    assert ScraperLaAnonima.categories == (
+        "almacen", "bebidas", "lacteos-y-frescos", "congelados",
+        "frutas-y-verduras", "carniceria", "perfumeria", "limpieza",
+        "mascotas")
+
+
+def test_the_categories_tuple_and_the_node_dictionary_agree():
+    """The tuple drives ``validate_category`` and the dict the discovery
+    URL: they must list exactly the same nine keys, in the same order."""
+    assert tuple(ScraperLaAnonima.CATEGORY_NODES) == (
+        ScraperLaAnonima.categories)
 
 
 def test_discovery_reads_the_almacen_n2_nodes_from_the_menu():
@@ -383,6 +420,132 @@ def test_the_dead_vtex_host_is_never_requested(repository):
     ScraperLaAnonima().run(ctx)
 
     assert not any("hiperlibertad" in url for url in session.urls)
+
+
+# -- 6. the declared categories and the leaf n1 (wave A) ---------------------
+
+
+def test_discovery_returns_empty_for_a_leaf_n1_with_no_n2_children():
+    """The ``mascotas`` anchor exists in the menu but carries no
+    ``a.menu-n2`` under it: that is a leaf (W-2), reported as ``[]`` —
+    never collapsed with the missing-anchor case."""
+    session = FakeSession([FakeResponse(200, MENU_HTML)])
+    ctx, messages = make_ctx(session, InMemoryProductRepository())
+
+    nodes = ScraperLaAnonima()._discover_nodes(ctx, MASCOTAS_URL)
+
+    assert nodes == []
+    assert messages == []
+
+
+def test_discovery_returns_none_when_the_anchor_is_absent():
+    """A n1 URL the menu does not list at all is a site change (W-3):
+    ``None``, the loud report of the caller — a different fact from a
+    leaf."""
+    session = FakeSession([FakeResponse(200, MENU_HTML)])
+    ctx, messages = make_ctx(session, InMemoryProductRepository())
+
+    nodes = ScraperLaAnonima()._discover_nodes(
+        ctx, "https://www.laanonima.com.ar/jardin/n1_999/")
+
+    assert nodes is None
+
+
+def test_a_failed_menu_read_never_scrapes_the_page_as_a_leaf(repository):
+    """A menu read that failed (network, status) is not a leaf: the run
+    reports it and stops — it must not re-request the same URL as the
+    leaf's n1 page."""
+    session = FakeSession([FakeResponse(500, "")])
+    ctx, messages = make_ctx(session, repository)
+
+    ScraperLaAnonima().run(ctx)
+
+    assert session.urls == [ALMACEN_URL]
+    assert repository.calls == []
+    assert any("Error 500" in message for message in messages)
+    assert messages[-1] == "PROCESO TERMINADO"
+
+
+def test_a_leaf_category_scrapes_its_own_page_and_stores_its_slug(
+        repository):
+    """W-2: a leaf n1 is scraped as one node — the n1 page itself is the
+    collection scope and its own slug is the stored ``subcategoria``
+    (``mascotas``: 201 items measured on the live page)."""
+    page = n1_page(product("Alimento Pro Plan 3 kg", "3001", 18000))
+    session = FakeSession([FakeResponse(200, page),   # the menu read
+                           FakeResponse(200, page)])  # the leaf's own page
+    ctx, messages = make_ctx(session, repository, category="mascotas")
+
+    ScraperLaAnonima().run(ctx)
+
+    assert session.urls == [MASCOTAS_URL, MASCOTAS_URL]
+    assert repository.calls == [("La Anónima", "mascotas", "mascotas", 1)]
+    assert stored_documents(repository) == [
+        {"supermercado": "La Anónima", "name": "Alimento Pro Plan",
+         "unidad": "3 kg", "brand": "", "sku": "3001", "price": 18000,
+         "categoria": "mascotas", "subcategoria": "mascotas"}]
+    assert any("mascotas no tiene subcategorías" in message
+               for message in messages)
+    assert messages[-1] == "PROCESO TERMINADO"
+
+
+def test_a_leaf_page_without_an_item_list_is_reported_and_the_run_continues(
+        repository, monkeypatch):
+    """A leaf whose page carries no ItemList is reported and skipped —
+    the run goes on to the next declared category instead of dying there
+    (an empty leaf must never mask the other categories)."""
+    monkeypatch.setattr(ScraperLaAnonima, "categories",
+                        ("mascotas", "almacen"))
+    session = FakeSession([
+        FakeResponse(200, MENU_HTML),   # mascotas: menu read (leaf)
+        FakeResponse(200, MENU_HTML),   # mascotas: own page, no ItemList
+        FakeResponse(200, MENU_HTML),   # almacen: menu read
+        FakeResponse(200, item_list_html(
+            product("Galletitas Dulces 500 gr", "2123642", 5100))),
+        FakeResponse(200, item_list_html()),            # snacks, empty
+    ])
+    ctx, messages = make_ctx(session, repository, category=None)
+
+    ScraperLaAnonima().run(ctx)
+
+    assert any("Sin datos en mascotas" in message for message in messages)
+    assert repository.calls == [
+        ("La Anónima", "almacen", "desayuno-y-merienda", 1)]
+    assert messages[-1] == "PROCESO TERMINADO"
+
+
+def test_a_run_over_the_declared_categories_saves_one_slice_per_category(
+        repository, monkeypatch):
+    """Without a ``--category`` filter the run walks every declared
+    category, and every slice carries its own ``categoria`` — the wave-A
+    goal of the whole editable shelf."""
+    monkeypatch.setattr(ScraperLaAnonima, "categories",
+                        ("almacen", "bebidas"))
+    session = FakeSession([
+        FakeResponse(200, MENU_HTML),   # almacen menu
+        FakeResponse(200, item_list_html(
+            product("Galletitas Dulces 500 gr", "2123642", 5100))),
+        FakeResponse(200, item_list_html(
+            product("Papas Fritas 90 gr", "2706520", 2500))),
+        FakeResponse(200, MENU_HTML),   # bebidas menu
+        FakeResponse(200, item_list_html(
+            product("Coca Cola 2 lt", "3100001", 1234))),
+    ])
+    ctx, messages = make_ctx(session, repository, category=None)
+
+    ScraperLaAnonima().run(ctx)
+
+    assert session.urls == [ALMACEN_URL, DESAYUNO_URL, SNACKS_URL,
+                            BEBIDAS_URL, AGUAS_URL]
+    assert repository.calls == [
+        ("La Anónima", "almacen", "desayuno-y-merienda", 1),
+        ("La Anónima", "almacen", "snacks", 1),
+        ("La Anónima", "bebidas", "aguas", 1),
+    ]
+    assert {doc["categoria"]
+            for doc in stored_documents(repository)} == {"almacen",
+                                                         "bebidas"}
+    assert messages[-1] == "PROCESO TERMINADO"
 
 
 def _set_event():
