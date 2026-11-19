@@ -8,9 +8,17 @@ Subcommands:
 
 - ``list``: one line per registered scraper, in registration order.
 - ``run <slug> [--category <name>]``: run one scraper and wait for it.
+- ``coverage``: per-category read-only catalog report (category-coverage
+  T4): documents, grouped rows, rows carried by 2+ chains and the resulting
+  percentage, plus a total line over the whole catalog. Grouping goes
+  through the same ``group_products`` the API uses, so the number cannot
+  drift from what the dashboard shows. Unlike ``run``, it reads ``.env``
+  exactly like ``app.py`` and prints the resolved source, because the local
+  default (``localhost``/``lalistitadev``) holds no ``ean`` and no
+  ChangoMás and would understate the coverage it exists to measure.
 
 Exit codes: 0 succeeded, 1 failed, 2 stopped, 3 scraper-control error
-(unknown slug, invalid category or already running).
+(unknown slug, invalid category or already running). ``coverage`` exits 0.
 
 The module stays thin: no scraping logic, no Flask import, no
 ``current_app``. ``build_client``, ``ScraperManager`` and
@@ -23,6 +31,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from dotenv import load_dotenv
 from pymongo import MongoClient
 
 from api.config import Settings
@@ -30,6 +39,7 @@ from api.mongo import build_client
 from api.repositories.products import MongoProductRepository
 from api.scrapers.errors import ScraperError
 from api.scrapers.registry import ScraperRegistry, default_registry
+from api.services.matching import group_products
 from api.services.scraping import RunState, RunStatus, \
     ScraperManager
 
@@ -98,6 +108,73 @@ def cmd_run(args: argparse.Namespace) -> int:
     return _EXIT_CODES.get(status.state, 1)
 
 
+def _source_of(settings: Settings) -> str:
+    """``<database> @ <host>`` with every credential stripped.
+
+    The coverage report is the only place that needs it: ``lalistitadev``
+    names both the local ``mongod`` and the deployed cluster, so the database
+    name alone cannot tell the reader which one produced the numbers.
+    """
+    host = settings.mongodb_uri.rsplit("@", 1)[-1].split("/", 1)[0]
+    return f"{settings.mongodb_db} @ {host}"
+
+
+def cmd_coverage(args: argparse.Namespace) -> int:
+    """Read-only per-category coverage report (category-coverage T4, C-7).
+
+    Reads the catalog through the same repository the API uses, groups it
+    with ``matching.group_products`` (never a private reimplementation) and
+    prints, per category: documents, rows, rows carried by 2+ chains and the
+    resulting percentage; then a total line over the whole catalog. Rows
+    whose ``categoria`` is None report under ``(sin categoria)``, last.
+
+    ``load_dotenv`` is called here and not for ``run`` on purpose: this
+    report must measure the database the dashboard reads, and pointing it at
+    the local default silently reports a six-points-worse figure (the local
+    copy carries no ``ean``, so the whole EAN layer is absent). ``run`` keeps
+    its current environment contract instead of retargeting a scraper at
+    whatever ``.env`` says. Existing environment variables still win:
+    ``load_dotenv`` never overrides them.
+    """
+    load_dotenv()
+    settings = Settings.from_env()
+    client = build_client(settings)
+    repository = MongoProductRepository(client[settings.mongodb_db])
+    docs = repository.find_all()
+    rows = group_products(docs)["productos"]
+
+    doc_counts: dict[str | None, int] = {}
+    for doc in docs:
+        categoria = doc.get("categoria")
+        key = categoria if isinstance(categoria, str) and categoria.strip() \
+            else None
+        doc_counts[key] = doc_counts.get(key, 0) + 1
+
+    row_counts: dict[str | None, int] = {}
+    multi_counts: dict[str | None, int] = {}
+    for row in rows:
+        key = row["categoria"]
+        row_counts[key] = row_counts.get(key, 0) + 1
+        if len(row["offers"]) >= 2:
+            multi_counts[key] = multi_counts.get(key, 0) + 1
+
+    def line(label: str, n_docs: int, n_rows: int, n_multi: int) -> None:
+        pct = f"{100.0 * n_multi / n_rows:.1f}%" if n_rows else "0.0%"
+        print(f"{label:<16}{n_docs:>8}{n_rows:>7}{n_multi:>7}{pct:>10}")
+
+    print(f"source: {_source_of(settings)}")
+    print(f"{'categoria':<16}{'docs':>8}{'rows':>7}{'2+chains':>7}{'pct':>10}")
+    categories = sorted(set(doc_counts) | set(row_counts),
+                        key=lambda key: (key is None, key))
+    for key in categories:
+        line("(sin categoria)" if key is None else key,
+             doc_counts.get(key, 0), row_counts.get(key, 0),
+             multi_counts.get(key, 0))
+    line("total", len(docs), len(rows), sum(multi_counts.values()))
+
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="api.cli",
@@ -112,9 +189,15 @@ def main(argv: list[str] | None = None) -> int:
                             help="optional category for scrapers that "
                                  "accept one")
 
+    subparsers.add_parser(
+        "coverage",
+        help="read-only per-category coverage report over the catalog")
+
     args = parser.parse_args(argv)
     if args.command == "list":
         return cmd_list(args)
+    if args.command == "coverage":
+        return cmd_coverage(args)
     return cmd_run(args)
 
 
