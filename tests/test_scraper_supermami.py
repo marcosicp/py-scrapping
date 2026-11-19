@@ -55,6 +55,15 @@ CHILD_HREF_3 = ("/super/categoria/supermami-almacen-golosinas-y-chocolates"
 PARENT_ONCLICK = ("javascript:getPageCategory('/super/categoria/"
                   "supermami-almacen/_/N-1tjm8rd', '', event);")
 BEBIDAS_HREF = "/super/categoria/supermami-bebidas/_/N-2tjm8re"
+FRESCO_HREF = "/super/categoria/supermami-fresco/_/N-3tjm8rf"
+PERFUMERIA_HREF = "/super/categoria/supermami-perfumeria/_/N-6tjm8rp"
+LIMPIEZA_HREF = "/super/categoria/supermami-limpieza/_/N-4tjm8rl"
+MASCOTAS_HREF = "/super/categoria/supermami-mascotas/_/N-5tjm8rm"
+
+# Every declared family, in declaration order: a no-filter run walks all
+# of them, so the fake menu must list all six (a missing one is fatal).
+FAMILY_HREFS = (BEBIDAS_HREF, FRESCO_HREF, PERFUMERIA_HREF, LIMPIEZA_HREF,
+                MASCOTAS_HREF)
 
 
 def _anchors(links):
@@ -91,6 +100,10 @@ MENU_HTML = (
     # ... then the parent, only inside its ``onclick``:
     + _anchors([parent("Almacén", PARENT_ONCLICK)])
     + _anchors([child("Bebidas", BEBIDAS_HREF)])
+    + _anchors([child("Fresco", FRESCO_HREF)])
+    + _anchors([child("Perfumería", PERFUMERIA_HREF)])
+    + _anchors([child("Limpieza", LIMPIEZA_HREF)])
+    + _anchors([child("Mascotas", MASCOTAS_HREF)])
     + "</ul></body></html>"
 )
 
@@ -155,6 +168,11 @@ def windows(catalog):
         pages[start] = page_html(chunk, total=len(catalog),
                                  last=start + len(chunk))
     return pages
+
+
+# A small family pool: every family page in the fake answers the same three
+# items, so a multi-family run saves one three-product slice per family.
+FAMILY_POOL = [filler(index) for index in range(1, 4)]
 
 
 # -- fakes -------------------------------------------------------------------
@@ -250,7 +268,7 @@ def expected_filler(index):
                         "Almacén general")
 
 
-def make_ctx(session, repository, *, category=None, stop_event=None):
+def make_ctx(session, repository, *, category=ALMACEN, stop_event=None):
     messages: list[str] = []
     ctx = ScrapeContext(
         slug=ScraperSuperMami.slug, label=ScraperSuperMami.label,
@@ -301,7 +319,11 @@ HAPPY_DOCUMENTS.sort(key=lambda doc: doc["name"])
 def test_identity_stays_the_registered_supermami_scraper():
     assert ScraperSuperMami.slug == "supermami"
     assert ScraperSuperMami.label == "SuperMami"
-    assert ScraperSuperMami.categories == (ALMACEN,)
+    # The six food families, exactly the site's own top-level markers
+    # (measured 2026-11-21; ``fresco`` is singular on purpose).
+    assert ScraperSuperMami.categories == (
+        "almacen", "bebidas", "fresco", "perfumeria", "limpieza",
+        "mascotas")
 
 
 def test_full_run_pages_the_whole_category_and_saves_once(repository,
@@ -839,10 +861,74 @@ def test_a_pre_cancelled_run_touches_nothing(repository):
 
 def test_an_invalid_category_is_rejected(repository):
     session = FakeSession(MENU_HTML, {})
-    ctx, _ = make_ctx(session, repository, category="bebidas")
+    ctx, _ = make_ctx(session, repository, category="electro")
 
     with pytest.raises(InvalidCategory):
         ScraperSuperMami().run(ctx)
 
     assert session.urls == []
     assert repository.calls == []
+
+
+# -- 7. the six declared families (wave A) ------------------------------------
+
+
+def test_a_full_run_saves_one_slice_per_declared_family(repository,
+                                                       fast_sleep):
+    """Without a ``--category`` filter the run walks every declared
+    family, discovers each family's own path from the menu and saves one
+    slice per family with its own ``categoria`` — the wave-A goal."""
+    session = FakeSession(MENU_HTML, windows(FAMILY_POOL))
+    repository = InMemoryProductRepository()
+    ctx, messages = make_ctx(session, repository, category=None)
+
+    ScraperSuperMami().run(ctx)
+
+    assert session.urls == ([MENU_URL]
+                            + [page_url(0, path) for path in
+                               (PATH,) + FAMILY_HREFS])
+    assert repository.calls == [
+        ("SuperMami", categoria, None, 3)
+        for categoria in ("almacen", "bebidas", "fresco", "perfumeria",
+                          "limpieza", "mascotas")]
+    assert sorted({doc["categoria"]
+                   for doc in stored_documents(repository)}) == [
+        "almacen", "bebidas", "fresco", "limpieza", "mascotas",
+        "perfumeria"]
+    assert messages[-1] == "PROCESO TERMINADO CON 18 productos"
+
+
+def test_a_declared_family_missing_from_the_menu_fails_the_run(repository):
+    """``categories`` is a contract: a valid menu that no longer lists a
+    declared family fails the run loudly — never a success that saved a
+    partial shelf. The families before the missing one still saved their
+    slices, exactly like a page failure mid-run."""
+    session = FakeSession(menu_without("perfumeria"), windows(FAMILY_POOL))
+    repository = InMemoryProductRepository()
+    ctx, messages = make_ctx(session, repository, category=None)
+
+    with pytest.raises(RuntimeError):
+        ScraperSuperMami().run(ctx)
+
+    assert repository.calls == [
+        ("SuperMami", "almacen", None, 3),
+        ("SuperMami", "bebidas", None, 3),
+        ("SuperMami", "fresco", None, 3),
+    ]
+    assert any("No se encontró la categoría perfumeria" in message
+               for message in messages)
+    assert "PROCESO TERMINADO" not in messages
+
+
+def test_the_category_filter_narrows_the_run_to_that_one_family(repository):
+    """``--category bebidas`` still means one family: the other declared
+    families are never requested nor saved."""
+    session = FakeSession(MENU_HTML, windows(FAMILY_POOL))
+    repository = InMemoryProductRepository()
+    ctx, messages = make_ctx(session, repository, category="bebidas")
+
+    ScraperSuperMami().run(ctx)
+
+    assert session.urls == [MENU_URL, page_url(0, BEBIDAS_HREF)]
+    assert repository.calls == [("SuperMami", "bebidas", None, 3)]
+    assert messages[-1] == "PROCESO TERMINADO CON 3 productos"
