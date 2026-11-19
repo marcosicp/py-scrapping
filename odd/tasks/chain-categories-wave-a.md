@@ -94,14 +94,14 @@ Out of scope on purpose (not a supermarket price comparison): SuperMami
 
 ## Tasks
 
-### T1 · SuperMami: the six food families
+### T1 · SuperMami: the six food families — DONE (`35ef567`)
 
 `categories = ("almacen", "bebidas", "fresco", "perfumeria", "limpieza",
 "mascotas")`, plus the tests: the tuple is exposed through `/api/scrapers`, a
 run over several families saves one slice per family (its own `categoria`), and
 a family the menu does not list still raises instead of ending as a success.
 
-### T2 · La Anónima: nine `n1` categories and the leaf case
+### T2 · La Anónima: nine `n1` categories and the leaf case — DONE (`896927f`)
 
 `CATEGORY_NODES` gains the eight measured n1 URLs and `categories` lists the
 nine keys; `_discover_nodes` returns `None` when the anchor is missing and `[]`
@@ -135,6 +135,33 @@ The number that matters is whether `bebidas` and `limpieza` show a multi-chain
 share above `almacen`'s 18.1 %: if they do, the next wave is about category
 coverage; if they do not, the matcher is the bottleneck and categories will not
 fix it.
+
+## Evidence
+
+- **Gates**: whole suite 531 passed / 16 skipped (opt-in MongoDB), flake8 CI
+  gate 0. Both scraper files green test-first: T2 RED was 6 failures before the
+  implementation, T1 RED was 4.
+- **The registry surface moved with the tuple**: `python -m api.cli list` prints
+  `supermami: ... (almacen, bebidas, fresco, perfumeria, limpieza, mascotas)` and
+  the nine La Anónima categories, and
+  `tests/test_container.py::test_default_app_lists_the_registered_scrapers`
+  pinned `["almacen"]` for SuperMami — it now pins the six, which is the contract
+  the wider tuple exists to expose.
+- **`run()` semantics for La Anónima changed shape**: it used to resolve one
+  category and return; it now walks every declared category unless `--category`
+  narrows it, keeping one final `PROCESO DETENIDO`/`PROCESO TERMINADO` report.
+  A category whose menu can be read but lists no anchor is reported and skipped
+  instead of ending the whole run — with nine categories, one changed path must
+  not block the other eight.
+- **Merged** to local `main` as a fast-forward (`3bff01a`); `main` is 16 commits
+  ahead of `origin/main` and nothing was pushed.
+- **Native review blocked**: `gentle_review inspect` first timed out on the
+  native `review/status` and succeeded on retry (`action: start`, committed
+  range from `6afbbc8`), but START failed twice with the same native timeout
+  (`error_code: timeout`, SIGTERM, `lineage_created: false`,
+  `mutation_performed: false`). Nothing was created, nothing burned. This round
+  therefore carries no native verdict; the code is committed on the strength of
+  the tests, not of a review.
 
 ## Non-goals
 
