@@ -8,6 +8,18 @@ Subcommands:
 
 - ``list``: one line per registered scraper, in registration order.
 - ``run <slug> [--category <name>]``: run one scraper and wait for it.
+- ``enrich-ean [--chain <slug>] [--limit N] [--sleep SECONDS]`` (ean-enrichment
+  T4): fill the missing ``ean`` of one chain from its product detail pages —
+  source of truth ``odd/tasks/ean-enrichment.md``. La Anónima publishes the
+  barcode (``gtin``) only on the detail page, and any slug answers there, so
+  the walk is ``detail_url(sku)`` + ``gtin_of(html)`` per candidate at a
+  configurable pace (N-5). It is its own command, never a step of the scrape
+  (N-1): idempotent by construction — only empty-ean documents are fetched,
+  an existing ``ean`` is never overwritten, and the write goes through
+  ``update_eans``, a targeted update that touches nothing else (N-4).
+  ``--chain`` defaults to ``laanonima``; an unknown chain is a loud error
+  (exit 3), because only the chains in ``EAN_SOURCES`` have a known barcode
+  source (SuperMami publishes none anywhere reachable — measured).
 - ``coverage``: read-only catalog coverage report (category-coverage T4;
   comparator focus T3): a per-category block — documents, grouped rows, rows
   carried by 2+ chains and the resulting percentage, with NO majority
@@ -20,13 +32,16 @@ Subcommands:
   default (``localhost``/``lalistitadev``) holds no ``ean`` and no
   ChangoMás and would understate the coverage it exists to measure.
 
-Environment file: both entry points honour ``LALISTITA_ENV_FILE``, which
+Environment file: every subcommand honours ``LALISTITA_ENV_FILE``, which
 names the env file to load (see ``api.config.load_env_file``). Each
 subcommand carries its own default, on purpose:
 
 - ``run``: no default — the shell environment decides, so a scraper is
   never silently retargeted at whatever ``.env`` (the production database)
   says; only an explicit selector points it somewhere else.
+- ``enrich-ean``: no default, the same rule as ``run`` — an enrichment walk
+  fires thousands of targeted writes, so it must never run against whatever
+  ``.env`` says.
 - ``coverage``: ``.env``, the same default ``app.py`` uses, so the report
   keeps measuring the database the dashboard reads.
 - ``list``: no env file at all — it reads no database.
@@ -38,7 +53,8 @@ not run a scraper against the wrong database. A missing *default* ``.env``
 is not an error — a fresh clone and CI have none.
 
 Exit codes: 0 succeeded, 1 failed, 2 stopped, 3 scraper-control error
-(unknown slug, invalid category or already running). ``coverage`` exits 0.
+(unknown slug, invalid category or already running, unknown ``enrich-ean``
+chain). ``coverage`` exits 0.
 
 The module stays thin: no scraping logic, no Flask import, no
 ``current_app``. ``build_client``, ``ScraperManager`` and
@@ -50,14 +66,20 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
+from collections.abc import Callable
 
 from pymongo import MongoClient
 
 from api.config import Settings, load_env_file
 from api.mongo import build_client
+from api.repositories import RepositoryUnavailable
 from api.repositories.products import MongoProductRepository
 from api.scrapers.errors import ScraperError
+from api.scrapers.http import build_http_session
+from api.scrapers.laanonima import detail_url, gtin_of
 from api.scrapers.registry import ScraperRegistry, default_registry
+from api.services.enrichment import enrich_eans
 from api.services.matching import group_products
 from api.services.scraping import RunState, RunStatus, \
     ScraperManager
@@ -129,6 +151,93 @@ def cmd_run(args: argparse.Namespace) -> int:
     print(f"[{status.slug}] {status.state.value} "
           f"saved: {status.saved} message: {message}")
     return _EXIT_CODES.get(status.state, 1)
+
+
+# -- EAN sources (ean-enrichment N-2): chains whose site publishes a
+# barcode somewhere reachable, with the two site-knowledge functions each
+# one contributes. Adding a chain means adding two functions here, not
+# editing the engine. SuperMami publishes no barcode anywhere reachable
+# (measured, ``odd/tasks/ean-enrichment.md``) and is deliberately absent.
+EAN_SOURCES: dict[str, tuple[Callable[[str], str],
+                             Callable[[str], str | None]]] = {
+    "laanonima": (detail_url, gtin_of),
+}
+
+
+def cmd_enrich_ean(args: argparse.Namespace) -> int:
+    """Fill the missing ``ean`` of one chain (ean-enrichment T4).
+
+    Reads the catalog through ``MongoProductRepository``, keeps the
+    documents of ``--chain`` (validated against ``EAN_SOURCES`` — an
+    unknown chain is a clear error, never a silent no-op), bounds the
+    candidates with ``--limit`` (0 or absent means all) and walks them
+    through ``enrich_eans`` with La Anónima's ``detail_url``/``gtin_of`` and
+    the shared ctx-less HTTP session. ``--sleep`` (default 0.4) is the pace
+    between detail-page requests: the operator's value overrides the
+    suggested pause the loop injects.
+
+    The mapping the service produced is written through
+    ``update_eans`` — never ``replace_products``, which owns whole slices
+    (N-4) — and one summary line per counter is printed, plus how many
+    documents the repository actually modified. Exits 0.
+    """
+    source = EAN_SOURCES.get(args.chain)
+    if source is None:
+        known = ", ".join(sorted(EAN_SOURCES))
+        print(f"error: no EAN source for chain '{args.chain}' "
+              f"(known: {known})", file=sys.stderr)
+        return 3
+    url_for, extract_ean = source
+    # The stored documents carry the scraper's ``label`` as their
+    # ``supermercado`` (the scrapers save ``self.label``), so both the read
+    # filter and the write are keyed on the label, not on the slug.
+    label = default_registry().get(args.chain).label
+
+    # No default on purpose: same rule as `run`, never retarget a database
+    # by accident — only an explicit LALISTITA_ENV_FILE points this somewhere.
+    load_env_file()
+    settings = Settings.from_env()
+    try:
+        client = build_client(settings)
+        repository = MongoProductRepository(client[settings.mongodb_db])
+        documents = repository.find_all()
+        # Only the documents that still need it are candidates, before the
+        # limit is applied: a bounded run must attempt `limit` products, not
+        # hand the service a slice of already-enriched ones. This is also what
+        # makes a chunked backfill possible (`--limit 800` repeatedly walks
+        # forward instead of re-reading the same first records).
+        candidates = [doc for doc in documents
+                      if doc.get("supermercado") == label
+                      and not doc.get("ean") and doc.get("sku")]
+        if args.limit > 0:
+            candidates = candidates[:args.limit]
+
+        session = build_http_session()
+
+        def fetch(url: str) -> str:
+            response = session.get(url, timeout=30)
+            if response.status_code != 200:
+                raise RuntimeError(f"HTTP {response.status_code}")
+            return response.text
+
+        mapping, enrich_report = enrich_eans(
+            candidates,
+            url_for=url_for,
+            extract_ean=extract_ean,
+            fetch=fetch,
+            report=lambda text: print(f"[enrich-ean] {text}"),
+            sleep=lambda suggested: time.sleep(args.sleep))
+        modified = repository.update_eans(label, mapping)
+    except RepositoryUnavailable as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"attempted: {enrich_report.attempted}")
+    print(f"enriched: {enrich_report.enriched}")
+    print(f"without_gtin: {enrich_report.without_gtin}")
+    print(f"failed: {enrich_report.failed}")
+    print(f"modified: {modified}")
+    return 0
 
 
 def _source_of(settings: Settings) -> str:
@@ -258,11 +367,28 @@ def main(argv: list[str] | None = None) -> int:
         "coverage",
         help="read-only per-category coverage report over the catalog")
 
+    ean_parser = subparsers.add_parser(
+        "enrich-ean",
+        help="fill the missing barcodes (ean) of one chain from its "
+             "product detail pages")
+    ean_parser.add_argument(
+        "--chain", default="laanonima",
+        help="chain to enrich; must have a known EAN source "
+             "(default: laanonima)")
+    ean_parser.add_argument(
+        "--limit", type=int, default=0,
+        help="bound the candidates; 0 or absent means all")
+    ean_parser.add_argument(
+        "--sleep", type=float, default=0.4,
+        help="seconds between detail-page requests (default: 0.4)")
+
     args = parser.parse_args(argv)
     if args.command == "list":
         return cmd_list(args)
     if args.command == "coverage":
         return cmd_coverage(args)
+    if args.command == "enrich-ean":
+        return cmd_enrich_ean(args)
     return cmd_run(args)
 
 

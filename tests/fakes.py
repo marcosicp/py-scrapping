@@ -35,6 +35,13 @@ class DeleteManyResult(Result):
     pass
 
 
+class UpdateManyResult(Result):
+    """Stand-in for pymongo's ``UpdateResult`` of ``update_many``."""
+
+    def __init__(self, modified_count: int = 0):
+        self.modified_count = modified_count
+
+
 class FakeCollection:
     """In-memory copy of the pymongo collection surface the repos use."""
 
@@ -44,6 +51,7 @@ class FakeCollection:
         self.fail_insert: Exception | None = None
         self.fail_find: Exception | None = None
         self.fail_distinct: Exception | None = None
+        self.fail_update: Exception | None = None
 
     # -- helpers ---------------------------------------------------------
     @staticmethod
@@ -65,11 +73,13 @@ class FakeCollection:
         if not filter_:
             return True
         for key, expected in filter_.items():
-            if key == "_id" and isinstance(expected, dict):
+            if isinstance(expected, dict):
                 if set(expected.keys()) != {"$in"}:
                     raise NotImplementedError(
-                        f"Unsupported _id operator: {expected!r}")
-                if document.get("_id") not in expected["$in"]:
+                        f"Unsupported filter operator: {expected!r}")
+                # MongoDB parity: a missing field reads as None, so it
+                # matches an ``$in`` that carries None.
+                if document.get(key) not in expected["$in"]:
                     return False
             elif document.get(key) != expected:
                 return False
@@ -119,6 +129,20 @@ class FakeCollection:
             self.documents.append(dict(doc))
         return InsertManyResult(inserted_ids=inserted_ids)
 
+    def update_many(self, filter, update):
+        self.events.append("update_many")
+        if self.fail_update is not None:
+            raise self.fail_update
+        if set(update.keys()) != {"$set"}:
+            raise NotImplementedError(f"Unsupported update: {update!r}")
+        modified = 0
+        for doc in self.documents:
+            if not self._matches(doc, filter):
+                continue
+            doc.update(copy.deepcopy(update["$set"]))
+            modified += 1
+        return UpdateManyResult(modified_count=modified)
+
     def delete_many(self, filter):
         self.events.append("delete_many")
         before = len(self.documents)
@@ -145,6 +169,7 @@ class InMemoryProductRepository:
     def __init__(self) -> None:
         self.documents: list[dict[str, Any]] = []
         self.calls: list[tuple[str, str | None, str | None, int]] = []
+        self.update_ean_calls: list[tuple[str, dict[str, str]]] = []
         self.find_all_error: Exception | None = None
 
     # shared helpers -----------------------------------------------------
@@ -196,6 +221,25 @@ class InMemoryProductRepository:
         count = len(products)
         self.calls.append((supermercado, categoria, subcategoria, count))
         return count
+
+    def update_eans(self, supermercado: str,
+                    eans: Mapping[str, str]) -> int:
+        """Fill the empty/missing ``ean`` of that chain's matching ``sku``s.
+
+        A non-empty ``ean`` is never overwritten and no other field moves;
+        the return value is the number of documents actually modified.
+        """
+        self.update_ean_calls.append((supermercado, dict(eans)))
+        modified = 0
+        for doc in self.documents:
+            if doc.get("supermercado") != supermercado:
+                continue
+            ean = eans.get(doc.get("sku"))
+            if ean is None or doc.get("ean"):
+                continue
+            doc["ean"] = ean
+            modified += 1
+        return modified
 
 
 class RecordingReporter:

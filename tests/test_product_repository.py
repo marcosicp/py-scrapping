@@ -317,6 +317,84 @@ def test_caller_dicts_are_not_mutated(repo):
 
 
 # ---------------------------------------------------------------------------
+# contract cases: update_eans (ean-enrichment T2)
+# ---------------------------------------------------------------------------
+
+def test_update_eans_fills_only_empty_eans_and_returns_the_modified_count(repo):
+    """A missing ``ean`` and an empty-string ``ean`` are both filled; the
+    return value is the number of documents actually modified."""
+    repo.replace_products("La Anónima", [
+        {"name": "Coca", "price": 1.0, "sku": "3100001"},          # missing
+        {"name": "Fanta", "price": 1.0, "sku": "3100002", "ean": ""},
+    ])
+
+    modified = repo.update_eans("La Anónima", {
+        "3100001": "7790895000123",
+        "3100002": "7790895000456",
+    })
+
+    assert modified == 2
+    by_name = {doc["name"]: doc for doc in repo.find_all()}
+    assert by_name["Coca"]["ean"] == "7790895000123"
+    assert by_name["Fanta"]["ean"] == "7790895000456"
+
+
+def test_update_eans_never_overwrites_a_non_empty_ean(repo):
+    repo.replace_products("La Anónima", [
+        {"name": "Coca", "price": 1.0, "sku": "3100001",
+         "ean": "7790000000001"},
+    ])
+
+    modified = repo.update_eans("La Anónima",
+                                {"3100001": "7790895000123"})
+
+    assert modified == 0
+    by_name = {doc["name"]: doc for doc in repo.find_all()}
+    assert by_name["Coca"]["ean"] == "7790000000001"
+
+
+def test_update_eans_ignores_a_sku_of_another_chain(repo):
+    """The mapping is scoped to one ``supermercado``: the same ``sku`` stored
+    under another chain keeps whatever it had (including nothing)."""
+    repo.replace_products("La Anónima",
+                          [{"name": "Coca", "price": 1.0, "sku": "3100001"}])
+    repo.replace_products("Disco",
+                          [{"name": "Coca", "price": 1.0, "sku": "3100001"}])
+
+    modified = repo.update_eans("La Anónima",
+                                {"3100001": "7790895000123"})
+
+    assert modified == 1
+    by_chain: dict[str, dict] = {}
+    for doc in repo.find_all():
+        by_chain[doc["supermercado"]] = doc
+    assert by_chain["La Anónima"]["ean"] == "7790895000123"
+    assert "ean" not in by_chain["Disco"]
+
+
+def test_update_eans_leaves_every_other_field_untouched(repo):
+    repo.replace_products("La Anónima",
+                          [{"name": "Coca", "price": 1.0, "sku": "3100001",
+                            "categoria": "bebidas"}])
+    before = repo.find_all()
+
+    repo.update_eans("La Anónima", {"3100001": "7790895000123"})
+
+    after = repo.find_all()
+    assert len(after) == len(before) == 1
+    for field in ("name", "price", "sku", "categoria", "supermercado"):
+        assert after[0][field] == before[0][field]
+
+
+def test_update_eans_with_an_unknown_sku_modifies_nothing(repo):
+    repo.replace_products("La Anónima",
+                          [{"name": "Coca", "price": 1.0, "sku": "3100001"}])
+
+    assert repo.update_eans("La Anónima", {"999": "7790895000123"}) == 0
+    assert "ean" not in repo.find_all()[0]
+
+
+# ---------------------------------------------------------------------------
 # Mongo adapter specifics against FakeDatabase
 # ---------------------------------------------------------------------------
 
@@ -400,6 +478,32 @@ def test_mongo_categories_reads_through_distinct():
     assert MongoProductRepository(database).categories() == [
         "almacen", "bebidas"]
     assert collection.events == ["distinct"]
+
+
+def test_mongo_update_eans_uses_one_targeted_update_per_sku():
+    """The enrichment write is a targeted update (N-4), never a slice
+    replacement: one ``update_many`` per sku, no insert and no delete."""
+    database = FakeDatabase()
+    collection = database[COLLECTION_NAME]
+    collection.documents = [
+        {"supermercado": "La Anónima", "name": "Coca", "sku": "3100001"},
+    ]
+    collection.events.clear()
+
+    assert MongoProductRepository(database).update_eans(
+        "La Anónima", {"3100001": "7790895000123"}) == 1
+    assert collection.events == ["update_many"]
+    assert collection.documents[0]["ean"] == "7790895000123"
+
+
+def test_mongo_update_eans_failure_translates_to_repository_unavailable():
+    database = FakeDatabase()
+    collection = database[COLLECTION_NAME]
+    collection.fail_update = ConnectionFailure("server unreachable")
+    with pytest.raises(RepositoryUnavailable) as excinfo:
+        MongoProductRepository(database).update_eans(
+            "La Anónima", {"3100001": "7790895000123"})
+    assert "server unreachable" in str(excinfo.value)
 
 
 # ---------------------------------------------------------------------------

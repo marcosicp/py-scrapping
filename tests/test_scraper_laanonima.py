@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from api.scrapers.base import ScrapeContext
-from api.scrapers.laanonima import ScraperLaAnonima
+from api.scrapers.laanonima import ScraperLaAnonima, detail_url, gtin_of
 from tests.fakes import InMemoryProductRepository
 
 # -- fakes ------------------------------------------------------------------
@@ -562,3 +562,68 @@ def _set_event():
     event = threading.Event()
     event.set()
     return event
+
+
+# -- EAN enrichment site knowledge (ean-enrichment T1) ------------------------
+
+
+def test_detail_url_builds_the_slug_free_route():
+    """``https://www.laanonima.com.ar/x/art_<id>/`` answers exactly like the
+    canonical ``.../<slug>/art_<id>/``: any slug works because the route only
+    needs *a* slug and ignores its value (measured 15/15 sampled products,
+    ``odd/tasks/ean-enrichment.md``). The ``x`` is therefore decorative and
+    must NOT be derived from the product name — the id is the stored ``sku``.
+    """
+    assert detail_url("3001") == "https://www.laanonima.com.ar/x/art_3001/"
+    assert detail_url("2123642") == \
+        "https://www.laanonima.com.ar/x/art_2123642/"
+
+
+def product_page_json_ld(value):
+    """A product detail page whose JSON-LD ``Product`` block carries ``gtin``."""
+    return (
+        '<html><head>'
+        '<script type="application/ld+json">'
+        '{"@context": "https://schema.org", "@type": "Product", '
+        f'"name": "Coca Cola 2 lt", "gtin": "{value}", '
+        '"offers": {"@type": "Offer", "price": 1234}}'
+        '</script>'
+        '</head><body></body></html>')
+
+
+def test_gtin_of_reads_the_product_block():
+    assert gtin_of(product_page_json_ld("7790895000123")) == "7790895000123"
+
+
+def test_gtin_of_reads_a_product_inside_a_block_array():
+    """Some pages embed the JSON-LD as a list of blocks instead of one object
+    or an ``@graph``; the ``Product`` element is still found."""
+    html = (
+        '<script type="application/ld+json">'
+        '[{"@type": "BreadcrumbList"}, '
+        '{"@type": "Product", "gtin": "7791234567890"}]'
+        '</script>')
+    assert gtin_of(html) == "7791234567890"
+
+
+def test_gtin_of_returns_none_on_a_category_item_list_page():
+    """The category pages only carry an ``ItemList`` (no ``gtin``, measured):
+    a category page must extract nothing, not the first number around."""
+    assert gtin_of(item_list_html(
+        product("Coca Cola 2 lt", "3100001", 1234))) is None
+
+
+def test_gtin_of_returns_none_when_there_is_no_json_ld():
+    assert gtin_of("<html><body><p>hola</p></body></html>") is None
+
+
+def test_gtin_of_returns_none_when_the_gtin_is_not_digits():
+    assert gtin_of(product_page_json_ld("")) is None
+    assert gtin_of(product_page_json_ld("7790895-000123")) is None
+
+
+def test_gtin_of_skips_a_broken_json_block_and_reads_the_next():
+    html = (
+        '<script type="application/ld+json">not json at all</script>'
+        + product_page_json_ld("7790895000123"))
+    assert gtin_of(html) == "7790895000123"

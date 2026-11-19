@@ -35,6 +35,10 @@ class ProductRepository(Protocol):
                          subcategoria: str | None = None) -> int:
         ...
 
+    def update_eans(self, supermercado: str,
+                    eans: Mapping[str, str]) -> int:
+        ...
+
 
 class MongoProductRepository:
     """MongoDB adapter backed by ``database`` and the ``productos`` collection."""
@@ -133,3 +137,33 @@ class MongoProductRepository:
 
         # 7. Outcome.
         return len(documents)
+
+    def update_eans(self, supermercado: str, eans: Mapping[str, str]) -> int:
+        """Fill the missing barcodes of one chain (ean-enrichment N-4).
+
+        For every ``sku`` in ``eans`` one targeted ``update_many`` matches
+        that chain's documents whose ``sku`` equals it **and** whose ``ean``
+        is empty or missing — a non-empty ``ean`` is never overwritten and no
+        other field ever moves (this is not ``replace_products``, which owns
+        whole slices). The MongoDB ``$in`` with ``None`` matches missing
+        fields too, so one filter covers both shapes.
+
+        Returns the number of documents actually modified. Driver-level
+        write failures translate to :class:`RepositoryUnavailable`, like
+        every other read of this adapter.
+        """
+        modified = 0
+        try:
+            for sku, ean in eans.items():
+                result = self._collection.update_many(
+                    {
+                        "supermercado": supermercado,
+                        "sku": sku,
+                        "ean": {"$in": [None, ""]},
+                    },
+                    {"$set": {"ean": ean}},
+                )
+                modified += result.modified_count
+        except PyMongoError as exc:
+            raise RepositoryUnavailable(str(exc)) from exc
+        return modified

@@ -46,6 +46,66 @@ _NODE_HREF = re.compile(
 _ART_ID = re.compile(r"/art_(\d+)")
 
 
+def detail_url(sku: str) -> str:
+    """The detail page URL of one product, from its ``art_<id>`` identity.
+
+    The site answers ``https://www.laanonima.com.ar/x/art_<id>/`` exactly like
+    the canonical ``.../<slug>/art_<id>/``: the route only needs *a* slug and
+    ignores its value (measured 2026-11-25: 15/15 sampled products returned a
+    page carrying ``gtin``; without a slug the site redirects home). The ``x``
+    is therefore decorative on purpose and must NOT be derived from the
+    product name — the id is the ``sku`` the scraper already stores.
+    """
+    return f"https://www.laanonima.com.ar/x/art_{sku}/"
+
+
+def gtin_of(html: str) -> str | None:
+    """The barcode digits of a product detail page, read from its JSON-LD.
+
+    The category pages embed an ``ItemList`` with no ``gtin`` (measured); the
+    barcode only appears on the detail page's ``Product`` JSON-LD block. The
+    first block — or element of a block array — carrying ``@type: Product``
+    with a digits-only ``gtin`` wins; anything else (no block, empty value,
+    non-digit value) is ``None``, which the enrichment loop counts as
+    "without gtin", not as an error.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    for script in soup.find_all("script",
+                                attrs={"type": "application/ld+json"}):
+        raw = script.string if script.string is not None \
+            else script.get_text()
+        try:
+            data = json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        gtin = _gtin_from(data)
+        if gtin is not None:
+            return gtin
+    return None
+
+
+def _gtin_from(data) -> str | None:
+    """The digits of a decoded JSON-LD document's ``Product.gtin``, or None."""
+    if isinstance(data, dict):
+        if data.get("@type") == "Product":
+            gtin = data.get("gtin")
+            if isinstance(gtin, str) and gtin.isdigit() and gtin:
+                return gtin
+            return None
+        graph = data.get("@graph")
+        if isinstance(graph, list):
+            for node in graph:
+                gtin = _gtin_from(node)
+                if gtin is not None:
+                    return gtin
+    if isinstance(data, list):
+        for node in data:
+            gtin = _gtin_from(node)
+            if gtin is not None:
+                return gtin
+    return None
+
+
 class ScraperLaAnonima(BaseScraper):
     """Scrapes La Anónima's categories through plain HTTP."""
 
