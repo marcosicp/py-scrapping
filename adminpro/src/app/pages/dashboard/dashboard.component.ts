@@ -21,6 +21,11 @@ export class DashboardComponent implements OnInit {
   loading = true;
   loadError = false;
   noRowsTemplate = '¡Agrega tus productos!';
+  // -- Category dimension (category-coverage T5): the slugs the API reports
+  // (always the FULL list, even when a filter is applied) and the currently
+  // selected one ('' = all categories).
+  categorias: string[] = [];
+  selectedCategoria = '';
   itemsCarre?: ChainEntry[] = [];
   itemsDisco?: ChainEntry[] = [];
   itemsMami?: ChainEntry[] = [];
@@ -180,15 +185,19 @@ export class DashboardComponent implements OnInit {
 
   // -- One request, one loading flag: `finalize` clears the spinner on both
   // outcomes, so a failing backend shows a retry instead of spinning forever.
-  loadCatalog() {
+  // An absent/empty `categoria` keeps the request without the query string.
+  loadCatalog(categoria?: string) {
     this.loading = true;
     this.loadError = false;
     this.http
-      .getExams()
+      .getExams(categoria)
       .pipe(finalize(() => (this.loading = false)))
       .subscribe({
         next: (a) => {
           this.items = a;
+          // The API returns the full category list even when filtered, so the
+          // selector never empties itself after a selection.
+          this.categorias = a?.categorias || [];
         },
         error: () => {
           this.loadError = true;
@@ -199,6 +208,26 @@ export class DashboardComponent implements OnInit {
   // Example load data from server
   onGridReady(params: GridReadyEvent) {
     this.gridApi = params.api;
+  }
+
+  // -- Category selector change (category-coverage T5): reset the five
+  // per-chain lists and their totals before refetching. Those lists hold rows
+  // selected from the previous catalog view, which no longer exist in the
+  // filtered payload — keeping them would show totals for products the user
+  // cannot see.
+  onCategoriaChange(event: Event) {
+    this.selectedCategoria = (event.target as HTMLSelectElement).value;
+    this.itemsCarre = [];
+    this.itemsDisco = [];
+    this.itemsMami = [];
+    this.itemsHiper = [];
+    this.itemsChang = [];
+    this.totalCarre = 0;
+    this.totalDisco = 0;
+    this.totalMami = 0;
+    this.totalHiper = 0;
+    this.totalChang = 0;
+    this.loadCatalog(this.selectedCategoria || undefined);
   }
 
   onFilterTextBoxChanged() {

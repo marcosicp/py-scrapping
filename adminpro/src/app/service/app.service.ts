@@ -23,7 +23,13 @@ export class AppService {
   // machine: it targets the viewer's loopback, which Chrome blocks under Private
   // Network Access (public origin -> `loopback` address space) with both a CORS
   // log line and `net::ERR_FAILED`.
-  getExams(): Observable<any> {
-    return this.http.get(`/api/productos/agrupados`);
+  //
+  // The category filter (category-coverage T5) is appended only when a non-empty
+  // slug is given, so the no-filter request stays byte-identical to today.
+  getExams(categoria?: string): Observable<any> {
+    const url = categoria
+      ? `/api/productos/agrupados?categoria=${encodeURIComponent(categoria)}`
+      : `/api/productos/agrupados`;
+    return this.http.get(url);
   }
 }

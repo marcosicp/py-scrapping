@@ -188,6 +188,25 @@
     <div class="card">
       <div class="card-body">
         <div *ngIf="!loading && items != undefined">
+          <!-- Category dimension (category-coverage T5): a native select, no
+               Angular Material module. First option is "all" so first paint
+               matches today's behaviour. The API returns the full category
+               list even when filtered, so the options never disappear.
+               `[selected]` per option, not `[value]` on the select: the
+               options are created by *ngFor after the select's own bindings
+               run, so `[value]` would find no matching option and silently
+               fall back to "Todas" after every refetch. -->
+          <div class="d-inline-block mr-3 mb-2">
+            <label class="sr-only" for="categoria-select">Categoría</label>
+            <select
+              id="categoria-select"
+              class="form-control rounded-pill"
+              (change)="onCategoriaChange($event)"
+            >
+              <option value="" [selected]="selectedCategoria === ''">Todas las categorías</option>
+              <option *ngFor="let c of categorias" [value]="c" [selected]="c === selectedCategoria">{{ c }}</option>
+            </select>
+          </div>
           <div class="input-container" style="height: 50px">
             <input
               matInput
