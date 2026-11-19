@@ -8,11 +8,14 @@ Subcommands:
 
 - ``list``: one line per registered scraper, in registration order.
 - ``run <slug> [--category <name>]``: run one scraper and wait for it.
-- ``coverage``: per-category read-only catalog report (category-coverage
-  T4): documents, grouped rows, rows carried by 2+ chains and the resulting
-  percentage, plus a total line over the whole catalog. Grouping goes
-  through the same ``group_products`` the API uses, so the number cannot
-  drift from what the dashboard shows. Unlike ``run``, it reads ``.env``
+- ``coverage``: read-only catalog coverage report (category-coverage T4;
+  comparator focus T3): a per-category block — documents, grouped rows, rows
+  carried by 2+ chains and the resulting percentage, with NO majority
+  binning: a row counts under every category its members carry — then a
+  per-chain block over the five chain buckets, and a total line over the
+  whole catalog. Grouping goes through the same ``group_products`` the API
+  uses, so the number cannot drift from what the dashboard shows. Unlike
+  ``run``, it reads ``.env``
   exactly like ``app.py`` and prints the resolved source, because the local
   default (``localhost``/``lalistitadev``) holds no ``ean`` and no
   ChangoMás and would understate the coverage it exists to measure.
@@ -140,13 +143,26 @@ def _source_of(settings: Settings) -> str:
 
 
 def cmd_coverage(args: argparse.Namespace) -> int:
-    """Read-only per-category coverage report (category-coverage T4, C-7).
+    """Read-only coverage report (category-coverage T4, C-7; comparator
+    focus T3, F-3..F-5).
 
-    Reads the catalog through the same repository the API uses, groups it
-    with ``matching.group_products`` (never a private reimplementation) and
-    prints, per category: documents, rows, rows carried by 2+ chains and the
-    resulting percentage; then a total line over the whole catalog. Rows
-    whose ``categoria`` is None report under ``(sin categoria)``, last.
+    Reads the catalog through the same repository the API uses and groups it
+    with ``matching.group_products`` (never a private reimplementation), with
+    ``include_member_categories=True`` so every row carries the slugs its
+    member documents carry. Two blocks follow the ``source:`` line:
+
+    * **por categoria** — NO majority binning: a row counts under EVERY slug
+      in its ``categorias``, so a cross-category comparison appears in both
+      instead of being lost to a vote (F-3). A row with no member category
+      counts under ``(sin categoria)``. Documents are keyed on each
+      document's own ``categoria``, as always. Categories sort
+      alphabetically with ``(sin categoria)`` last, then a ``total`` line.
+    * **por cadena** — per chain bucket (F-4), in the payload's fixed order:
+      documents of that chain, rows carrying it, how many are comparable
+      (2+ chains) and the percentage.
+
+    Both blocks print documents, rows and comparable rows (F-5): volume is
+    reported, never celebrated. The report stays read-only.
 
     ``load_env_file('.env')`` is called here and not for ``run`` on purpose:
     this report must measure the database the dashboard reads, and pointing
@@ -162,7 +178,8 @@ def cmd_coverage(args: argparse.Namespace) -> int:
     client = build_client(settings)
     repository = MongoProductRepository(client[settings.mongodb_db])
     docs = repository.find_all()
-    rows = group_products(docs)["productos"]
+    payload = group_products(docs, include_member_categories=True)
+    rows = payload["productos"]
 
     doc_counts: dict[str | None, int] = {}
     for doc in docs:
@@ -171,19 +188,25 @@ def cmd_coverage(args: argparse.Namespace) -> int:
             else None
         doc_counts[key] = doc_counts.get(key, 0) + 1
 
+    # -- F-3: a row counts under EVERY slug its members carry; a row whose
+    # members carry none counts under None ((sin categoria)).
     row_counts: dict[str | None, int] = {}
     multi_counts: dict[str | None, int] = {}
     for row in rows:
-        key = row["categoria"]
-        row_counts[key] = row_counts.get(key, 0) + 1
-        if len(row["offers"]) >= 2:
-            multi_counts[key] = multi_counts.get(key, 0) + 1
+        is_multi = len(row["offers"]) >= 2
+        keys = row.get("categorias") or [None]
+        for key in keys:
+            row_counts[key] = row_counts.get(key, 0) + 1
+            if is_multi:
+                multi_counts[key] = multi_counts.get(key, 0) + 1
 
     def line(label: str, n_docs: int, n_rows: int, n_multi: int) -> None:
         pct = f"{100.0 * n_multi / n_rows:.1f}%" if n_rows else "0.0%"
         print(f"{label:<16}{n_docs:>8}{n_rows:>7}{n_multi:>7}{pct:>10}")
 
     print(f"source: {_source_of(settings)}")
+
+    print("por categoria (una fila cuenta en cada categoria que porta):")
     print(f"{'categoria':<16}{'docs':>8}{'rows':>7}{'2+chains':>7}{'pct':>10}")
     categories = sorted(set(doc_counts) | set(row_counts),
                         key=lambda key: (key is None, key))
@@ -191,7 +214,28 @@ def cmd_coverage(args: argparse.Namespace) -> int:
         line("(sin categoria)" if key is None else key,
              doc_counts.get(key, 0), row_counts.get(key, 0),
              multi_counts.get(key, 0))
-    line("total", len(docs), len(rows), sum(multi_counts.values()))
+    # -- the total counts every row once, never once per category it carries
+    line("total", len(docs), len(rows),
+         sum(1 for row in rows if len(row["offers"]) >= 2))
+
+    # -- F-4: per chain, in the payload's fixed bucket order. The payload
+    # carries the buckets as top-level keys ("productos" is the only other
+    # key), so the order comes from matching itself, not from a copy here.
+    chain_keys = [key for key in payload if key != "productos"]
+    chain_rows: dict[str, int] = {}
+    chain_multi: dict[str, int] = {}
+    for row in rows:
+        is_multi = len(row["offers"]) >= 2
+        for chain in row["offers"]:
+            chain_rows[chain] = chain_rows.get(chain, 0) + 1
+            if is_multi:
+                chain_multi[chain] = chain_multi.get(chain, 0) + 1
+
+    print("por cadena:")
+    print(f"{'cadena':<16}{'docs':>8}{'rows':>7}{'2+chains':>7}{'pct':>10}")
+    for chain in chain_keys:
+        line(chain, payload[chain], chain_rows.get(chain, 0),
+             chain_multi.get(chain, 0))
 
     return 0
 

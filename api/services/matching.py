@@ -368,8 +368,32 @@ def _row_categoria(members: list[_Doc]) -> str | None:
     return min(counts, key=lambda slug: (-counts[slug], slug))
 
 
-def _row(group: _Group, winning_key: str, match: str) -> dict[str, Any]:
-    """§3 payload row for one canonical group."""
+def _member_categories(members: list[_Doc]) -> list[str]:
+    """F-2: the sorted, deduplicated non-empty ``categoria`` slugs the
+    group's member documents carry, ``[]`` when none does.
+
+    Deliberately NOT the majority vote of ``_row_categoria``: coverage counts
+    a row under every category it contains, so a cross-category comparison
+    must appear in both slugs. Blank values are ignored the same way
+    ``_row_categoria`` ignores them."""
+    seen: set[str] = set()
+    categories: list[str] = []
+    for doc in members:
+        raw = doc.doc.get("categoria")
+        if isinstance(raw, str) and raw.strip() and raw not in seen:
+            seen.add(raw)
+            categories.append(raw)
+    return sorted(categories)
+
+
+def _row(group: _Group, winning_key: str, match: str,
+         include_member_categories: bool) -> dict[str, Any]:
+    """§3 payload row for one canonical group.
+
+    ``include_member_categories`` is off by default so the API payload stays
+    byte-identical; when on, ``categorias`` (the sorted slugs of the member
+    documents) is appended after ``categoria`` — the display field keeps its
+    majority-derived value untouched."""
     offers: dict[str, dict[str, Any]] = {}
     for doc in group.members:
         if doc.bucket not in offers:  # first offer per chain wins
@@ -378,7 +402,7 @@ def _row(group: _Group, winning_key: str, match: str) -> dict[str, Any]:
                 "price": doc.doc.get("price"),
             }
     offer = _display_name_offer(group.members)
-    return {
+    row: dict[str, Any] = {
         "id": hashlib.sha1(winning_key.encode("utf-8")).hexdigest()[:16],
         "name": offer.doc.get("name", ""),
         "unidad": offer.doc.get("unidad", ""),
@@ -387,9 +411,13 @@ def _row(group: _Group, winning_key: str, match: str) -> dict[str, Any]:
         "match": match,
         "categoria": _row_categoria(group.members),
     }
+    if include_member_categories:
+        row["categorias"] = _member_categories(group.members)
+    return row
 
 
-def group_products(docs: list[dict]) -> dict:
+def group_products(docs: list[dict], *,
+                   include_member_categories: bool = False) -> dict:
     """Group product documents into canonical rows with per-chain offers.
 
     Takes repository-shaped documents (``supermercado``, ``name``,
@@ -398,6 +426,12 @@ def group_products(docs: list[dict]) -> dict:
     product with the winning-key id like ``sha1[:16]`` of ``ean:<ean>`` or
     ``key:<tokens>|<qty>|<family>|<brand>``, per-chain offers, and one
     consumed-document count per chain bucket (D-3: unknown origins ignored).
+
+    ``include_member_categories`` (keyword-only, off by default — comparator
+    focus F-2): when True every row additionally carries ``categorias``, the
+    sorted deduplicated ``categoria`` slugs its member documents carry.
+    Off, the payload is byte-identical to the API's: the SPA must not pay
+    for the CLI coverage instrument.
     """
     counts = dict.fromkeys(_PAYLOAD_KEYS, 0)
     ean_groups: dict[str, _Group] = {}
@@ -528,12 +562,12 @@ def group_products(docs: list[dict]) -> dict:
     rows = []
     for ean, group in ean_groups.items():
         rows.append(_row(group, f"ean:{ean}", _match_label(
-            len(group.members), "ean")))
+            len(group.members), "ean"), include_member_categories))
     for group in key_groups.values():
         if id(group) in absorbed:
             continue  # its members live in the strict group now
         rows.append(_row(group, _layer2_key(group), _match_label(
-            len(group.members), "key")))
+            len(group.members), "key"), include_member_categories))
 
     rows.sort(key=lambda row: (row["name"], row["id"]))
     return {"productos": rows, **counts}

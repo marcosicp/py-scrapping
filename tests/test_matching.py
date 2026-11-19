@@ -263,6 +263,70 @@ def test_row_categoria_existing_keys_and_values_unchanged():
     assert row["categoria"] == "almacen"
 
 
+# -- include_member_categories (comparator-focus F-2) -----------------------
+# Off by default: the API payload must stay byte-identical — ``categorias``
+# is the coverage instrument's field, not the dashboard's.
+
+
+def test_rows_do_not_carry_categorias_by_default():
+    row = group_products([_doc(categoria="almacen")])["productos"][0]
+    assert "categorias" not in row
+    assert list(row.keys())[-1] == "categoria"
+
+
+def test_explicit_false_is_the_same_payload_as_the_default():
+    docs = [_doc(supermercado="carrefour", ean="1", categoria="almacen"),
+            _doc(supermercado="disco", ean="1")]
+    assert (group_products(docs)["productos"]
+            == group_products(
+                docs, include_member_categories=False)["productos"])
+
+
+def test_categorias_is_the_sorted_deduplicated_member_categories():
+    row = group_products([
+        _doc(supermercado="carrefour", ean="1", categoria="almacen"),
+        _doc(supermercado="disco", ean="1",
+             categoria="desayuno-y-merienda"),
+        _doc(supermercado="supermami", ean="1", categoria="almacen"),
+    ], include_member_categories=True)["productos"][0]
+    assert row["categorias"] == ["almacen", "desayuno-y-merienda"]
+
+
+def test_categorias_is_empty_when_no_member_carries_one():
+    row = group_products([_doc()],
+                         include_member_categories=True)["productos"][0]
+    assert row["categorias"] == []
+
+
+def test_categorias_ignores_blank_values():
+    row = group_products([
+        _doc(supermercado="carrefour", ean="1", categoria="  "),
+        _doc(supermercado="disco", ean="1", categoria=""),
+    ], include_member_categories=True)["productos"][0]
+    assert row["categorias"] == []
+
+
+def test_categorias_counts_absorbed_members():
+    # -- a loose layer-2 document joins a strict group: its slug must land in
+    # the receiver row's ``categorias`` too, or coverage would undercount it.
+    row = group_products([
+        _doc(supermercado="carrefour",
+             name="Aceite de girasol natura 900 cc", brand="Natura"),
+        _doc(supermercado="hiperlibertad",
+             name="Aceite de girasol natura 900", unidad="", brand="",
+             categoria="almacen"),
+    ], include_member_categories=True)["productos"][0]
+    assert row["match"] == "key"
+    assert row["categoria"] == "almacen"
+    assert row["categorias"] == ["almacen"]
+
+
+def test_categorias_is_the_last_key_when_on():
+    row = group_products([_doc(categoria="almacen")],
+                         include_member_categories=True)["productos"][0]
+    assert list(row.keys())[-1] == "categorias"
+
+
 # -- Output contract (§3) --------------------------------------------------
 
 

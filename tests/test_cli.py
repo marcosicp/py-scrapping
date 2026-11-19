@@ -242,11 +242,12 @@ def test_coverage_groups_with_the_same_service_the_api_uses(
     assert re.search(r"^almacen\s+3\s+2\s+", _line(out, "almacen"))
 
 
-def test_coverage_reports_a_category_that_yields_no_rows(
+def test_coverage_counts_a_cross_category_row_in_both_categories(
         coverage_collection, capsys):
-    """A doc slug that never wins a row's majority still reports: a tie
-    breaks alphabetically, so limpieza loses its only doc's row to almacen
-    and prints 0 rows with 0.0%."""
+    """F-3: no majority binning. One member carries ``almacen`` and the
+    other ``limpieza``, so the EAN row counts in BOTH categories — the old
+    majority vote buried the comparison under a single slug and the other
+    looked empty."""
     coverage_collection.documents = [
         {"supermercado": "carrefour", "name": "Aceite Natura", "price": 100,
          "ean": "7790272001005", "categoria": "almacen"},
@@ -256,8 +257,14 @@ def test_coverage_reports_a_category_that_yields_no_rows(
     exit_code = cli.main(["coverage"])
     out = capsys.readouterr().out
     assert exit_code == 0
-    assert re.search(r"^limpieza\s+1\s+0\s+0\s+0\.0%$",
+    assert re.search(r"^almacen\s+1\s+1\s+1\s+100\.0%$",
+                     _line(out, "almacen"))
+    assert re.search(r"^limpieza\s+1\s+1\s+1\s+100\.0%$",
                      _line(out, "limpieza"))
+    # -- total stays whole-catalog: 2 docs, 1 row (carried by both
+    # categories), 1 multi -> pct is multi/rows, so 100.0%
+    assert re.search(r"^total\s+2\s+1\s+1\s+100\.0%$",
+                     _line(out, "total"))
 
 
 def test_coverage_is_read_only(coverage_collection, capsys):
@@ -299,6 +306,61 @@ def test_coverage_on_an_empty_database_prints_only_the_total(
     out = capsys.readouterr().out
     assert exit_code == 0
     assert re.search(r"^total\s+0\s+0\s+0\s+0\.0%$", _line(out, "total"))
+
+
+def test_coverage_counts_a_row_without_member_categories_under_sin_categoria(
+        coverage_collection, capsys):
+    """A row whose members carry no ``categoria`` at all reports under
+    ``(sin categoria)`` — with no members there is no slug to bin under."""
+    coverage_collection.documents = [
+        {"supermercado": "disco", "name": "Pan Lactal", "price": 300},
+    ]
+    exit_code = cli.main(["coverage"])
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert re.search(r"^\(sin categoria\)\s+1\s+1\s+0\s+0\.0%$",
+                     _line(out, "(sin"))
+
+
+def test_coverage_prints_the_per_chain_block_in_payload_order(
+        coverage_collection, capsys):
+    """F-4: the comparator's weakest link is a chain. The block prints the
+    payload's fixed bucket order (carre, disco, mami, hiper, chang) with,
+    per bucket: documents, rows carrying that chain, comparable rows and
+    the resulting share."""
+    coverage_collection.documents = [dict(doc) for doc in _COVERAGE_DOCS]
+
+    exit_code = cli.main(["coverage"])
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    # deterministic order: the payload's fixed bucket order
+    assert out.index("carre") < out.index("disco") \
+        < out.index("mami") < out.index("hiper") < out.index("chang")
+    # carre: 1 doc, its aceite row (2+ chains) -> 100.0%
+    assert re.search(r"^carre\s+1\s+1\s+1\s+100\.0%$",
+                     _line(out, "carre"))
+    # disco: 3 docs, rows for aceite+fideos+pan, only aceite is comparable
+    assert re.search(r"^disco\s+3\s+3\s+1\s+33\.3%$",
+                     _line(out, "disco"))
+    # mami: 1 doc, the single-chain Coca row -> 0.0%
+    assert re.search(r"^mami\s+1\s+1\s+0\s+0\.0%$", _line(out, "mami"))
+    # hiper and chang carry no documents at all
+    assert re.search(r"^hiper\s+0\s+0\s+0\s+0\.0%$", _line(out, "hiper"))
+    assert re.search(r"^chang\s+0\s+0\s+0\s+0\.0%$", _line(out, "chang"))
+
+
+def test_coverage_prints_both_blocks_with_the_category_block_first(
+        coverage_collection, capsys):
+    coverage_collection.documents = [dict(doc) for doc in _COVERAGE_DOCS]
+
+    exit_code = cli.main(["coverage"])
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "por categoria" in out
+    assert "por cadena" in out
+    assert out.index("por categoria") < out.index("por cadena")
 
 
 # -- run: wiring ----------------------------------------------------------------
