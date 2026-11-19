@@ -138,3 +138,24 @@ percentage must not move — this fix changes prices, not joins.
 - Baseline, root cause and the 40-per-chain resolution sample are recorded above
   with their exact figures; every probe was read-only (Mongo reads and VTEX
   `products/search` GETs, no writes).
+- **Gates**: whole suite 555 passed / 16 skipped (opt-in MongoDB), flake8 CI
+  gate 0, `npm run verify:selection` 19 checks. Test-first: the rule module was
+  RED with `ModuleNotFoundError` before it existed, and the two callers that
+  expected `0` failed with `('Sin oferta', None, '900') != ('Sin oferta', 0,
+  '900')` — those expectations were the bug.
+- **Proven against live payloads** with the shared rule: the stored
+  `Ketchup Danica` (`$0` in the catalog) resolves to **1519.0**; the genuinely
+  unavailable `Vinagre Menoyo` (`Price: 0.0`, `IsAvailable: false`) resolves to
+  **None**; a normal Carrefour product stays at **1220.0**.
+- **Native review** `review-75d0034ca022acd1` (tier medium, one
+  `review-reliability` lens, 10 paths / 509 lines): **approved**, authority
+  burned, first attempt. Two advisory findings, both in the new test file and
+  both informational: `tests/test_scraper_vtex.py:50-67` (WARNING) and `:77`
+  (SUGGESTION).
+- **Expected effect once the chains are re-scraped**: `price = 0` documents drop
+  to zero, the document count does not move, and the 1 219 misleading rows
+  disappear. Of ChangoMás's 2 602 zeros, two samples put the recoverable share
+  between 17 % and 28 % — an order of **450 to 700 products that regain a real
+  price**; the rest become blank, which is the truth. The multi-chain percentage
+  must not move: this fix changes prices, not joins.
+- **Merged** to local `main` as a fast-forward (`4c48fcd`).
