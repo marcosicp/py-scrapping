@@ -172,12 +172,31 @@ def test_load_env_file_never_overrides_an_exported_variable(monkeypatch, tmp_pat
     monkeypatch.setenv("MONGODB_DB", os.environ["MONGODB_DB"])
 
 
-def test_load_env_file_missing_file_returns_none_and_changes_nothing(
+def test_load_env_file_selector_naming_a_missing_file_raises(
         monkeypatch, tmp_path):
+    """An explicitly selected file that is not there must not fall back to
+    the shell defaults: that is how a typo runs a scraper against the wrong
+    database (R3-ENV-SELECTOR-FAIL-OPEN)."""
     missing = str(tmp_path / "does-not-exist")
     monkeypatch.setenv(ENV_FILE_VARIABLE, missing)
     monkeypatch.delenv("MONGODB_DB", raising=False)
     monkeypatch.delenv("MONGODB_URI", raising=False)
 
-    assert load_env_file() is None
+    with pytest.raises(FileNotFoundError) as excinfo:
+        load_env_file()
+
+    assert ENV_FILE_VARIABLE in str(excinfo.value)
+    assert "MONGODB_DB" not in os.environ
+    assert "MONGODB_URI" not in os.environ
+
+
+def test_load_env_file_default_that_is_missing_is_not_an_error(
+        monkeypatch, tmp_path):
+    """A *default* file may legitimately be absent (fresh clone, CI): the
+    selector is unset, so nothing was promised and nothing may fail."""
+    missing = str(tmp_path / "absent.env")
+    monkeypatch.delenv(ENV_FILE_VARIABLE, raising=False)
+    monkeypatch.delenv("MONGODB_DB", raising=False)
+
+    assert load_env_file(missing) is None
     assert "MONGODB_DB" not in os.environ

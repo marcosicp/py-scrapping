@@ -28,8 +28,11 @@ subcommand carries its own default, on purpose:
   keeps measuring the database the dashboard reads.
 - ``list``: no env file at all — it reads no database.
 
-An exported variable always wins over the loaded file, and a missing file
-never fails the command.
+An exported variable always wins over the loaded file. An explicitly
+selected file that does not exist fails the command instead of quietly
+falling back to the shell defaults: a typo in ``LALISTITA_ENV_FILE`` must
+not run a scraper against the wrong database. A missing *default* ``.env``
+is not an error — a fresh clone and CI have none.
 
 Exit codes: 0 succeeded, 1 failed, 2 stopped, 3 scraper-control error
 (unknown slug, invalid category or already running). ``coverage`` exits 0.

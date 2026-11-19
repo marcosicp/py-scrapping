@@ -154,7 +154,8 @@ LALISTITA_ENV_FILE=.env.local python -m api.cli list
 LALISTITA_ENV_FILE=.env.local python -m api.cli run carrefour --category almacen
 # The variable wins for both entry points; `coverage` still defaults to
 # `.env`, and `run` deliberately has no default so a scraper is never
-# retargeted by accident.
+# retargeted by accident. A selected file that does not exist fails loudly
+# instead of falling back to the shell defaults.
 
 # Frontend dev server (bypasses the bundle entirely)
 cd adminpro && npm start             # ng serve on :4200

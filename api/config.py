@@ -71,20 +71,29 @@ def load_env_file(default: str | None = None) -> str | None:
     Exists so the two entry points (Flask and `api.cli`) can read the same
     explicitly chosen file instead of silently retargeting each other at a
     different database: `LALISTITA_ENV_FILE=.env.local` makes both `python
-    app.py` and `python -m api.cli` work against the local mongod, and a
-    missing file never breaks startup or a CLI run.
+    app.py` and `python -m api.cli` work against the local mongod.
 
     - No path at all (selector unset and no default): load nothing and
       return `None` — the caller keeps exactly the environment it had.
     - Otherwise load the file with `override=False`, so a variable already
       exported in the shell always wins over the file, and return the path
       that was actually loaded.
-    - A path that does not exist returns `None` and loads nothing.
+    - An explicitly selected file that does not exist raises
+      `FileNotFoundError`: the operator named that file, so falling back to
+      the shell defaults would silently start the app or a scraper against a
+      different database — the exact failure this helper exists to prevent.
+      A *default* file that does not exist is not an error (`.env` is absent
+      in a fresh clone and in CI); it loads nothing and returns `None`.
     """
-    path = os.environ.get(ENV_FILE_VARIABLE) or default
-    if path is None:
+    explicit = os.environ.get(ENV_FILE_VARIABLE)
+    path = explicit or default
+    if not path:
         return None
     if not os.path.isfile(path):
+        if explicit:
+            raise FileNotFoundError(
+                f"{ENV_FILE_VARIABLE}={explicit!r} names a file that does "
+                f"not exist")
         return None
     dotenv.load_dotenv(path, override=False)
     return path
