@@ -12,21 +12,21 @@ is exactly what made SocketIO and the Mongo handles absent in production (K-1, K
 
 import os
 
-from dotenv import load_dotenv
 from flask import Flask
 from flask_cors import CORS
 
 from api.blueprints import register_blueprints
-from api.config import Settings
+from api.config import Settings, load_env_file
 from api.container import init_services
 from api.mongo import build_client
 from api.repositories.products import MongoProductRepository, ProductRepository
 from api.sockets import SocketIOReporter, configure_sockets
 
 # Load environment variables before `__main__` reads PORT (kept here so both
-# entry points see .env; create_app itself reads the environment through
+# entry points see .env unless LALISTITA_ENV_FILE names another file — the
+# selector wins; create_app itself reads the environment through
 # Settings.from_env).
-load_dotenv()
+load_env_file(".env")
 
 
 def _init_mongo(app: Flask, settings: Settings) -> Flask:

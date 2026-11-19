@@ -17,6 +17,20 @@ Subcommands:
   default (``localhost``/``lalistitadev``) holds no ``ean`` and no
   ChangoMás and would understate the coverage it exists to measure.
 
+Environment file: both entry points honour ``LALISTITA_ENV_FILE``, which
+names the env file to load (see ``api.config.load_env_file``). Each
+subcommand carries its own default, on purpose:
+
+- ``run``: no default — the shell environment decides, so a scraper is
+  never silently retargeted at whatever ``.env`` (the production database)
+  says; only an explicit selector points it somewhere else.
+- ``coverage``: ``.env``, the same default ``app.py`` uses, so the report
+  keeps measuring the database the dashboard reads.
+- ``list``: no env file at all — it reads no database.
+
+An exported variable always wins over the loaded file, and a missing file
+never fails the command.
+
 Exit codes: 0 succeeded, 1 failed, 2 stopped, 3 scraper-control error
 (unknown slug, invalid category or already running). ``coverage`` exits 0.
 
@@ -31,10 +45,9 @@ from __future__ import annotations
 import argparse
 import sys
 
-from dotenv import load_dotenv
 from pymongo import MongoClient
 
-from api.config import Settings
+from api.config import Settings, load_env_file
 from api.mongo import build_client
 from api.repositories.products import MongoProductRepository
 from api.scrapers.errors import ScraperError
@@ -83,6 +96,10 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
+    # No default on purpose: `run` keeps the shell's environment unless the
+    # operator selects a file with LALISTITA_ENV_FILE — it must never be
+    # silently retargeted at what `.env` (the production database) says.
+    load_env_file()
     settings = Settings.from_env()
     manager = build_manager(settings)
     slug: str = args.slug
@@ -128,15 +145,16 @@ def cmd_coverage(args: argparse.Namespace) -> int:
     resulting percentage; then a total line over the whole catalog. Rows
     whose ``categoria`` is None report under ``(sin categoria)``, last.
 
-    ``load_dotenv`` is called here and not for ``run`` on purpose: this
-    report must measure the database the dashboard reads, and pointing it at
-    the local default silently reports a six-points-worse figure (the local
-    copy carries no ``ean``, so the whole EAN layer is absent). ``run`` keeps
-    its current environment contract instead of retargeting a scraper at
-    whatever ``.env`` says. Existing environment variables still win:
-    ``load_dotenv`` never overrides them.
+    ``load_env_file('.env')`` is called here and not for ``run`` on purpose:
+    this report must measure the database the dashboard reads, and pointing
+    it at the local default silently reports a six-points-worse figure (the
+    local copy carries no ``ean``, so the whole EAN layer is absent). ``run``
+    keeps its current environment contract instead of retargeting a scraper
+    at whatever ``.env`` says. ``LALISTITA_ENV_FILE`` retargets both without
+    changing these defaults. Existing environment variables still win:
+    ``load_env_file`` never overrides them.
     """
-    load_dotenv()
+    load_env_file(".env")
     settings = Settings.from_env()
     client = build_client(settings)
     repository = MongoProductRepository(client[settings.mongodb_db])

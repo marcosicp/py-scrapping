@@ -173,7 +173,7 @@ def coverage_collection(monkeypatch):
     """A FakeCollection the CLI reads through the real MongoProductRepository,
     with ``build_client`` swapped for a fake that never connects.
 
-    ``load_dotenv`` is neutralised here so no coverage test can read the
+    ``load_env_file`` is neutralised here so no coverage test can read the
     repository's real ``.env``: ``cmd_coverage`` loads it on purpose, and
     letting it write into ``os.environ`` would leak a deployed URI into every
     later test that calls ``Settings.from_env()``.
@@ -182,7 +182,7 @@ def coverage_collection(monkeypatch):
     monkeypatch.setattr(
         cli, "build_client",
         lambda settings: _CoverageClient(collection))
-    monkeypatch.setattr(cli, "load_dotenv", lambda *args, **kwargs: False)
+    monkeypatch.setattr(cli, "load_env_file", lambda *args, **kwargs: None)
     return collection
 
 
@@ -267,15 +267,16 @@ def test_coverage_is_read_only(coverage_collection, capsys):
     assert coverage_collection.events == ["find"]
 
 
-def test_coverage_loads_dotenv_and_reports_the_source_without_credentials(
+def test_coverage_loads_env_file_with_the_dotenv_default(
         coverage_collection, monkeypatch, capsys):
     """C-7 follow-up: the report must measure the database the dashboard
-    reads. ``lalistitadev`` names both the local ``mongod`` and the deployed
-    cluster, so the resolved source is printed — and the credential part of
-    the URI never reaches stdout."""
+    reads, so it keeps today's ``.env`` default (the one ``app.py`` uses),
+    which the ``LALISTITA_ENV_FILE`` selector can retarget without changing
+    the call. The credential part of the URI never reaches stdout."""
     calls = []
-    monkeypatch.setattr(cli, "load_dotenv",
-                        lambda *args, **kwargs: calls.append(args) or False)
+    monkeypatch.setattr(
+        cli, "load_env_file",
+        lambda *args, **kwargs: calls.append(args) or None)
     monkeypatch.setattr(
         cli.Settings, "from_env", classmethod(lambda cls: Settings(
             secret_key="s",
@@ -285,7 +286,8 @@ def test_coverage_loads_dotenv_and_reports_the_source_without_credentials(
     assert cli.main(["coverage"]) == 0
     out = capsys.readouterr().out
 
-    assert calls, "cmd_coverage must load .env the way app.py does"
+    assert calls == [(".env",)], \
+        "cmd_coverage must default to .env exactly like app.py does"
     assert "source: lalistitadev @ cluster0.example.net" in out
     assert "secret" not in out
     assert "user:" not in out
@@ -300,6 +302,24 @@ def test_coverage_on_an_empty_database_prints_only_the_total(
 
 
 # -- run: wiring ----------------------------------------------------------------
+
+def test_run_loads_env_file_without_default_and_passes_category_through(
+        fake_env, monkeypatch):
+    """``run`` keeps today's contract: the shell environment decides, so the
+    helper is called with NO default — a run must never be silently
+    retargeted at whatever ``.env`` (the production database) says. The
+    selector still applies, and the category travels unchanged."""
+    calls = []
+    monkeypatch.setattr(
+        cli, "load_env_file",
+        lambda *args, **kwargs: calls.append(args) or None)
+    monkeypatch.setenv("LALISTITA_ENV_FILE", "/tmp/irrelevant")
+
+    fake_env.status = status_for(RunState.SUCCEEDED)
+    assert cli.main(["run", "disco", "--category", "almacen"]) == 0
+    assert calls == [()], "cmd_run must not pass a default env file"
+    assert fake_env.started == [("disco", "almacen")]
+
 
 def test_run_passes_category_through(fake_env):
     fake_env.status = status_for(RunState.SUCCEEDED)

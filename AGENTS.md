@@ -147,6 +147,15 @@ gunicorn --bind 127.0.0.1:8124 --workers 1 main:app
 python -m api.cli list
 python -m api.cli run carrefour --category almacen
 
+# Work against the local mongod instead of the deployed Atlas cluster:
+# LALISTITA_ENV_FILE names the env file both entry points load
+LALISTITA_ENV_FILE=.env.local python app.py
+LALISTITA_ENV_FILE=.env.local python -m api.cli list
+LALISTITA_ENV_FILE=.env.local python -m api.cli run carrefour --category almacen
+# The variable wins for both entry points; `coverage` still defaults to
+# `.env`, and `run` deliberately has no default so a scraper is never
+# retargeted by accident.
+
 # Frontend dev server (bypasses the bundle entirely)
 cd adminpro && npm start             # ng serve on :4200
 ```

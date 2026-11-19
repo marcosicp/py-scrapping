@@ -1,10 +1,13 @@
 """Tests for api.config.Settings — typed, env-driven application settings."""
 
 import dataclasses
+import os
 
 import pytest
 
-from api.config import DEFAULT_MONGO_DB, DEFAULT_MONGO_URI, DEFAULT_SECRET_KEY, Settings
+from api.config import (DEFAULT_MONGO_DB, DEFAULT_MONGO_URI,
+                        DEFAULT_SECRET_KEY, ENV_FILE_VARIABLE, Settings,
+                        load_env_file)
 
 
 def test_defaults_are_the_legacy_values():
@@ -117,3 +120,64 @@ def test_settings_is_frozen():
         pass
     else:
         raise AssertionError("Settings must be frozen")
+
+
+# -- load_env_file: the explicit environment-file selector -------------------------
+
+def _write_env_file(tmp_path, name=".env", **variables):
+    path = tmp_path / name
+    path.write_text("\n".join(
+        f"{key}={value}" for key, value in variables.items()))
+    return str(path)
+
+
+def test_load_env_file_honours_the_selector_variable(monkeypatch, tmp_path):
+    path = _write_env_file(tmp_path, MONGODB_DB="selector_db")
+    monkeypatch.setenv(ENV_FILE_VARIABLE, path)
+    monkeypatch.delenv("MONGODB_DB", raising=False)
+
+    assert load_env_file(".env") == path
+    assert os.environ["MONGODB_DB"] == "selector_db"
+    # dotenv wrote it behind monkeypatch's back: re-register so teardown
+    # restores the environment and nothing leaks into the next test.
+    monkeypatch.setenv("MONGODB_DB", os.environ["MONGODB_DB"])
+
+
+def test_load_env_file_falls_back_to_the_default_argument(monkeypatch, tmp_path):
+    path = _write_env_file(tmp_path, MONGODB_DB="default_db")
+    monkeypatch.delenv(ENV_FILE_VARIABLE, raising=False)
+    monkeypatch.delenv("MONGODB_DB", raising=False)
+
+    assert load_env_file(path) == path
+    assert os.environ["MONGODB_DB"] == "default_db"
+    monkeypatch.setenv("MONGODB_DB", os.environ["MONGODB_DB"])
+
+
+def test_load_env_file_without_path_loads_nothing_and_returns_none(monkeypatch):
+    monkeypatch.delenv(ENV_FILE_VARIABLE, raising=False)
+    monkeypatch.delenv("MONGODB_DB", raising=False)
+
+    assert load_env_file() is None
+    # -- exactly the environment it came in with: nothing was loaded
+    assert "MONGODB_DB" not in os.environ
+
+
+def test_load_env_file_never_overrides_an_exported_variable(monkeypatch, tmp_path):
+    path = _write_env_file(tmp_path, MONGODB_DB="file_db")
+    monkeypatch.setenv(ENV_FILE_VARIABLE, path)
+    monkeypatch.setenv("MONGODB_DB", "already_exported")
+
+    assert load_env_file() == path
+    assert os.environ["MONGODB_DB"] == "already_exported"
+    monkeypatch.setenv("MONGODB_DB", os.environ["MONGODB_DB"])
+
+
+def test_load_env_file_missing_file_returns_none_and_changes_nothing(
+        monkeypatch, tmp_path):
+    missing = str(tmp_path / "does-not-exist")
+    monkeypatch.setenv(ENV_FILE_VARIABLE, missing)
+    monkeypatch.delenv("MONGODB_DB", raising=False)
+    monkeypatch.delenv("MONGODB_URI", raising=False)
+
+    assert load_env_file() is None
+    assert "MONGODB_DB" not in os.environ

@@ -41,9 +41,15 @@ import os
 from dataclasses import dataclass
 from typing import Mapping
 
+import dotenv
+
 DEFAULT_SECRET_KEY = "secret!"
 DEFAULT_MONGO_URI = "mongodb://localhost:27017/"
 DEFAULT_MONGO_DB = "lalistitadev"
+
+# Selects the env file both entry points load, e.g.
+# LALISTITA_ENV_FILE=.env.local python app.py.
+ENV_FILE_VARIABLE = "LALISTITA_ENV_FILE"
 
 # The environment variable may be present but empty; treat that as unset
 # (`env.get(NAME) or DEFAULT`).
@@ -57,6 +63,31 @@ _CHROME_BINARY_ENV = "CHROME_BINARY"
 
 # Truthy spellings accepted for CHROME_HEADLESS (case-insensitive, stripped).
 _HEADLESS_TRUE = {"1", "true", "yes", "on"}
+
+
+def load_env_file(default: str | None = None) -> str | None:
+    """Load the env file the selector names, or `default` when it is unset.
+
+    Exists so the two entry points (Flask and `api.cli`) can read the same
+    explicitly chosen file instead of silently retargeting each other at a
+    different database: `LALISTITA_ENV_FILE=.env.local` makes both `python
+    app.py` and `python -m api.cli` work against the local mongod, and a
+    missing file never breaks startup or a CLI run.
+
+    - No path at all (selector unset and no default): load nothing and
+      return `None` — the caller keeps exactly the environment it had.
+    - Otherwise load the file with `override=False`, so a variable already
+      exported in the shell always wins over the file, and return the path
+      that was actually loaded.
+    - A path that does not exist returns `None` and loads nothing.
+    """
+    path = os.environ.get(ENV_FILE_VARIABLE) or default
+    if path is None:
+        return None
+    if not os.path.isfile(path):
+        return None
+    dotenv.load_dotenv(path, override=False)
+    return path
 
 
 @dataclass(frozen=True)
