@@ -187,8 +187,9 @@ def test_default_app_lists_the_registered_scrapers(client):
     entry = next(entry for entry in entries if entry["slug"] == "supermami")
     assert entry["state"] == "idle"
     # The category is declared, so the registry-generated API/CLI surface
-    # validates it instead of ignoring it. The six food families come from
+    # validates it instead of ignoring it. The five families come from
     # `odd/tasks/chain-categories-wave-a.md` (T1): they are the site's own
-    # top-level markers, and `fresco` is singular on purpose.
+    # top-level markers, and `fresco` is singular on purpose. Mascotas is
+    # no longer declared (comparator-focus F-1).
     assert entry["categories"] == ["almacen", "bebidas", "fresco",
-                                   "perfumeria", "limpieza", "mascotas"]
+                                   "perfumeria", "limpieza"]

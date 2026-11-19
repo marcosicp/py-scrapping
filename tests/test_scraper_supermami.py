@@ -61,9 +61,10 @@ LIMPIEZA_HREF = "/super/categoria/supermami-limpieza/_/N-4tjm8rl"
 MASCOTAS_HREF = "/super/categoria/supermami-mascotas/_/N-5tjm8rm"
 
 # Every declared family, in declaration order: a no-filter run walks all
-# of them, so the fake menu must list all six (a missing one is fatal).
-FAMILY_HREFS = (BEBIDAS_HREF, FRESCO_HREF, PERFUMERIA_HREF, LIMPIEZA_HREF,
-                MASCOTAS_HREF)
+# of them, so the fake menu must list all five (a missing one is fatal).
+# ``MASCOTAS_HREF`` stays in the menu on purpose — mascotas is no longer
+# declared (comparator-focus F-1) and a declared sweep must not walk it.
+FAMILY_HREFS = (BEBIDAS_HREF, FRESCO_HREF, PERFUMERIA_HREF, LIMPIEZA_HREF)
 
 
 def _anchors(links):
@@ -319,11 +320,11 @@ HAPPY_DOCUMENTS.sort(key=lambda doc: doc["name"])
 def test_identity_stays_the_registered_supermami_scraper():
     assert ScraperSuperMami.slug == "supermami"
     assert ScraperSuperMami.label == "SuperMami"
-    # The six food families, exactly the site's own top-level markers
-    # (measured 2026-11-21; ``fresco`` is singular on purpose).
+    # The five families, exactly the site's own top-level markers
+    # (measured 2026-11-21; ``fresco`` is singular on purpose). Mascotas is
+    # no longer declared (comparator-focus F-1).
     assert ScraperSuperMami.categories == (
-        "almacen", "bebidas", "fresco", "perfumeria", "limpieza",
-        "mascotas")
+        "almacen", "bebidas", "fresco", "perfumeria", "limpieza")
 
 
 def test_full_run_pages_the_whole_category_and_saves_once(repository,
@@ -870,7 +871,7 @@ def test_an_invalid_category_is_rejected(repository):
     assert repository.calls == []
 
 
-# -- 7. the six declared families (wave A) ------------------------------------
+# -- 7. the five declared families (wave A, minus mascotas: F-1) -------------
 
 
 def test_a_full_run_saves_one_slice_per_declared_family(repository,
@@ -890,12 +891,11 @@ def test_a_full_run_saves_one_slice_per_declared_family(repository,
     assert repository.calls == [
         ("SuperMami", categoria, None, 3)
         for categoria in ("almacen", "bebidas", "fresco", "perfumeria",
-                          "limpieza", "mascotas")]
+                          "limpieza")]
     assert sorted({doc["categoria"]
                    for doc in stored_documents(repository)}) == [
-        "almacen", "bebidas", "fresco", "limpieza", "mascotas",
-        "perfumeria"]
-    assert messages[-1] == "PROCESO TERMINADO CON 18 productos"
+        "almacen", "bebidas", "fresco", "limpieza", "perfumeria"]
+    assert messages[-1] == "PROCESO TERMINADO CON 15 productos"
 
 
 def test_a_declared_family_missing_from_the_menu_fails_the_run(repository):

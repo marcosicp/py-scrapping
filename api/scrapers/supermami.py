@@ -115,13 +115,14 @@ class ScraperSuperMami(BaseScraper):
 
     slug = "supermami"
     label = "SuperMami"
-    # The six food families, exactly the site's own top-level markers,
-    # measured live on /super/home (odd/tasks/chain-categories-wave-a.md):
-    # every ``supermami-<slug>`` resolves, and ``fresco`` is singular on
-    # purpose — carnes, frutas y verduras, lácteos and congelados are its
-    # children.
-    categories = ("almacen", "bebidas", "fresco", "perfumeria", "limpieza",
-                  "mascotas")
+    # The five families, exactly the site's own top-level markers, measured
+    # live on /super/home (odd/tasks/chain-categories-wave-a.md): every
+    # ``supermami-<slug>`` resolves, and ``fresco`` is singular on purpose —
+    # carnes, frutas y verduras, lácteos and congelados are its children.
+    # ``mascotas`` is no longer declared (comparator-focus F-1): it was the
+    # family that could not report a total, and the focus is household
+    # basics. It can come back as its own feature.
+    categories = ("almacen", "bebidas", "fresco", "perfumeria", "limpieza")
 
     def run(self, ctx: ScrapeContext) -> None:
         # A stop requested before the run touches the network keeps it inert

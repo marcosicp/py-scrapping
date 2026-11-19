@@ -15,14 +15,14 @@ design:
    ARS). A n2 node already includes its n3 children, so the run walks the n2
    level only: fetching both would duplicate every product.
 3. Some n1 categories are **leaves**: the menu carries their ``a.menu-n1``
-   anchor but no ``a.menu-n2`` under it (``mascotas``, measured 2026-11-21
-   with 201 items on the page). The leaf's own n1 page embeds the JSON-LD
-   ``ItemList`` too, so it is scraped as a single node stored under the
-   category's own slug. "The menu no longer lists this category" and "this
-   category has no children" are different facts and are never collapsed:
-   the first keeps the loud report (W-3 of
-   ``odd/tasks/chain-categories-wave-a.md``), the second is the taxonomy's
-   shape (W-2).
+   anchor but no ``a.menu-n2`` under it — an n1 whose page is the collection
+   scope itself (measured 2026-11-21 on such a page: 201 items embedded).
+   The leaf's own n1 page embeds the JSON-LD ``ItemList`` too, so it is
+   scraped as a single node stored under the category's own slug. "The menu
+   no longer lists this category" and "this category has no children" are
+   different facts and are never collapsed: the first keeps the loud report
+   (W-3 of ``odd/tasks/chain-categories-wave-a.md``), the second is the
+   taxonomy's shape (W-2).
 
 No browser is used: plain GET responses through ``ctx.http``. Products are
 deduplicated by ``art_<id>``, not by name substring: after ``name_parse``
@@ -53,9 +53,12 @@ class ScraperLaAnonima(BaseScraper):
     label = "La Anónima"
     # The n1 categories of the whole editable shelf; the node id of each
     # is a site fact (measured 2026-11-21), not something we can derive.
+    # ``mascotas`` is no longer declared (comparator-focus F-1): the leaf
+    # shape it exercised stays supported and tested, the category can come
+    # back later as its own feature.
     categories = ("almacen", "bebidas", "lacteos-y-frescos", "congelados",
                   "frutas-y-verduras", "carniceria", "perfumeria",
-                  "limpieza", "mascotas")
+                  "limpieza")
 
     # The node id is part of the site's URL, not something we can derive.
     # Keys must stay exactly the ``categories`` tuple, in the same order.
@@ -70,7 +73,6 @@ class ScraperLaAnonima(BaseScraper):
         "carniceria": "https://www.laanonima.com.ar/carniceria/n1_518/",
         "perfumeria": "https://www.laanonima.com.ar/perfumeria/n1_820/",
         "limpieza": "https://www.laanonima.com.ar/limpieza/n1_514/",
-        "mascotas": "https://www.laanonima.com.ar/mascotas/n1_877/",
     }
 
     def run(self, ctx: ScrapeContext) -> None:

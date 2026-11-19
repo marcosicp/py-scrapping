@@ -171,15 +171,16 @@ def stored_documents(repository):
 def test_identity_replaces_the_dead_hiperlibertad_brand():
     assert ScraperLaAnonima.slug == "laanonima"
     assert ScraperLaAnonima.label == "La Anónima"
+    # Mascotas is no longer declared (comparator-focus F-1); the leaf
+    # handling it exercised stays in the code and in its own tests.
     assert ScraperLaAnonima.categories == (
         "almacen", "bebidas", "lacteos-y-frescos", "congelados",
-        "frutas-y-verduras", "carniceria", "perfumeria", "limpieza",
-        "mascotas")
+        "frutas-y-verduras", "carniceria", "perfumeria", "limpieza")
 
 
 def test_the_categories_tuple_and_the_node_dictionary_agree():
     """The tuple drives ``validate_category`` and the dict the discovery
-    URL: they must list exactly the same nine keys, in the same order."""
+    URL: they must list exactly the same eight keys, in the same order."""
     assert tuple(ScraperLaAnonima.CATEGORY_NODES) == (
         ScraperLaAnonima.categories)
 
@@ -467,10 +468,15 @@ def test_a_failed_menu_read_never_scrapes_the_page_as_a_leaf(repository):
 
 
 def test_a_leaf_category_scrapes_its_own_page_and_stores_its_slug(
-        repository):
+        repository, monkeypatch):
     """W-2: a leaf n1 is scraped as one node — the n1 page itself is the
     collection scope and its own slug is the stored ``subcategoria``
-    (``mascotas``: 201 items measured on the live page)."""
+    (``mascotas``: 201 items measured on the live page). The category is a
+    fixture here on purpose: mascotas is no longer declared (comparator
+    focus F-1) and the leaf behaviour it exercised must survive that."""
+    monkeypatch.setattr(ScraperLaAnonima, "categories", ("mascotas",))
+    monkeypatch.setattr(ScraperLaAnonima, "CATEGORY_NODES",
+                        {"mascotas": MASCOTAS_URL})
     page = n1_page(product("Alimento Pro Plan 3 kg", "3001", 18000))
     session = FakeSession([FakeResponse(200, page),   # the menu read
                            FakeResponse(200, page)])  # the leaf's own page
@@ -496,6 +502,10 @@ def test_a_leaf_page_without_an_item_list_is_reported_and_the_run_continues(
     (an empty leaf must never mask the other categories)."""
     monkeypatch.setattr(ScraperLaAnonima, "categories",
                         ("mascotas", "almacen"))
+    monkeypatch.setattr(ScraperLaAnonima, "CATEGORY_NODES", {
+        "mascotas": MASCOTAS_URL,
+        "almacen": ALMACEN_URL,
+    })
     session = FakeSession([
         FakeResponse(200, MENU_HTML),   # mascotas: menu read (leaf)
         FakeResponse(200, MENU_HTML),   # mascotas: own page, no ItemList
