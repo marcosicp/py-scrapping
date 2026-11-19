@@ -76,12 +76,25 @@ class ProductService:
             'chang': len(changomas),
         }
 
-    def grouped_catalog(self) -> dict[str, Any]:
+    def grouped_catalog(self, categoria: str | None = None) -> dict[str, Any]:
         """Grouped catalog for ``/api/productos/agrupados`` (D-6).
 
         Reads every document through the same repository port ``catalog``
         uses and delegates the grouping to the matching service (T2), whose
         §3 payload includes one row per canonical product plus one consumed-
         document count per chain bucket.
+
+        The category dimension (category-coverage T3): ``categorias`` lists
+        every distinct non-empty slug, and a truthy ``categoria`` filters the
+        already-grouped rows (C-2 — a cross-chain row keeps all its offers)
+        while the five bucket counts stay computed over the whole catalog.
+        An unknown slug is not an error (C-5): it yields an empty ``productos``
+        next to the full ``categorias``.
         """
-        return matching.group_products(self._repository.find_all())
+        payload = matching.group_products(self._repository.find_all())
+        payload["categorias"] = self._repository.categories()
+        # C-5: only a real slug filters; an empty value means "no filter".
+        if categoria:
+            payload["productos"] = [row for row in payload["productos"]
+                                    if row["categoria"] == categoria]
+        return payload

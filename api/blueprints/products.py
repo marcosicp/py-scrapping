@@ -10,7 +10,7 @@ any other defect answers a distinct error value and never logs a database
 failure.
 """
 
-from flask import Blueprint, current_app, jsonify
+from flask import Blueprint, current_app, jsonify, request
 
 from api.container import get_services
 from api.repositories import RepositoryUnavailable
@@ -57,8 +57,10 @@ def supermercados():
 
 @products.route("/api/productos/agrupados")
 def productos_agrupados():
+    categoria = request.args.get("categoria")
     try:
-        return jsonify(get_services().products.grouped_catalog())
+        return jsonify(
+            get_services().products.grouped_catalog(categoria))
     except RepositoryUnavailable:
         current_app.logger.exception("Error reading from MongoDB")
         # Fallback to empty data if database fails
@@ -69,6 +71,7 @@ def productos_agrupados():
             'mami': 0,
             'hiper': 0,
             'chang': 0,
+            'categorias': [],
             'error': _DATABASE_ERROR,
         })
     except Exception:
@@ -83,5 +86,6 @@ def productos_agrupados():
             'mami': 0,
             'hiper': 0,
             'chang': 0,
+            'categorias': [],
             'error': _UNEXPECTED_ERROR,
         })

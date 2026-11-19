@@ -43,6 +43,7 @@ class FakeCollection:
         self.events: list[str] = []
         self.fail_insert: Exception | None = None
         self.fail_find: Exception | None = None
+        self.fail_distinct: Exception | None = None
 
     # -- helpers ---------------------------------------------------------
     @staticmethod
@@ -81,6 +82,30 @@ class FakeCollection:
             raise self.fail_find
         return [self._project(doc, projection)
                 for doc in self.documents if self._matches(doc, filter)]
+
+    def distinct(self, field, filter=None):
+        """Distinct values of ``field`` across the stored documents.
+
+        Mirrors pymongo's ``Collection.distinct``: values from documents that
+        match ``filter`` (parity through ``_matches``), de-duplicated, in
+        first-seen order — the adapter owns any further normalization.
+        Documents missing the field contribute nothing.
+        """
+        self.events.append("distinct")
+        if self.fail_distinct is not None:
+            raise self.fail_distinct
+        values = []
+        seen = set()
+        for doc in self.documents:
+            if not self._matches(doc, filter):
+                continue
+            if field not in doc:
+                continue
+            value = doc[field]
+            if value not in seen:
+                seen.add(value)
+                values.append(value)
+        return values
 
     def insert_many(self, documents: Sequence[Mapping[str, Any]]):
         self.events.append("insert_many")
@@ -129,11 +154,21 @@ class InMemoryProductRepository:
         return all(document.get(key) == value
                    for key, value in scope.items())
 
-    def find_all(self) -> list[dict[str, Any]]:
+    def find_all(self, categoria: str | None = None) -> list[dict[str, Any]]:
         if self.find_all_error is not None:
             raise self.find_all_error
+        docs = self.documents
+        if categoria:
+            docs = [doc for doc in docs
+                    if doc.get("categoria") == categoria]
         return [{key: copy.deepcopy(value) for key, value in doc.items()
-                 if key != "_id"} for doc in self.documents]
+                 if key != "_id"} for doc in docs]
+
+    def categories(self) -> list[str]:
+        """Sorted distinct non-empty ``categoria`` values (T1)."""
+        return sorted({doc["categoria"] for doc in self.documents
+                       if isinstance(doc.get("categoria"), str)
+                       and doc["categoria"].strip()})
 
     def replace_products(self, supermercado: str,
                          products: Sequence[Mapping[str, Any]], *,

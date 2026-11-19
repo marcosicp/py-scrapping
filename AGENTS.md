@@ -92,7 +92,7 @@ api/scrapers/errors.py   ScraperError family: UnknownScraper, InvalidCategory, A
 api/scrapers/browser.py Chrome factory: build_chrome(settings) driven by CHROMEDRIVER_PATH / CHROME_HEADLESS (D8); Selenium imported lazily
 api/scrapers/http.py    Shared HTTP session with the legacy browser User-Agent (no requests-html)
 api/scrapers/           One BaseScraper subclass per supermarket: supermami, laanonima, disco, carrefour, changomas
-tests/                  pytest suite (no network, no DB, no Chrome; the 9 skips are the
+tests/                  pytest suite (no network, no DB, no Chrome; the 16 skips are the
                         opt-in Mongo integration tests — read the total from `pytest`)
 adminpro/src/app/       Angular 21 source (dashboard with the grouped master grid, login, register, progress, grafica1)
 templates/scrape.html   The ONLY template a route renders (self-contained admin panel: own CSS, no third-party asset, polls /api/scrapers; registry-generated)
@@ -325,7 +325,7 @@ the third depends on the machine. Full record:
   totals and the `es-AR` money format. It needs no Chrome, no karma and no
   network.
 
-Default run: green, with 9 skips — and those 9 are the opt-in MongoDB
+Default run: green, with 16 skips — and those 16 are the opt-in MongoDB
 integration tests. The passed total moves with every test that lands, so read
 it from `pytest` instead of trusting a number frozen into this file.
 

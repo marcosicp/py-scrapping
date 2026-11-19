@@ -248,6 +248,64 @@ def test_supermercado_is_forced_on_every_document(repo):
         assert doc["supermercado"] == "Disco"
 
 
+# -- T1: find_all(categoria) and categories() -------------------------------
+
+def test_find_all_with_categoria_returns_only_that_slice(repo):
+    repo.replace_products("Disco", SAMPLE, categoria="almacen")
+    repo.replace_products("Carrefour", [{"name": "Coca", "price": 1.0}],
+                          categoria="bebidas")
+
+    almacen = repo.find_all(categoria="almacen")
+    assert [doc["name"] for doc in almacen] == [p["name"] for p in SAMPLE]
+    assert all(doc["categoria"] == "almacen" for doc in almacen)
+
+
+def test_find_all_without_categoria_returns_every_document(repo):
+    repo.replace_products("Disco", SAMPLE, categoria="almacen")
+    repo.replace_products("Carrefour", [{"name": "Coca", "price": 1.0}],
+                          categoria="bebidas")
+
+    assert {doc["name"] for doc in repo.find_all()} == {
+        "Fideos Lata 500g", "Arroz Tres 1kg", "Coca"}
+
+
+def test_find_all_with_falsy_categoria_behaves_like_no_filter(repo):
+    """The unfiltered read is byte-identical to today: a falsy slug filters
+    nothing, it does not match documents without a ``categoria``."""
+    repo.replace_products("Disco", SAMPLE, categoria="almacen")
+    repo.replace_products("Carrefour", [{"name": "Coca", "price": 1.0}])
+
+    assert repo.find_all("") == repo.find_all()
+    assert len(repo.find_all(None)) == 3
+
+
+def test_find_all_with_unknown_categoria_returns_empty(repo):
+    repo.replace_products("Disco", SAMPLE, categoria="almacen")
+    assert repo.find_all(categoria="no-existe") == []
+
+
+def test_categories_is_sorted_distinct_and_string_only(repo):
+    repo.replace_products("Disco", SAMPLE, categoria="almacen")
+    repo.replace_products("Carrefour", [{"name": "Coca", "price": 1.0}],
+                          categoria="bebidas")
+    repo.replace_products("SuperMami", [{"name": "Arroz", "price": 2.0}],
+                          categoria="almacen")
+
+    assert repo.categories() == ["almacen", "bebidas"]
+
+
+def test_categories_drops_empty_and_whitespace_only_values(repo):
+    repo.replace_products("Disco", SAMPLE, categoria="almacen")
+    repo.replace_products("Carrefour", [{"name": "Coca", "price": 1.0}],
+                          categoria="   ")
+
+    assert repo.categories() == ["almacen"]
+
+
+def test_categories_on_empty_repository_is_empty(repo):
+    assert repo.categories() == []
+
+
 def test_caller_dicts_are_not_mutated(repo):
     products = [dict(p) for p in SAMPLE]
     repo.replace_products("Disco", products, categoria="almacen")
@@ -309,6 +367,39 @@ def test_mongo_read_failure_translates_to_repository_unavailable():
     with pytest.raises(RepositoryUnavailable) as excinfo:
         MongoProductRepository(database).find_all()
     assert "server unreachable" in str(excinfo.value)
+
+
+def test_mongo_filtered_read_failure_translates_to_repository_unavailable():
+    database = FakeDatabase()
+    collection = database[COLLECTION_NAME]
+    collection.fail_find = ConnectionFailure("server unreachable")
+    with pytest.raises(RepositoryUnavailable) as excinfo:
+        MongoProductRepository(database).find_all(categoria="almacen")
+    assert "server unreachable" in str(excinfo.value)
+
+
+def test_mongo_categories_failure_translates_to_repository_unavailable():
+    database = FakeDatabase()
+    collection = database[COLLECTION_NAME]
+    collection.fail_distinct = ConnectionFailure("server unreachable")
+    with pytest.raises(RepositoryUnavailable) as excinfo:
+        MongoProductRepository(database).categories()
+    assert "server unreachable" in str(excinfo.value)
+
+
+def test_mongo_categories_reads_through_distinct():
+    database = FakeDatabase()
+    collection = database[COLLECTION_NAME]
+    collection.documents = [
+        {"name": "a", "categoria": "almacen"},
+        {"name": "b", "categoria": "almacen"},
+        {"name": "c", "categoria": "bebidas"},
+        {"name": "d"},
+    ]
+    collection.events.clear()
+    assert MongoProductRepository(database).categories() == [
+        "almacen", "bebidas"]
+    assert collection.events == ["distinct"]
 
 
 # ---------------------------------------------------------------------------

@@ -23,7 +23,10 @@ COLLECTION_NAME = "productos"
 class ProductRepository(Protocol):
     """Persistence port for product documents."""
 
-    def find_all(self) -> list[dict[str, Any]]:
+    def find_all(self, categoria: str | None = None) -> list[dict[str, Any]]:
+        ...
+
+    def categories(self) -> list[str]:
         ...
 
     def replace_products(self, supermercado: str,
@@ -39,17 +42,36 @@ class MongoProductRepository:
     def __init__(self, database) -> None:
         self._collection = database[COLLECTION_NAME]
 
-    def find_all(self) -> list[dict[str, Any]]:
-        """Every stored document with the ``_id`` field stripped.
+    def find_all(self, categoria: str | None = None) -> list[dict[str, Any]]:
+        """Stored documents with the ``_id`` field stripped.
+
+        With a truthy ``categoria`` the read narrows to that slice; falsy
+        (``None`` or ``""``) reads every document, exactly as before the
+        category dimension existed.
 
         Driver-level read failures translate to :class:`RepositoryUnavailable`
         (R3-002): the callers must be able to tell a database outage apart
         from any other defect without importing pymongo.
         """
+        filter_: dict[str, Any] = {"categoria": categoria} if categoria else {}
         try:
-            return list(self._collection.find({}, {"_id": 0}))
+            return list(self._collection.find(filter_, {"_id": 0}))
         except PyMongoError as exc:
             raise RepositoryUnavailable(str(exc)) from exc
+
+    def categories(self) -> list[str]:
+        """Sorted distinct non-empty ``categoria`` values in the catalog.
+
+        Non-strings and empty/whitespace-only values are dropped: they are
+        the shape a scraper's optional ``categoria`` can produce, never a
+        navigable category.
+        """
+        try:
+            values = self._collection.distinct("categoria")
+        except PyMongoError as exc:
+            raise RepositoryUnavailable(str(exc)) from exc
+        return sorted({value for value in values
+                       if isinstance(value, str) and value.strip()})
 
     def replace_products(self, supermercado: str,
                          products: Sequence[Mapping[str, Any]], *,

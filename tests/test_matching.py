@@ -210,6 +210,59 @@ def test_ambiguity_guard_two_strict_groups_brandless_stays_separate():
         frozenset(["carre"]), frozenset(["disco"]), frozenset(["hiper"])}
 
 
+# -- Row categoria (C-3): derived from the member documents ---------------
+
+
+def test_row_categoria_takes_the_most_frequent_member_slug():
+    payload = group_products([
+        _doc(supermercado="carrefour", ean="1", categoria="almacen"),
+        _doc(supermercado="disco", ean="1", categoria="almacen"),
+        _doc(supermercado="supermami", ean="1", categoria="bebidas"),
+    ])
+    row = payload["productos"][0]
+    assert row["categoria"] == "almacen"
+
+
+def test_row_categoria_tie_breaks_alphabetically_lowest_wins():
+    payload = group_products([
+        _doc(supermercado="carrefour", ean="1", categoria="bebidas"),
+        _doc(supermercado="disco", ean="1", categoria="almacen"),
+    ])
+    assert payload["productos"][0]["categoria"] == "almacen"
+
+
+def test_row_categoria_none_when_no_member_carries_one():
+    payload = group_products([_doc()])
+    assert payload["productos"][0]["categoria"] is None
+
+
+def test_row_categoria_ignores_whitespace_only_values():
+    payload = group_products([
+        _doc(supermercado="carrefour", ean="1", categoria="  "),
+        _doc(supermercado="disco", ean="1", categoria=""),
+    ])
+    assert payload["productos"][0]["categoria"] is None
+
+
+def test_row_categoria_is_the_last_key_of_the_row():
+    payload = group_products([_doc(categoria="almacen")])
+    row = payload["productos"][0]
+    assert list(row.keys())[-1] == "categoria"
+
+
+def test_row_categoria_existing_keys_and_values_unchanged():
+    """Purely additive: the pre-categoria row for the same documents keeps
+    every key and value it had before."""
+    docs = [
+        _doc(supermercado="carrefour", ean="1"),
+        _doc(supermercado="disco", ean="1", categoria="almacen"),
+    ]
+    row = group_products(docs)["productos"][0]
+    assert set(row) == {"id", "name", "unidad", "brand", "offers",
+                        "match", "categoria"}
+    assert row["categoria"] == "almacen"
+
+
 # -- Output contract (§3) --------------------------------------------------
 
 
@@ -219,7 +272,8 @@ def test_solo_docs_appear_with_single_offer():
              unidad="750 ml", brand="Ala", price=900),
     ])
     row = payload["productos"][0]
-    assert set(row) == {"id", "name", "unidad", "brand", "offers", "match"}
+    assert set(row) == {"id", "name", "unidad", "brand", "offers",
+                        "match", "categoria"}
     assert row["name"] == "Detergente Ala"
     assert row["unidad"] == "750 ml"
     assert row["brand"] == "Ala"

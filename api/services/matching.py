@@ -350,6 +350,24 @@ def _score(doc: _Doc) -> int:
     return int(bool(doc.doc.get("brand"))) + int(bool(doc.doc.get("unidad")))
 
 
+def _row_categoria(members: list[_Doc]) -> str | None:
+    """C-3: a row's ``categoria`` comes from its member documents.
+
+    The most frequent non-empty ``categoria`` wins, ties break alphabetically
+    (lowest), and ``None`` means no member carries a usable one. Deliberately
+    NOT a canonical vocabulary: the site slugs still disagree across chains
+    and the mapping must not be frozen before more categories exist.
+    """
+    counts: dict[str, int] = {}
+    for doc in members:
+        raw = doc.doc.get("categoria")
+        if isinstance(raw, str) and raw.strip():
+            counts[raw] = counts.get(raw, 0) + 1
+    if not counts:
+        return None
+    return min(counts, key=lambda slug: (-counts[slug], slug))
+
+
 def _row(group: _Group, winning_key: str, match: str) -> dict[str, Any]:
     """§3 payload row for one canonical group."""
     offers: dict[str, dict[str, Any]] = {}
@@ -367,6 +385,7 @@ def _row(group: _Group, winning_key: str, match: str) -> dict[str, Any]:
         "brand": offer.doc.get("brand", ""),
         "offers": offers,
         "match": match,
+        "categoria": _row_categoria(group.members),
     }
 
 

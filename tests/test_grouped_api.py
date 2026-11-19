@@ -17,6 +17,7 @@ EMPTY_FALLBACK = {
     "mami": 0,
     "hiper": 0,
     "chang": 0,
+    "categorias": [],
 }
 
 # Non-database failures must never be reported as a database outage.
@@ -61,7 +62,8 @@ def test_happy_path_payload_shape(repository, client):
 
     for row in productos:
         assert set(row.keys()) == {
-            "id", "name", "unidad", "brand", "offers", "match"}
+            "id", "name", "unidad", "brand", "offers", "match",
+            "categoria"}
         assert row["id"]
         for offer in row["offers"].values():
             assert set(offer.keys()) == {"name", "price"}
@@ -84,6 +86,60 @@ def test_happy_path_payload_shape(repository, client):
     cafe = next(row for row in productos if row["match"] == "solo")
     assert cafe["offers"] == {"disco": {"name": "Cafe Dolca",
                                         "price": 1500}}
+
+
+def test_categoria_query_filters_rows_and_adds_categorias(repository, client):
+    repository.documents = [
+        {"supermercado": "disco", "name": "Aceite Natura 900 cc",
+         "unidad": "900 cc", "brand": "Natura", "price": 1200,
+         "ean": "7790272001005", "categoria": "almacen"},
+        {"supermercado": "carrefour", "name": "Aceite Natura 900 cc",
+         "unidad": "900 cc", "brand": "Natura", "price": 1150.5,
+         "ean": "7790272001005", "categoria": "almacen"},
+        {"supermercado": "disco", "name": "Coca 2 L", "unidad": "2 L",
+         "brand": "Coca Cola", "price": 800, "categoria": "bebidas"},
+    ]
+    response = client.get("/api/productos/agrupados?categoria=almacen")
+    assert response.status_code == 200
+    payload = response.get_json()
+    # C-2: rows filtered, bucket counts still whole-catalog
+    assert payload["disco"] == 2
+    assert payload["carre"] == 1
+    assert len(payload["productos"]) == 1
+    assert payload["productos"][0]["categoria"] == "almacen"
+    assert set(payload["productos"][0]["offers"]) == {"disco", "carre"}
+    # C-4: the full category list rides along in every payload
+    assert payload["categorias"] == ["almacen", "bebidas"]
+
+
+def test_unknown_categoria_is_not_an_error(repository, client):
+    """C-5: an unknown slug answers 200 with an empty ``productos`` and the
+    full ``categorias`` — no error key, no new error shape."""
+    repository.documents = [
+        {"supermercado": "disco", "name": "Coca 2 L", "unidad": "2 L",
+         "brand": "Coca Cola", "price": 800, "categoria": "bebidas"},
+    ]
+    response = client.get("/api/productos/agrupados?categoria=no-existe")
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["productos"] == []
+    assert payload["categorias"] == ["bebidas"]
+    assert "error" not in payload
+
+
+def test_empty_categoria_query_behaves_like_no_filter(repository, client):
+    """The query string is passed through untouched and the service filters
+    only a truthy slug: ``?categoria=`` reads like the param being absent."""
+    repository.documents = [
+        {"supermercado": "disco", "name": "Coca 2 L", "unidad": "2 L",
+         "brand": "Coca Cola", "price": 800, "categoria": "bebidas"},
+    ]
+    response = client.get("/api/productos/agrupados?categoria=")
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert len(payload["productos"]) == 1
+    assert payload["categorias"] == ["bebidas"]
+    assert "error" not in payload
 
 
 def test_grouping_joins_two_docs_into_one_row(repository, client):
