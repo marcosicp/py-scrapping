@@ -227,3 +227,153 @@ def test_without_sleep_injection_the_walk_never_pauses():
 
     assert report == EnrichmentReport(attempted=1, enriched=1,
                                       without_gtin=0, failed=0)
+
+
+def test_the_walk_aborts_after_n_consecutive_failures():
+    """A site that starts refusing is telling you to stop (N-6): after
+    ``max_consecutive_failures`` consecutive failures the walk stops, the
+    report carries ``aborted`` and the operator is told why."""
+    docs = [make_doc("3100001"), make_doc("3100002"), make_doc("3100003")]
+    reporter = RecordingReporter()
+
+    def fetch(url):
+        raise ConnectionError("403")
+
+    mapping, report = enrich_eans(
+        docs,
+        url_for=lambda sku: f"https://x/{sku}",
+        extract_ean=lambda html: "7790895000123",
+        fetch=fetch,
+        report=reporter,
+        max_consecutive_failures=3)
+
+    assert mapping == {}
+    assert report == EnrichmentReport(attempted=3, enriched=0,
+                                      without_gtin=0, failed=3, aborted=True)
+    abort_lines = [m for m in reporter.messages if "consecutivos" in m]
+    assert abort_lines, "the operator must be told why the walk stopped"
+    assert "3" in abort_lines[0]
+    assert "3" in reporter.messages[-1] or "3" in abort_lines[0], \
+        "the abort line must say how many products were attempted"
+
+
+def test_a_success_between_failures_resets_the_counter():
+    """One success erases the streak: only *consecutive* failures count.
+    With a limit of 2, ``fail, ok, fail, ok`` walks on (two isolated
+    streaks of 1), while ``fail, ok, fail, fail`` aborts at the fourth —
+    not at the third, which is what an un-reset cumulative counter would
+    do."""
+    def fetch_pattern(pattern):
+        fetches: list[str] = []
+
+        def fetch(url):
+            fetches.append(url)
+            if pattern[len(fetches) - 1] == "f":
+                raise ConnectionError("boom")
+            return '{"gtin": "7790895000123"}'
+
+        return fetch, fetches
+
+    # -- isolated streaks of 1 never abort
+    fetch, fetches = fetch_pattern("fofo")
+    mapping, report = enrich_eans(
+        [make_doc(f"310000{i}") for i in range(1, 5)],
+        url_for=lambda sku: f"https://x/{sku}",
+        extract_ean=lambda html: "7790895000123",
+        fetch=fetch,
+        report=RecordingReporter(),
+        max_consecutive_failures=2)
+
+    assert len(fetches) == 4
+    assert mapping == {"3100002": "7790895000123",
+                       "3100004": "7790895000123"}
+    assert report == EnrichmentReport(attempted=4, enriched=2,
+                                      without_gtin=0, failed=2,
+                                      aborted=False)
+
+    # -- the success resets: the fourth attempt is reached before the
+    # -- abort, and only the fifth candidate is left unattempted
+    fetch, fetches = fetch_pattern("foffo")
+    mapping, report = enrich_eans(
+        [make_doc(f"310000{i}") for i in range(1, 6)],
+        url_for=lambda sku: f"https://x/{sku}",
+        extract_ean=lambda html: "7790895000123",
+        fetch=fetch,
+        report=RecordingReporter(),
+        max_consecutive_failures=2)
+
+    assert fetches == [f"https://x/310000{i}" for i in range(1, 5)]
+    assert mapping == {"3100002": "7790895000123"}
+    assert report == EnrichmentReport(attempted=4, enriched=1,
+                                      without_gtin=0, failed=3,
+                                      aborted=True)
+
+
+def test_max_consecutive_failures_zero_never_aborts():
+    """0 (and any non-positive) means unlimited: today's behaviour."""
+    docs = [make_doc("3100001"), make_doc("3100002"), make_doc("3100003")]
+
+    def fetch(url):
+        raise ConnectionError("boom")
+
+    for limit in (0, -1):
+        mapping, report = enrich_eans(
+            docs,
+            url_for=lambda sku: f"https://x/{sku}",
+            extract_ean=lambda html: "7790895000123",
+            fetch=fetch,
+            report=RecordingReporter(),
+            max_consecutive_failures=limit)
+
+        assert report == EnrichmentReport(attempted=3, enriched=0,
+                                          without_gtin=0, failed=3,
+                                          aborted=False)
+
+
+def test_the_abort_is_announced_through_the_injected_report():
+    """The abort goes through ``report``, one line, like any other event:
+    it names the failure limit and how many products were attempted."""
+    reporter = RecordingReporter()
+    docs = [make_doc("3100001"), make_doc("3100002"), make_doc("3100003")]
+
+    def fetch(url):
+        if url.endswith("3100001"):
+            return '{"gtin": "1"}'
+        raise ConnectionError("403")
+
+    mapping, report = enrich_eans(
+        docs,
+        url_for=lambda sku: f"https://x/{sku}",
+        extract_ean=lambda html: "7790895000123",
+        fetch=fetch,
+        report=reporter,
+        max_consecutive_failures=2)
+
+    assert report.aborted is True
+    assert report.attempted == 3
+    assert reporter.messages[-1].startswith("Abortado")
+    assert "2" in reporter.messages[-1]  # the failure limit
+    assert "3" in reporter.messages[-1]  # the attempted count
+
+
+def test_an_abort_stops_the_remaining_candidates_from_being_fetched():
+    """Stopping means stopping: candidates after the abort are never hit."""
+    docs = [make_doc(f"310000{i}") for i in range(1, 6)]
+    fetches: list[str] = []
+
+    def fetch(url):
+        fetches.append(url)
+        raise ConnectionError("403")
+
+    mapping, report = enrich_eans(
+        docs,
+        url_for=lambda sku: f"https://x/{sku}",
+        extract_ean=lambda html: "7790895000123",
+        fetch=fetch,
+        report=RecordingReporter(),
+        max_consecutive_failures=1)
+
+    assert fetches == ["https://x/3100001"]
+    assert report == EnrichmentReport(attempted=1, enriched=0,
+                                      without_gtin=0, failed=1, aborted=True)
+    assert mapping == {}

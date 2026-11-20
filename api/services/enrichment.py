@@ -10,6 +10,16 @@ The loop is idempotent and resumable by construction (N-3): only documents
 with a truthy ``sku`` and an empty ``ean`` are candidates, an existing ``ean``
 is never overwritten, and a product whose page carries no barcode is counted,
 not dumped into an error.
+
+The walk also knows when to stop (N-6, measured the hard way): the first real
+backfill was paced at 0.2 s between detail pages, and after roughly 800
+requests La Anónima started answering 403 — then blocked the whole domain for
+the address, category listing and all. A site that starts refusing is telling
+you to stop, and continuing past that point burns the address you need for
+the next run. ``max_consecutive_failures`` is the brake: when N requests in a
+row fail, the walk stops instead of hammering the door 1 400 more times, and
+the report says so. Resume is free — the next run re-reads the catalog and
+skips every document that already carries an ``ean``.
 """
 
 from __future__ import annotations
@@ -25,12 +35,18 @@ PAUSE_SECONDS = 0.4
 
 @dataclass(frozen=True)
 class EnrichmentReport:
-    """The counters of one enrichment walk."""
+    """The counters of one enrichment walk.
+
+    ``aborted`` is true when the walk stopped early because
+    ``max_consecutive_failures`` consecutive requests failed (N-6); the
+    counters then describe only what was attempted before the stop.
+    """
 
     attempted: int
     enriched: int
     without_gtin: int
     failed: int
+    aborted: bool = False
 
 
 def enrich_eans(
@@ -41,6 +57,7 @@ def enrich_eans(
     fetch: Callable[[str], str],
     report: Callable[[str], None],
     sleep: Callable[[float], None] | None = None,
+    max_consecutive_failures: int = 0,
 ) -> tuple[dict[str, str], EnrichmentReport]:
     """Fetch the missing barcodes of ``documents`` and return the mapping.
 
@@ -56,6 +73,16 @@ def enrich_eans(
 
     ``sleep`` is an optional pause between two requests, so tests never
     sleep; it runs after every request except the last one.
+
+    ``max_consecutive_failures`` (N-6) is the brake: a *failure* is a raising
+    ``fetch`` or a non-string body, any success (an ``enriched`` or a
+    ``without_gtin`` product) resets the streak, and ``0`` — or any
+    non-positive value — means unlimited, which preserves the behaviour of
+    callers that do not set it. When the streak reaches the limit the walk
+    stops immediately: the remaining candidates are never fetched, the
+    report says ``aborted=True`` and one ``report`` line explains why, with
+    how many products were attempted. It never raises: a refusing site is a
+    signal to stop, not an exception to recover from.
 
     Returns ``(mapping_of_sku_to_ean, report)``; the caller persists the
     mapping through the repository's ``update_eans`` (N-4).
@@ -74,6 +101,8 @@ def enrich_eans(
 
     mapping: dict[str, str] = {}
     attempted = enriched = without_gtin = failed = 0
+    consecutive_failures = 0
+    aborted = False
     for position, (sku, _document) in enumerate(candidates):
         if position > 0 and sleep is not None:
             sleep(PAUSE_SECONDS)
@@ -83,22 +112,45 @@ def enrich_eans(
             body = fetch(url)
         except Exception as exc:
             failed += 1
+            consecutive_failures += 1
             report(f"Error de red en {url}: {exc}")
+            if _hit_the_brake(max_consecutive_failures,
+                              consecutive_failures):
+                aborted = True
+                break
             continue
         if not isinstance(body, str):
             failed += 1
+            consecutive_failures += 1
             report(f"Respuesta no textual en {url}")
+            if _hit_the_brake(max_consecutive_failures,
+                              consecutive_failures):
+                aborted = True
+                break
             continue
         ean = extract_ean(body)
         if not ean:
             without_gtin += 1
+            consecutive_failures = 0
             continue
         mapping[sku] = ean
         enriched += 1
+        consecutive_failures = 0
+
+    if aborted:
+        report(f"Abortado tras {max_consecutive_failures} fallos "
+               f"consecutivos: recorrido detenido tras {attempted} "
+               "intentos")
 
     return mapping, EnrichmentReport(
         attempted=attempted,
         enriched=enriched,
         without_gtin=without_gtin,
         failed=failed,
+        aborted=aborted,
     )
+
+
+def _hit_the_brake(limit: int, streak: int) -> bool:
+    """True when a positive ``limit`` has been reached by ``streak``."""
+    return limit > 0 and streak >= limit

@@ -16,6 +16,7 @@ from api.config import Settings
 from api.repositories import RepositoryUnavailable
 from api.scrapers.errors import AlreadyRunning, UnknownScraper
 from api.scrapers.registry import ScraperRegistry, default_registry
+from api.services.enrichment import EnrichmentReport
 from api.services.scraping import RunState, RunStatus
 from tests.fakes import FakeCollection, InMemoryProductRepository, make_scraper
 
@@ -472,7 +473,81 @@ def test_enrich_ean_parser_defaults(monkeypatch):
     assert cli.main(["enrich-ean"]) == 0
     assert captured["chain"] == "laanonima"
     assert captured["limit"] == 0
-    assert captured["sleep"] == 0.4
+    assert captured["sleep"] == 1.5, "paced by default: a backfill of "
+    "thousands of pages at 0.4 s is a hammer (N-6)"
+    assert captured["max_failures"] == 5
+
+
+def test_enrich_ean_forwards_max_failures_to_the_service(
+        enrich_env, monkeypatch):
+    """The operator's ``--max-failures`` reaches the engine unchanged."""
+    repo, _ = enrich_env
+    repo.replace_products("La Anónima",
+                          [{"name": "Coca", "price": 1.0, "sku": "3100001"}])
+    captured = {}
+
+    def fake_enrich_eans(documents, **kwargs):
+        captured.update(kwargs)
+        captured["documents"] = list(documents)
+        return {}, EnrichmentReport(attempted=0, enriched=0,
+                                    without_gtin=0, failed=0)
+
+    monkeypatch.setattr(cli, "enrich_eans", fake_enrich_eans)
+    assert cli.main(["enrich-ean", "--max-failures", "8"]) == 0
+    assert captured["max_consecutive_failures"] == 8
+    assert [doc["sku"] for doc in captured["documents"]] == ["3100001"]
+
+
+def test_enrich_ean_defaults_to_max_failures_5(enrich_env, monkeypatch):
+    repo, _ = enrich_env
+    repo.replace_products("La Anónima",
+                          [{"name": "Coca", "price": 1.0, "sku": "3100001"}])
+    captured = {}
+
+    def fake_enrich_eans(documents, **kwargs):
+        captured.update(kwargs)
+        return {}, EnrichmentReport(attempted=0, enriched=0,
+                                    without_gtin=0, failed=0)
+
+    monkeypatch.setattr(cli, "enrich_eans", fake_enrich_eans)
+    assert cli.main(["enrich-ean"]) == 0
+    assert captured["max_consecutive_failures"] == 5
+
+
+def test_enrich_ean_aborted_report_returns_4_and_prints_the_line(
+        enrich_env, monkeypatch, capsys):
+    """A blocked site must stop the shell loop: exit 4 says 'do not start
+    the next chunk' (N-6)."""
+    repo, _ = enrich_env
+    repo.replace_products("La Anónima",
+                          [{"name": "Coca", "price": 1.0, "sku": "3100001"}])
+
+    def fake_enrich_eans(documents, **kwargs):
+        return {"3100001": "7790895000123"}, EnrichmentReport(
+            attempted=3, enriched=0, without_gtin=0, failed=3, aborted=True)
+
+    monkeypatch.setattr(cli, "enrich_eans", fake_enrich_eans)
+
+    exit_code = cli.main(["enrich-ean", "--max-failures", "3"])
+    out = capsys.readouterr().out
+    assert exit_code == 4
+    assert "[enrich-ean] abortado tras 3 fallos consecutivos" in out
+
+
+def test_enrich_ean_clean_walk_still_returns_0(enrich_env, monkeypatch,
+                                               capsys):
+    repo, _ = enrich_env
+    repo.replace_products("La Anónima",
+                          [{"name": "Coca", "price": 1.0, "sku": "3100001"}])
+
+    def fake_enrich_eans(documents, **kwargs):
+        return {"3100001": "7790895000123"}, EnrichmentReport(
+            attempted=1, enriched=1, without_gtin=0, failed=0)
+
+    monkeypatch.setattr(cli, "enrich_eans", fake_enrich_eans)
+
+    assert cli.main(["enrich-ean"]) == 0
+    assert "abortado" not in capsys.readouterr().out
 
 
 def test_enrich_ean_loads_the_env_file_with_no_default(enrich_env):

@@ -8,8 +8,9 @@ Subcommands:
 
 - ``list``: one line per registered scraper, in registration order.
 - ``run <slug> [--category <name>]``: run one scraper and wait for it.
-- ``enrich-ean [--chain <slug>] [--limit N] [--sleep SECONDS]`` (ean-enrichment
-  T4): fill the missing ``ean`` of one chain from its product detail pages —
+- ``enrich-ean [--chain <slug>] [--limit N] [--sleep SECONDS]
+  [--max-failures N]`` (ean-enrichment T4, N-6): fill the missing ``ean``
+  of one chain from its product detail pages —
   source of truth ``odd/tasks/ean-enrichment.md``. La Anónima publishes the
   barcode (``gtin``) only on the detail page, and any slug answers there, so
   the walk is ``detail_url(sku)`` + ``gtin_of(html)`` per candidate at a
@@ -19,7 +20,15 @@ Subcommands:
   ``update_eans``, a targeted update that touches nothing else (N-4).
   ``--chain`` defaults to ``laanonima``; an unknown chain is a loud error
   (exit 3), because only the chains in ``EAN_SOURCES`` have a known barcode
-  source (SuperMami publishes none anywhere reachable — measured).
+  source (SuperMami publishes none anywhere reachable — measured). The walk
+  is paced by default: ``--sleep`` is 1.5 s because a backfill at 0.4 s got
+  La Anónima to 403-block the whole domain from this machine (the incident
+  in ``odd/tasks/ean-enrichment.md``), and ``--max-failures`` (default 5)
+  stops the walk — printing ``abortado tras N fallos consecutivos`` and
+  exiting 4 — once that many requests in a row fail, so a shell loop never
+  starts the next chunk against a site that is refusing. Aborting is the
+  correct behaviour: the site is telling you to stop, and resuming later is
+  free because the command skips documents that already carry an ``ean``.
 - ``coverage``: read-only catalog coverage report (category-coverage T4;
   comparator focus T3): a per-category block — documents, grouped rows, rows
   carried by 2+ chains and the resulting percentage, with NO majority
@@ -54,7 +63,8 @@ is not an error — a fresh clone and CI have none.
 
 Exit codes: 0 succeeded, 1 failed, 2 stopped, 3 scraper-control error
 (unknown slug, invalid category or already running, unknown ``enrich-ean``
-chain). ``coverage`` exits 0.
+chain), 4 the ``enrich-ean`` walk aborted on consecutive failures (N-6).
+``coverage`` exits 0.
 
 The module stays thin: no scraping logic, no Flask import, no
 ``current_app``. ``build_client``, ``ScraperManager`` and
@@ -172,14 +182,19 @@ def cmd_enrich_ean(args: argparse.Namespace) -> int:
     unknown chain is a clear error, never a silent no-op), bounds the
     candidates with ``--limit`` (0 or absent means all) and walks them
     through ``enrich_eans`` with La Anónima's ``detail_url``/``gtin_of`` and
-    the shared ctx-less HTTP session. ``--sleep`` (default 0.4) is the pace
+    the shared ctx-less HTTP session. ``--sleep`` (default 1.5) is the pace
     between detail-page requests: the operator's value overrides the
-    suggested pause the loop injects.
+    suggested pause the loop injects. ``--max-failures`` (default 5, N-6) is
+    forwarded as ``max_consecutive_failures``: after that many consecutive
+    failures the walk stops, and a paced backfill of thousands of pages must
+    stop when the site starts refusing instead of hammering the door.
 
     The mapping the service produced is written through
     ``update_eans`` — never ``replace_products``, which owns whole slices
     (N-4) — and one summary line per counter is printed, plus how many
-    documents the repository actually modified. Exits 0.
+    documents the repository actually modified. Exits 0 for a clean walk, 4
+    when the walk aborted on consecutive failures so a shell loop stops
+    instead of starting the next chunk.
     """
     source = EAN_SOURCES.get(args.chain)
     if source is None:
@@ -226,7 +241,8 @@ def cmd_enrich_ean(args: argparse.Namespace) -> int:
             extract_ean=extract_ean,
             fetch=fetch,
             report=lambda text: print(f"[enrich-ean] {text}"),
-            sleep=lambda suggested: time.sleep(args.sleep))
+            sleep=lambda suggested: time.sleep(args.sleep),
+            max_consecutive_failures=args.max_failures)
         modified = repository.update_eans(label, mapping)
     except RepositoryUnavailable as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -237,6 +253,10 @@ def cmd_enrich_ean(args: argparse.Namespace) -> int:
     print(f"without_gtin: {enrich_report.without_gtin}")
     print(f"failed: {enrich_report.failed}")
     print(f"modified: {modified}")
+    if enrich_report.aborted:
+        print(f"[enrich-ean] abortado tras {args.max_failures} "
+              "fallos consecutivos")
+        return 4
     return 0
 
 
@@ -379,8 +399,16 @@ def main(argv: list[str] | None = None) -> int:
         "--limit", type=int, default=0,
         help="bound the candidates; 0 or absent means all")
     ean_parser.add_argument(
-        "--sleep", type=float, default=0.4,
-        help="seconds between detail-page requests (default: 0.4)")
+        "--sleep", type=float, default=1.5,
+        help="seconds between detail-page requests (default: 1.5) — a "
+             "backfill of thousands of pages must be paced; 0.4 s got "
+             "La Anónima to 403-block the whole domain, see the incident "
+             "in odd/tasks/ean-enrichment.md")
+    ean_parser.add_argument(
+        "--max-failures", type=int, default=5,
+        help="stop the walk after this many consecutive failed requests "
+             "(default: 5; 0 or less never aborts); an aborted walk "
+             "exits 4")
 
     args = parser.parse_args(argv)
     if args.command == "list":

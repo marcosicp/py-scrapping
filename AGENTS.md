@@ -237,6 +237,15 @@ not undo (details in
   level-2 children sum 2 680 against the parent's 3 210, so descending to
   children would lose 530 products — the opposite of Carrefour/Disco. Do not
   re-add a page cap or a children walk.
+- **La Anónima rate-limits aggressively.** A sustained sweep of product
+  pages at sub-second intervals gets the **whole domain** 403 for the
+  address — category listing, home page and `curl` with a modern browser
+  User-Agent included, so it is an IP-level block (measured: ~800 detail
+  pages at 0.2 s during the first `enrich-ean` backfill; the other four
+  chains unaffected — `odd/tasks/ean-enrichment.md`). Any La Anónima walk
+  must be paced (≈1.5 s — the `enrich-ean --sleep` default) and must stop at
+  the first sustained 403 instead of retrying (`enrich-ean --max-failures`,
+  exit 4). Do not lower the sleep default or turn the abort into a retry.
 
 ## 7. Traps (each one costs a first-time agent 10+ minutes)
 

@@ -48,6 +48,34 @@ lever is layer-2 name matching. That is recorded here and not attempted.
 - **N-5 · Rate-limited and bounded.** A configurable pause between requests and
   a `--limit` for sampling, so the first run can be a 50-document rehearsal
   before committing 8 200 requests to a live site.
+- **N-6 · Paced by default, abort on consecutive failures.** A backfill of a
+  site like La Anónima needs ~1.5 s between detail pages and chunks of a few
+  hundred (`--limit`), not 0.4 s over 8 000 requests. And the walk must stop
+  at the first sustained refusal: `--max-failures` (default 5) ends the walk
+  when that many requests in a row fail, the command prints the abort and
+  exits 4 so a shell loop never starts the next chunk. Aborting is the
+  correct behaviour: a site that starts refusing is telling you to stop, and
+  continuing burns the address you need for the next run. Resume is free
+  because the command skips documents that already carry an `ean` — the
+  aborted walk loses nothing but the requests it must not make.
+
+## The incident (measured during the first real backfill)
+
+The 50-product rehearsal enriched 50 of 50, and the first real chunk added 75
+more — 125 products enriched before the block. The pace was 0.2 s between
+detail-page requests (an operator override of the 0.4 s default), and after
+roughly 800 requests the site began answering 403 and then blocked the whole
+domain for this machine's address: the category listing, the home page and
+even `curl` with a modern browser User-Agent all answer 403, so it is an
+IP-level block, not a User-Agent one. The other four chains answer normally.
+
+Two design defects it exposed, both fixed:
+
+1. **No brake.** The command counted 700 `failed` in one chunk and
+   immediately started the next, hitting the door 1 400 more times.
+   `--max-failures` (N-6) is the brake.
+2. **An imprudent default.** `--sleep 0.4` over ~8 000 requests is a hammer.
+   The default is now 1.5 s (N-6).
 
 ## Non-goals
 
@@ -89,12 +117,18 @@ database by accident).
 
 ```
 LALISTITA_ENV_FILE=.env.local python -m api.cli enrich-ean --chain laanonima --limit 50
-LALISTITA_ENV_FILE=.env.local python -m api.cli enrich-ean --chain laanonima
+# a chunked backfill: paced by default (1.5 s), stop on 5 consecutive
+# failures, and repeat while it exits 0 — 4 means the site is refusing and
+# the next chunk must NOT start
+LALISTITA_ENV_FILE=.env.local python -m api.cli enrich-ean --chain laanonima --limit 300
+LALISTITA_ENV_FILE=.env.local python -m api.cli enrich-ean --chain laanonima --limit 300
 LALISTITA_ENV_FILE=.env.local python -m api.cli coverage
 ```
 
 The number that matters is the `hiper` row of the per-chain block: from 13.2 %
-towards what the EAN-publishing chains demonstrate.
+towards what the EAN-publishing chains demonstrate. An exit code 4 on a
+chunk means the site started refusing — stop the loop, wait, and resume
+later; it is free because already-enriched documents are skipped.
 
 ## Evidence
 
