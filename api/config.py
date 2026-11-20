@@ -65,6 +65,17 @@ _CHROME_BINARY_ENV = "CHROME_BINARY"
 _HEADLESS_TRUE = {"1", "true", "yes", "on"}
 
 
+# The repository root: `api/config.py` lives one level below it, next to
+# `app.py`. A relative env path resolves here so the entry points never depend
+# on where the operator happened to be standing.
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _resolve_env_path(path: str) -> str:
+    """An absolute env path; a relative one is anchored at the project root."""
+    return path if os.path.isabs(path) else os.path.join(_PROJECT_ROOT, path)
+
+
 def load_env_file(default: str | None = None) -> str | None:
     """Load the env file the selector names, or `default` when it is unset.
 
@@ -78,6 +89,13 @@ def load_env_file(default: str | None = None) -> str | None:
     - Otherwise load the file with `override=False`, so a variable already
       exported in the shell always wins over the file, and return the path
       that was actually loaded.
+    - A **relative** path resolves against the project root (the directory
+      that holds `app.py`), never against the caller's working directory.
+      That is the behaviour the bare `load_dotenv()` had — it searched
+      upward from the caller's file — and it is what keeps
+      `python /path/to/repo/app.py` reading the repo's `.env` from any
+      directory instead of silently falling back to the default database
+      (R3-ENV-SEARCH-REGRESSION).
     - An explicitly selected file that does not exist raises
       `FileNotFoundError`: the operator named that file, so falling back to
       the shell defaults would silently start the app or a scraper against a
@@ -89,14 +107,15 @@ def load_env_file(default: str | None = None) -> str | None:
     path = explicit or default
     if not path:
         return None
-    if not os.path.isfile(path):
+    resolved = _resolve_env_path(path)
+    if not os.path.isfile(resolved):
         if explicit:
             raise FileNotFoundError(
                 f"{ENV_FILE_VARIABLE}={explicit!r} names a file that does "
                 f"not exist")
         return None
-    dotenv.load_dotenv(path, override=False)
-    return path
+    dotenv.load_dotenv(resolved, override=False)
+    return resolved
 
 
 @dataclass(frozen=True)

@@ -8,6 +8,7 @@ import pytest
 from api.config import (DEFAULT_MONGO_DB, DEFAULT_MONGO_URI,
                         DEFAULT_SECRET_KEY, ENV_FILE_VARIABLE, Settings,
                         load_env_file)
+from api import config as config_module
 
 
 def test_defaults_are_the_legacy_values():
@@ -170,6 +171,27 @@ def test_load_env_file_never_overrides_an_exported_variable(monkeypatch, tmp_pat
     assert load_env_file() == path
     assert os.environ["MONGODB_DB"] == "already_exported"
     monkeypatch.setenv("MONGODB_DB", os.environ["MONGODB_DB"])
+
+
+def test_a_relative_env_path_is_anchored_at_the_project_root(
+        monkeypatch, tmp_path):
+    """R3-ENV-SEARCH-REGRESSION: the replaced bare `load_dotenv()` searched
+    upward from the caller's file, so `python /path/to/repo/app.py` read the
+    repo's `.env` from any directory. A cwd-relative resolution silently
+    dropped that, fell back to the localhost defaults and started the app
+    against the wrong database."""
+    project_root = os.path.dirname(os.path.dirname(
+        os.path.abspath(config_module.__file__)))
+    monkeypatch.chdir(tmp_path)  # somewhere else entirely
+
+    assert config_module._resolve_env_path(".env") == os.path.join(
+        project_root, ".env")
+    # -- and a file that only exists in the working directory is NOT picked up
+    (tmp_path / "only-here.env").write_text("MONGODB_DB=from_cwd\n")
+    monkeypatch.delenv(ENV_FILE_VARIABLE, raising=False)
+    monkeypatch.delenv("MONGODB_DB", raising=False)
+    assert load_env_file("only-here.env") is None
+    assert "MONGODB_DB" not in os.environ
 
 
 def test_load_env_file_selector_naming_a_missing_file_raises(
