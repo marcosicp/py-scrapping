@@ -135,3 +135,24 @@ later; it is free because already-enriched documents are skipped.
 - Search results and the 15/15 hit rate are recorded above; every probe was
   read-only (HTTPS GETs and Mongo reads, no writes).
 - To be filled by T5.
+
+## Review record
+
+- Lineage `review-24d7f2755bff1b6a` (medium, one `review-reliability` lens):
+  the reviewer filed **R3-ENV-SEARCH-REGRESSION (CRITICAL)** — real, mine, and
+  older than this round: `load_env_file` resolved a relative `.env` against the
+  current working directory, while the bare `load_dotenv()` it replaced searched
+  upward from the caller's file. `python /path/to/repo/app.py` from another
+  directory loaded nothing and fell back to the localhost defaults, which is
+  precisely the wrong-database failure the selector exists to prevent.
+- Corrected inside a declared 44-line budget: a relative env path is anchored at
+  the project root, an absolute one is honoured as given, plus a regression test
+  that changes directory and proves the file is still found. Verified by running
+  from `/tmp` with `LALISTITA_ENV_FILE=.env.local`: the repo's file loads and the
+  settings carry `mongodb://localhost:27017/`.
+- **Blocked**: the `provider_targeted_validator` capture of that correction is
+  rejected by the facade with `collectBinding is missing or stale for current
+  STATUS` — twice, with the byte-exact binding the bound STATUS renders and a
+  fresh STATUS between attempts, the same symptom the env-selector lineage hit.
+  The lineage stays in `correction_required`: nothing burned, no verdict, no
+  delivery authority.
